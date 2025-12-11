@@ -9,7 +9,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Loader2, PlusCircle, Trash2, FileText, Download, Sparkles, Pencil } from 'lucide-react';
+import { Loader2, PlusCircle, Trash2, FileText, Download, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getLibraryDocumentsAction, uploadDocumentAction, deleteDocumentAction, LibraryDocument, updateDocumentTextAction } from '@/app/coach/library/actions';
 import { format } from 'date-fns';
@@ -27,14 +27,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/components/auth/auth-provider';
 import Link from 'next/link';
-import { AIPlaygroundDialog } from './ai-playground-dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import type { User } from 'firebase/auth';
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
-
 
 interface ManageLibraryDialogProps {
   open: boolean;
@@ -198,7 +196,6 @@ export function ManageLibraryDialog({ open, onOpenChange }: ManageLibraryDialogP
     const [isLoading, setIsLoading] = useState(true);
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [deleteAlertState, setDeleteAlertState] = useState<{ open: boolean; doc: LibraryDocument | null }>({ open: false, doc: null });
-    const [isPlaygroundOpen, setIsPlaygroundOpen] = useState(false);
     const [editDocState, setEditDocState] = useState<{ open: boolean, doc: LibraryDocument | null }>({open: false, doc: null});
 
     const fetchDocuments = useCallback(async () => {
@@ -265,10 +262,7 @@ export function ManageLibraryDialog({ open, onOpenChange }: ManageLibraryDialogP
                     title="Document Library"
                     description="Upload and manage documents to power the AI's knowledge base."
                     footer={
-                        <div className="flex justify-between w-full">
-                            <Button variant="outline" size="sm" onClick={() => setIsPlaygroundOpen(true)}>
-                                <Sparkles className="mr-2 h-4 w-4" /> AI Playground
-                            </Button>
+                        <div className="flex justify-end w-full">
                              <UploadDialog onUploadSuccess={fetchDocuments} user={user} />
                         </div>
                     }
@@ -321,8 +315,6 @@ export function ManageLibraryDialog({ open, onOpenChange }: ManageLibraryDialogP
                     )}
                 </CoachPageModal>
             </TooltipProvider>
-            
-            <AIPlaygroundDialog isOpen={isPlaygroundOpen} onClose={() => setIsPlaygroundOpen(false)} />
             
             <EditContentDialog 
                 open={editDocState.open}

@@ -99,8 +99,8 @@ const TwentyMinuteTimer = () => {
 
 export const ProtocolContent = ({ onFormStateChange, formState }: Omit<ContentProps, 'pillar' | 'entryDate' | 'clientProfile'>) => {
     const handleChange = (field: string, value: any) => {
-        onFormStateChange({ ...formState, log: { ...formState.log, [field]: value } });
-    };
+        onFormStateChange({ [field]: value });
+    };    
 
     const {
         mealDescription = '',
@@ -109,8 +109,7 @@ export const ProtocolContent = ({ onFormStateChange, formState }: Omit<ContentPr
         postMealHunger = 2,
         percentageEaten = 100,
         notes = '',
-    } = formState?.log || {};
-    
+    } = formState || {};  
 
     return (
         <div className="space-y-4">

@@ -5,7 +5,7 @@ import { db as adminDb, admin, auth } from '@/lib/firebaseAdmin';
 import type { Challenge, Chat } from '@/services/firestore';
 import { z } from 'zod';
 import { Buffer } from 'buffer';
-
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 
 function serializeTimestamps(docData: any) {
     if (!docData) return docData;
@@ -186,8 +186,8 @@ export async function upsertChallengeAction(challengeData: z.infer<typeof challe
             ...restOfData,
             thumbnailUrl: finalThumbnailUrl, // Use the potentially new URL
             dates: {
-                from: admin.firestore.Timestamp.fromDate(fromDate),
-                to: admin.firestore.Timestamp.fromDate(toDate),
+                from: Timestamp.fromDate(fromDate),
+                to: Timestamp.fromDate(toDate),
             },
         };
 
@@ -201,7 +201,7 @@ export async function upsertChallengeAction(challengeData: z.infer<typeof challe
             const challengeWithMeta = {
                 ...challengeToSave,
                 type: 'challenge',
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: FieldValue.serverTimestamp(),
                 participantCount: 0,
                 participants: [],
             };

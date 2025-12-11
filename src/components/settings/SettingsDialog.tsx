@@ -205,29 +205,45 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
 
 
   useEffect(() => {
+    const loadCoachData = async () => {
+      if (!user) return;
+      setIsLoading(true);
+      try {
+        const result = await getSiteSettingsAction();
+        if (result.success && result.data) {
+          siteSettingsForm.reset({
+            url: result.data.url || '',
+            videoCallLink: result.data.videoCallLink || '',
+            aiModelSettings: {
+              pro: result.data.aiModelSettings?.pro || '',
+              flash: result.data.aiModelSettings?.flash || '',
+            }
+          });
+        }
+        accountForm.reset({
+          fullName: user.displayName || '',
+          email: user.email || ''
+        });
+      } catch (error) {
+        console.error("Failed to load site settings:", error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Could not load site settings.',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     if (open && user) {
       if (isCoach) {
-        setIsLoading(true);
-        getSiteSettingsAction().then(result => {
-          if (result.success && result.data) {
-            siteSettingsForm.reset({
-              url: result.data.url || '',
-              videoCallLink: result.data.videoCallLink || '',
-              aiModelSettings: {
-                pro: result.data.aiModelSettings?.pro || 'googleai/gemini-2.5-pro-latest',
-                flash: result.data.aiModelSettings?.flash || 'googleai/gemini-2.5-flash-latest',
-              }
-            });
-          }
-        });
-        accountForm.reset({ fullName: user.displayName || '', email: user.email || '' });
-        setIsLoading(false);
+        loadCoachData();
       } else {
         fetchClientData();
       }
     }
-  }, [user, open, isCoach, accountForm, siteSettingsForm, fetchClientData]);
-
+  }, [user, open, isCoach, accountForm, siteSettingsForm, fetchClientData, toast]);
 
   const onUpdateAccount = async (data: z.infer<typeof accountSchema>) => {
     if (!user) return;
@@ -440,7 +456,7 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
                                 <FormField control={siteSettingsForm.control} name="aiModelSettings.pro" render={({ field }) => (
                                     <FormItem>
                                         <FormLabel>Pro Model Name</FormLabel>
-                                        <FormControl><Input {...field} placeholder="e.g., gemini-1.5-pro-latest" /></FormControl>
+                                        <FormControl><Input {...field} placeholder="e.g., gemini-pro" /></FormControl>
                                         <FormDescription className="text-xs">Used for complex reasoning and insights.</FormDescription>
                                         <FormMessage />
                                     </FormItem>
@@ -448,7 +464,7 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
                                 <FormField control={siteSettingsForm.control} name="aiModelSettings.flash" render={({ field }) => (
                                 <FormItem>
                                      <FormLabel>Flash Model Name</FormLabel>
-                                     <FormControl><Input {...field} placeholder="e.g., gemini-1.5-flash-latest" /></FormControl>
+                                     <FormControl><Input {...field} placeholder="e.g., gemini-flash" /></FormControl>
                                      <FormDescription className="text-xs">Used for faster, simpler tasks.</FormDescription>
                                      <FormMessage />
                                 </FormItem>

@@ -1,238 +1,271 @@
 
-import type { Timestamp } from 'firebase/firestore';
+import { z } from "zod";
 
-export type UserTier = 'free' | 'ad-free' | 'basic' | 'premium' | 'coaching';
-export const TIER_ACCESS: [UserTier, ...UserTier[]] = ['free', 'ad-free', 'basic', 'premium', 'coaching'];
+// Defines the subscription tiers available in the application.
+export enum UserTier {
+    Free = 'free',
+    AdFree = 'ad-free',
+    Basic = 'basic',
+    Premium = 'premium',
+    Coaching = 'coaching',
+}
+
+// Using 'as const' makes the array type specific for Zod's .enum() method
+export const TIER_ACCESS = [
+    'free',
+    'ad-free',
+    'basic',
+    'premium',
+    'coaching'
+] as const;
 
 
 export interface TrackingSettings {
-    units: 'imperial' | 'metric';
-    nutrition: boolean;
-    hydration: boolean;
-    activity: boolean;
-    sleep: boolean;
-    stress: boolean; // for stress and cravings
-    measurements: boolean;
-    reminders: boolean; // global reminder toggle
+  nutrition?: boolean;
+  hydration?: boolean;
+  activity?: boolean;
+  sleep?: boolean;
+  stress?: boolean;
+  measurements?: boolean;
+  units?: 'imperial' | 'metric';
+  reminders?: boolean;
 }
 
 export interface NutritionalGoals {
-    // --- User choices that drive the calculation ---
-    calculationMode: 'ideal' | 'actual' | 'custom';
-    calorieModifier: number; // e.g., -500, 0, 250
     activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
-    
-    // --- User-overridden custom macro values ---
+    calculationMode: 'ideal' | 'actual' | 'custom';
+    calorieModifier: number;
     protein?: number;
     fat?: number;
     carbs?: number;
-
-    // --- Core Calculated Values ---
-    
-    /**
-     * The user's Total Daily Energy Expenditure (TDEE).
-     * This is a pure calculation of maintenance calories based on actual weight and activity level.
-     * It is NOT affected by calorie goals or deficits.
-     */
-    tdee: number;
-
-    /**
-     * The user's final target calorie goal for intake.
-     * This value IS affected by the user's choices (ideal vs actual mode, deficits/surpluses).
-     */
-    calorieGoal: number;
-
-    /**
-     * A +/- 10% range around the final calorieGoal for the user to aim for.
-     */
-    calorieGoalRange: {
-        min: number;
-        max: number;
-    };
-    
-    // --- Final Macronutrient Goals ---
-    // Note: These are now optional as they are part of the main object, not a sub-object
-    fiber: number; // Static goal
+    fiber?: number;
+    calorieGoal?: number;
+    calorieGoalRange?: [number, number];
 }
 
-
-export interface ClientProfile {
+// This is the single source of truth for all user data.
+export interface UserProfile {
     uid: string;
     fullName: string;
     email: string;
+    photoURL?: string;
     tier: UserTier;
-    lastInteraction?: Timestamp;
-    createdAt: Timestamp | string;
-    suggestedHydrationGoal?: number;
-    idealBodyWeight?: number; // The single source of truth for ideal weight
-    bingeFreeSince?: Timestamp | string;
-    lastBinge?: Timestamp | string;
-    dailySummary?: {
-        lastUpdated: Timestamp | string;
-        age: number;
-        sex: string;
-        unit: 'kg' | 'lbs';
-        startWeight: number | null;
-        currentWeight: number | null;
-        lastWeightDate: string | null;
-        startWthr: number | null;
-        currentWthr: number;
-        lastWaistDate: string | null;
-        avgSleep: number;
-        avgActivity: number;
-        avgHydration: number;
-        cravings: number;
-        binges: number;
-        stressEvents: number;
-        avgUpf: number;
-        wthr: number; // Added for consistency
-        avgNutrients: {
-            Energy: number;
-            Protein: number;
-            'Total lipid (fat)': number;
-            'Carbohydrate, by difference': number;
+    chatIds?: string[];
+    coachId?: string;
+    challengeIds?: string[];
+    stripeCustomerId?: string | null;
+    createdAt?: any;
+    suggestedGoals?: NutritionalGoals;
+    height?: {
+        value: number;
+        unit: 'in' | 'cm';
+    };
+    goals?: {
+        weightGoal?: number;
+        wthrGoal?: number;
+    };
+    lastBinge?: any;
+    bingeFreeSince?: any;
+    lastInteraction?: any; 
+    lastStreakNotification?: any;
+    // CORRECTED: Restoring dailySummaries to its correct map structure
+    dailySummaries?: {
+        [date: string]: {
+            avgSleep: number;
+            avgActivity: number;
+            avgHydration: number;
+            binges?: number;
+            cravings?: number;
+            stressEvents?: number;
+            lastUpdated?: any;
         };
     };
-    onboarding?: {
-        birthdate: string;
-        sex: 'male' | 'female' | 'unspecified';
-        units: 'imperial' | 'metric';
-        height: number;
-        weight: number;
-        waist: number;
-        zipCode: string;
-        activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
-        wakeTime: string;
-        sleepTime: string;
-    };
-    trackingSettings?: Partial<TrackingSettings>;
     hydrationSettings?: {
-        customGoal?: number;
-        remindersEnabled?: boolean;
-        reminderTimes?: string[]; // e.g. ["09:00", "12:00", "15:00"]
+        target: number;
+        unit: 'oz' | 'ml';
     };
-    // This will hold the default, suggested goals, calculated once at onboarding.
-    suggestedGoals?: Partial<NutritionalGoals>; 
-    // This will hold the user's current, active goals, which can be modified.
-    // It is now the single source of truth for all components.
-    customGoals?: Partial<NutritionalGoals>;
-    [key:string]: any; 
+    rda?: {
+        [key: string]: number | null;
+    };
+    wthr?: number;
+    onboarding?: any;
+    customGoals?: NutritionalGoals;
+    trackingSettings?: TrackingSettings;
+    tdee?: number;
+    calorieGoal?: number;
+    calorieGoalRange?: [number, number];
+    averageWakeUpTime?: string;
+    fcmTokens?: string[];
+    dismissedPopupIds?: string[];
 }
 
-export interface UserProfile extends ClientProfile {
-    // This extends ClientProfile to include all its properties
-    // and adds the specific properties for the user's general profile.
-    chatIds: string[];
-    challengeIds: string[];
-    role?: 'client' | 'coach';
-}
+export type ClientProfile = UserProfile;
 
+// CORRECTED: Restoring CreateClientInput to its full, correct definition where all fields are required.
+export type CreateClientInput = {
+    email: string;
+    password: string;
+    fullName: string;
+    tier: (typeof TIER_ACCESS)[number];
+    birthdate: string;
+    sex: 'male' | 'female' | 'unspecified';
+    units: 'imperial' | 'metric';
+    height: number;
+    weight: number;
+    waist: number;
+    zipCode: string;
+    activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+    wakeTime: string;
+    sleepTime: string;
+    coachId: string; 
+};
 
 export interface CoachNote {
     id: string;
-    note: string;
-    coachId: string;
-    coachName: string;
-    createdAt: string;
-}
-
-export interface CoachNotification {
-    id: string;
     clientId: string;
-    clientName: string;
-    type: 'binge_event' | 'high_stress' | 'model_deprecation';
-    message: string;
-    timestamp: any; // Firestore timestamp
-    read: boolean;
+    coachId: string;
+    text: string;
+    createdAt: any; 
+    updatedAt?: any;
 }
 
-export interface CustomHabit {
+export interface Chat {
     id: string;
     name: string;
     description: string;
-}
-
-export interface Challenge {
-    id: string;
-    name: string;
-    description: string;
-    dates: { from: Timestamp, to: Timestamp };
-    maxParticipants: number;
-    trackables: any[];
-    thumbnailUrl: string;
+    type: 'open' | 'private_group' | 'coaching';
     participants: string[];
     participantCount: number;
-    points?: { [key: string]: number };
-    streaks?: { [key: string]: { lastLog: Timestamp, count: number } };
-    notes?: string;
-    type: 'challenge';
-    createdAt?: Timestamp;
-    scheduledPillars?: {
-        pillarId: string;
-        days: string[];
-        recurrenceType: 'weekly' | 'custom';
-        recurrenceInterval?: number;
-        notes?: string;
-    }[];
-    scheduledHabits?: {
-        habitId: string;
-        days: string[];
-        recurrenceType: 'weekly' | 'custom';
-        recurrenceInterval?: number;
-    }[];
-    customTasks?: {
-        description: string;
-        startDay: number;
-        unit: 'reps' | 'seconds' | 'minutes';
-        goalType: 'static' | 'progressive' | 'user-records';
-        goal?: number;
-        startingGoal?: number;
-        increaseBy?: number;
-        increaseEvery?: 'week' | '2-weeks' | 'month';
-        notes?: string;
-    }[];
-    progress?: {
-        [userId: string]: {
-            [date: string]: { // format: yyyy-MM-dd
-                [taskDescription: string]: boolean | number;
-            }
-        }
-    }
-}
-
-export interface AvailabilitySettings {
-  weekly: {
-    day: string;
-    enabled: boolean;
-    slots: { start: string; end: string }[];
-  }[];
-  vacationBlocks: {
-    start: Date | string;
-    end: Date | string;
-    notes?: string;
-  }[];
-}
-
-export interface SiteSettings {
-    url: string;
-    videoCallLink?: string;
-    availability?: AvailabilitySettings;
-    aiModelSettings?: {
-        pro: string;
-        proLabel?: string;
-        flash: string;
-        flashLabel?: string;
-        vision: string;
-    };
+    ownerId: string;
+    createdAt: any; 
+    rules?: string[];
+    lastMessage?: any; 
+    lastMessageSenderId?: string;
+    lastAutomatedMessage?: any;
+    lastCoachMessage?: any; 
+    lastClientMessage?: any;
 }
 
 export interface ChatMessage {
     id: string;
-    text?: string;
     userId: string;
     userName: string;
-    timestamp: string; // Serialized as ISO string for client
-    isSystemMessage?: boolean;
+    timestamp: any; 
+    isSystemMessage: boolean;
+    text?: string;
     fileUrl?: string;
     fileName?: string;
 }
+
+export interface SearchResult {
+  fdcId: number;
+  description: string;
+  brandOwner?: string;
+  dataType?: string;
+  foodCategory?: string;
+  ingredients?: string;
+}
+
+export enum NovaGroup {
+    WHOLE_FOOD = "whole_food",
+    PROCESSED = "processed",
+    UPF = "UPF",
+    UNCLASSIFIED = "UNCLASSIFIED",
+    UNPROCESSED_OR_MINIMALLY_PROCESSED = "UNPROCESSED_OR_MINIMALLY_PROCESSED",
+    PROCESSED_CULINARY_INGREDIENTS = "PROCESSED_CULINARY_INGREDIENTS",
+}
+
+export const UpfAnalysisSchema = z.object({
+    rating: z.nativeEnum(NovaGroup),
+    justification: z.string(),
+});
+export type UpfAnalysis = z.infer<typeof UpfAnalysisSchema>;
+
+export const GlutenAnalysisSchema = z.object({
+    isGlutenFree: z.boolean(),
+    justification: z.string(),
+});
+export type GlutenAnalysis = z.infer<typeof GlutenAnalysisSchema>;
+
+export const UpfPercentageSchema = z.object({
+    value: z.number(),
+    justification: z.string(),
+});
+export type UpfPercentage = z.infer<typeof UpfPercentageSchema>;
+
+export const PortionSizeSchema = z.object({
+    description: z.string(),
+    gramWeight: z.number(),
+});
+export const PortionSizesSchema = z.array(PortionSizeSchema);
+export type PortionSize = z.infer<typeof PortionSizeSchema>;
+
+export const NutrientSchema = z.object({
+    id: z.number().optional(),
+    name: z.string(),
+    amount: z.number(),
+    unitName: z.string(),
+});
+export type Nutrient = z.infer<typeof NutrientSchema>;
+
+export const EnrichedFoodSchema = z.object({
+    fdcId: z.number(),
+    description: z.string(),
+    brandOwner: z.string().optional(),
+    ingredients: z.string().optional(),
+    nutrients: z.array(NutrientSchema),
+    source: z.enum(['AI_ANALYSIS', 'USER_PROVIDED']),
+    analysisDate: z.string(),
+    upfAnalysis: UpfAnalysisSchema,
+    glutenAnalysis: GlutenAnalysisSchema.optional(),
+    upfPercentage: UpfPercentageSchema,
+    portionSizes: PortionSizesSchema,
+    createdAt: z.any().optional(),
+    updatedAt: z.any().optional(),
+});
+export type EnrichedFood = z.infer<typeof EnrichedFoodSchema>;
+
+export interface Portion extends PortionSize {}
+
+export const MealItemSchema = EnrichedFoodSchema.extend({
+    quantity: z.number(),
+    unit: z.string(),
+    calories: z.number(),
+});
+export type MealItem = z.infer<typeof MealItemSchema>;
+
+export interface SavedMeal {
+  id: string;
+  uid: string;
+  name: string;
+  items: MealItem[];
+  totalCalories: number;
+  createdAt: any;
+}
+
+export interface RecentFood extends EnrichedFood {
+    lastLogged: any;
+}
+
+export interface IndexedKnowledgeChunk {
+    sourceDocumentId: string;
+    coachId: string;
+    textChunk: string;
+    embedding: number[];
+}
+export interface AvailabilityBlock {
+    start: any;
+    end: any;
+    [key: string]: any;
+  }
+  
+  export interface AvailabilitySettings {
+    vacationBlocks: AvailabilityBlock[];
+    [key: string]: any;
+  }
+  
+  export interface SiteSettings {
+    videoCallLink?: string;
+    availability?: AvailabilitySettings;
+  }
+  

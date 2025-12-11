@@ -1,4 +1,3 @@
-
 'use client';
 import {
   Dialog,
@@ -11,6 +10,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Reminder, dismissReminderAction } from '@/services/reminders';
 import type { LucideIcon } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { UserTier } from '@/types';
 import { useState } from 'react';
 import { DataEntryDialog } from '../dashboard/data-entry-dialog';
 import { pillarsAndTools } from '@/lib/pillars';
@@ -30,6 +31,7 @@ interface SmartReminderModalProps {
 export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderModalProps) {
     const { toast } = useToast();
     const { user } = useAuth();
+    const router = useRouter();
     const [isDataEntryOpen, setIsDataEntryOpen] = useState(false);
     const [isRedirecting, setIsRedirecting] = useState(false);
 
@@ -47,9 +49,8 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
     };
 
     const handleActionClick = () => {
-        // First dismiss the reminder, then perform the action
-        handleDismiss();
-        setTimeout(() => setIsDataEntryOpen(true), 150);
+        // This now ONLY opens the data entry dialog, preventing conflicts.
+        setIsDataEntryOpen(true);
     }
     
     const handleUpgrade = async () => {
@@ -57,7 +58,9 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
         
         setIsRedirecting(true);
         try {
-            const { url, error } = await createStripeCheckoutSession(user.uid, reminder.requiredTier, 'monthly');
+            // FIX: Asserts the type to satisfy the function's requirement.
+            const tier = reminder.requiredTier as UserTier;
+            const { url, error } = await createStripeCheckoutSession(user.uid, tier, 'monthly');
             if (url) {
                 window.location.href = url;
             } else {
@@ -70,12 +73,23 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
     }
 
     const handleDataEntryDialogClose = (wasSaved: boolean) => {
+        // First, always close the DataEntryDialog view.
         setIsDataEntryOpen(false);
+        
+        // If the user successfully saved the meal...
+        if (wasSaved) {
+            // FIX: Refresh the page to make the new entry appear on the calendar.
+            router.refresh();
+            // Then, dismiss the reminder since its job is done.
+            handleDismiss();
+        }
+        // If not saved, we do nothing else. The reminder stays visible to be dismissed manually.
     }
 
     return (
         <>
-            <Dialog open={isOpen} onOpenChange={handleDismiss}>
+            {/* FIX: `onOpenChange` now correctly calls `onClose` directly. */}
+            <Dialog open={isOpen} onOpenChange={onClose}>
                 <DialogContent className="w-[90vw] sm:max-w-md">
                      {isCustomPopup && reminder.data?.imageUrl && (
                         <div className="relative w-full h-40">

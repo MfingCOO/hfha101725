@@ -3,12 +3,12 @@
 import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { useAuth } from '@/components/auth/auth-provider';
-import { useRouter, type AppRouterInstance } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import * as React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { BottomNavBar } from '@/components/layout/bottom-nav-bar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
-import { getReminderAction, Reminder } from '@/services/reminders';
+import { getNextDueNotificationAction, getNextNotificationTimeAction, dismissReminderAction, Reminder } from '@/services/reminders';
 import { SmartReminderModal } from '@/components/modals/SmartReminderModal';
 import { GoogleAd } from '@/components/ads/google-ad';
 import { ChallengesDialog } from '@/components/challenges/challenges-dialog';
@@ -23,7 +23,7 @@ import { differenceInMilliseconds } from 'date-fns';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
-  router: AppRouterInstance;
+  router: { push: (path: string) => void; };
   toast: ({...args}: any) => void;
 }
 
@@ -44,14 +44,14 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("Caught by local error boundary:", error, errorInfo);
-    
+
     this.props.toast({
         variant: 'default',
         title: 'So Sorry!',
         description: 'It looks like we hit a small snag. Your last action might not have been saved, but you\'re safely back on the dashboard.',
         duration: 2000,
     });
-    
+
     this.props.router.push('/client/dashboard');
 
     setTimeout(() => this.setState({ hasError: false }), 50);
@@ -121,43 +121,7 @@ export default function ClientLayout({
   const { toast } = useToast();
   const [reminder, setReminder] = useState<(Reminder & { id: string }) | null>(null);
   const [isReminderOpen, setIsReminderOpen] = useState(false);
-  
-  useEffect(() => {
-    if (!loading && user && !isCoach && userProfile) {
-      const checkRemindersAndPopups = async () => {
-        if (isReminderOpen) return;
-
-        if (userProfile?.trackingSettings?.reminders !== false) {
-          const reminderResult = await getReminderAction(user.uid);
-          if (reminderResult.success && reminderResult.reminder) {
-            setReminder(reminderResult.reminder as Reminder & { id: string });
-            setIsReminderOpen(true);
-          }
-        }
-      };
-
-      checkRemindersAndPopups();
-
-      let timeoutId: NodeJS.Timeout;
-      const scheduleNextHourlyCheck = () => {
-        const now = new Date();
-        const nextHour = new Date(now);
-        nextHour.setHours(now.getHours() + 1, 0, 0, 0);
-        const msUntilNextHour = differenceInMilliseconds(nextHour, now);
-        
-        timeoutId = setTimeout(() => {
-          checkRemindersAndPopups();
-          scheduleNextHourlyCheck();
-        }, msUntilNextHour);
-      };
-
-      scheduleNextHourlyCheck();
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [user, loading, isCoach, userProfile, isReminderOpen]);
-
-
+  const [nextCheckTimeout, setNextCheckTimeout] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!loading && user && isCoach) {
@@ -165,20 +129,71 @@ export default function ClientLayout({
     }
   }, [user, loading, isCoach, router]);
 
-  if (loading || !user || isCoach) {
-    return null; 
-  }
-  
-  const handleReminderClose = () => {
+  const scheduleNextNotificationCheck = useCallback(async () => {
+    if (!user || userProfile?.trackingSettings?.reminders === false) return;
+
+    // Clear any existing timer
+    if (nextCheckTimeout) clearTimeout(nextCheckTimeout);
+
+    // Check immediately for any past-due notifications
+    const dueResult = await getNextDueNotificationAction(user.uid);
+    if (dueResult.success && dueResult.reminder) {
+      setReminder(dueResult.reminder as Reminder & { id: string });
+      setIsReminderOpen(true);
+      return; // Stop here and wait for the user to dismiss the current reminder
+    }
+
+    // If no notifications are currently due, schedule a check for the next one
+    const timeResult = await getNextNotificationTimeAction(user.uid);
+    if (timeResult.success && timeResult.nextNotificationTime) {
+      const nextTime = new Date(timeResult.nextNotificationTime);
+      const now = new Date();
+      const delay = differenceInMilliseconds(nextTime, now);
+
+      if (delay > 0) {
+        const timer = setTimeout(() => {
+            scheduleNextNotificationCheck(); // Re-run the check when the time comes
+        }, delay);
+        setNextCheckTimeout(timer);
+      }
+    }
+  }, [user, userProfile, nextCheckTimeout]);
+
+
+  useEffect(() => {
+    if (!loading && user && !isCoach && userProfile) {
+        scheduleNextNotificationCheck();
+    }
+    
+    // Cleanup timer on unmount
+    return () => {
+        if (nextCheckTimeout) clearTimeout(nextCheckTimeout);
+    }
+  }, [user, loading, isCoach, userProfile, scheduleNextNotificationCheck]);
+
+  const handleReminderClose = async () => {
+    if (user && reminder) {
+        await dismissReminderAction(user.uid, reminder.id);
+    }
     setIsReminderOpen(false);
     setReminder(null);
+    // After closing one reminder, immediately check for the next one.
+    scheduleNextNotificationCheck(); 
   }
-  
+
+  if (loading || !user || isCoach) {
+    return (
+        <div className="w-full h-screen flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+    );
+  }
+
   return (
     <DashboardProvider>
       <SidebarProvider>
           <AppSidebar />
-          <SidebarInset className="h-dvh flex flex-col">
+          <SidebarInset className="h-dvh flex flex-col md:ml-64">
             <AppHeader />
             <main className="flex-1 overflow-y-auto">
              <ErrorBoundary router={router} toast={toast}>
@@ -194,7 +209,7 @@ export default function ClientLayout({
             </main>
             <BottomNavBar />
           </SidebarInset>
-          
+
           {reminder && (
             <SmartReminderModal
               isOpen={isReminderOpen}

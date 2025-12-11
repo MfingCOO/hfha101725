@@ -2,8 +2,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { generateHolisticInsight, GenerateHolisticInsightOutput } from '@/ai/flows/generate-holistic-insight';
-import { getStressAndHungerSpotlight } from '@/services/firestore';
+// import { getStressAndHungerSpotlight } from '@/services/firestore';
 import { Loader2, Lightbulb, Sparkles, CheckCircle, BrainCircuit, X, TrendingUp, Heart, HeartCrack, ShieldAlert, Apple, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -25,6 +24,9 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '..
 import { ScrollArea } from '../ui/scroll-area';
 import { HabitHighlightsDisplay } from './habit-highlights';
 import type { LucideIcon } from 'lucide-react';
+// import { generateHolisticInsight } from '@/app/actions/ai-actions';
+// import type { GenerateHolisticInsightOutput } from '@/ai/flows/generate-holistic-insight';
+
 
 interface InsightsDialogProps {
   isOpen: boolean;
@@ -48,7 +50,7 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
     const { toast } = useToast();
     const { user, userProfile } = useAuth();
     
-    const [insight, setInsight] = useState<GenerateHolisticInsightOutput | null>(null);
+    const [insight, setInsight] = useState<any | null>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [insightPeriod, setInsightPeriod] = useState<number>(7);
     const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
@@ -70,8 +72,9 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
         setInsight(null);
         setInsightError(null);
         try {
-            const insightResult = await generateHolisticInsight({ userId: user.uid, periodInDays: insightPeriod });
-            setInsight(insightResult);
+                // const insightResult = await generateHolisticInsight({ userId: user.uid, periodInDays: insightPeriod });
+                // setInsight(insightResult);
+
 
         } catch (error: any) {
             console.error("Error generating insight:", error);
@@ -99,13 +102,13 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
                 }
             });
             
-            setIsSpotlightLoading(true);
-            getStressAndHungerSpotlight(user.uid).then(result => {
-                if (result.success && result.data) {
-                    setSpotlightInsight(result.data);
-                }
-                setIsSpotlightLoading(false);
-            });
+            // setIsSpotlightLoading(true);
+            // getStressAndHungerSpotlight(user.uid).then(result => {
+            //     if (result.success && result.data) {
+            //         setSpotlightInsight(result.data);
+            //     }
+            //     setIsSpotlightLoading(false);
+            // });
         }
     }, [isOpen, user]);
 

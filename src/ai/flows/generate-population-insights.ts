@@ -1,16 +1,16 @@
-
 'use server';
 /**
- * @fileOverview This file defines a Genkit flow for generating population-level wellness insights.
- *
- * - generatePopulationInsight - A function that takes aggregate data and returns AI-powered insights for coaches.
+ * @fileOverview Defines a Genkit flow for generating population-level insights.
+ * THIS IS THE FINAL, CORRECT SYNTAX, using the project's custom configuredGenkit instance.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { z } from 'zod';
 import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 
-// The input is now a structured object of aggregated statistics, not just a JSON string.
+// THE KEY: Import the project-specific configured instance of Genkit.
+import { configuredGenkit } from '../genkit.config';
+
+// Define the complex input schema for this specific flow
 const PopulationInsightInputSchema = z.object({
   aggregateData: z.object({
     totalClients: z.number(),
@@ -21,22 +21,17 @@ const PopulationInsightInputSchema = z.object({
     totalBingesLast7Days: z.number(),
     totalStressEventsLast7Days: z.number(),
   }),
-  period: z.enum(['daily', 'weekly', 'monthly']).describe('The time period the data covers.'),
+  period: z.enum(['daily', 'weekly', 'monthly']),
 });
-export type PopulationInsightInput = z.infer<typeof PopulationInsightInputSchema>;
 
 const PopulationInsightOutputSchema = z.object({
-    finding: z.string().describe('The single most important pattern, trend, or correlation discovered in the aggregate data. Be specific and use the data provided.'),
-    explanation: z.string().describe('The likely "why" behind the pattern, explained in simple, biological, or psychological terms relevant to the Hunger Free & Happy philosophy.'),
-    suggestion: z.string().describe('A concrete, actionable suggestion for coaches to address this trend. What should they do next?'),
+    finding: z.string().describe('The single most important pattern, trend, or correlation discovered.'),
+    explanation: z.string().describe('The likely \"why\" behind the pattern, explained simply.'),
+    suggestion: z.string().describe('A concrete, actionable suggestion for coaches to address this trend.'),
 });
-export type PopulationInsightOutput = z.infer<typeof PopulationInsightOutputSchema>;
 
-export async function generatePopulationInsight(input: PopulationInsightInput): Promise<PopulationInsightOutput> {
-  return generatePopulationInsightFlow(input);
-}
-
-const generatePopulationInsightFlow = ai.defineFlow(
+// THE FIX: Call defineFlow as a method on our custom genkit instance.
+export const generatePopulationInsightFlow = configuredGenkit.defineFlow(
   {
     name: 'generatePopulationInsightFlow',
     inputSchema: PopulationInsightInputSchema,
@@ -45,39 +40,28 @@ const generatePopulationInsightFlow = ai.defineFlow(
   async ({ aggregateData, period }) => {
     const settings = await getSiteSettingsAction();
     const modelName = settings.data?.aiModelSettings?.pro;
-    
     if (!modelName) {
-      throw new Error("The 'Pro' AI model has not been configured in the site settings. Please ask the coach to set it.");
+      throw new Error("The 'Pro' AI model is not configured in settings.");
     }
-    console.log(`Using AI model for generatePopulationInsightFlow: ${modelName}`);
-    
-    // Stringify the data in the code, not in the template.
+
     const dataString = JSON.stringify(aggregateData, null, 2);
-    
-    const {output} = await ai.generate({
-        model: modelName,
-        prompt: `You are an expert data analyst for the "Hunger Free and Happy" wellness app. Your mission is to analyze aggregated, anonymized data from the entire user population over the past ${period} and identify the single most impactful insight for the coaching team.
 
-  **Core Philosophy:** Focus on actionable intelligence. What is the one pattern that, if addressed, could provide the most benefit to the community? Connect behaviors to outcomes based on the app's principles (e.g., sleep impacts hormones, UPF impacts cravings).
-
-  **Your Task:**
-  1.  Analyze the provided JSON object of aggregate user data.
-  2.  Identify the **single most important pattern, trend, or correlation**. This is not just about reporting a number, but about finding a connection. For example, don't just say "average sleep was 6.5 hours." Instead, find a connection: "The low average sleep of 6.5 hours likely contributed to the high number of cravings logged."
-  3.  Formulate a concise 'finding', a clear 'explanation' for why it's happening, and an actionable 'suggestion' for the coaches.
-
-  Generate the single most important, actionable insight for the coaching team.
-  `,
-        context: [
-            { role: 'user', content: `Aggregate User Data to Analyze:\n\n${dataString}` }
-        ],
-        output: {
-            format: 'json',
-            schema: PopulationInsightOutputSchema,
-        },
+    // THE FIX: Call generate as a method on our custom genkit instance.
+    const response = await configuredGenkit.generate({
+      model: modelName,
+      prompt: `You are an expert data analyst for a wellness app. Analyze the following aggregate user data for the ${period} period and generate a key finding, a simple explanation, and an actionable suggestion for the coaches.`,
+      output: {
+        format: 'json',
+        schema: PopulationInsightOutputSchema,
+      },
+      context: [
+        { role: 'user', content: `Aggregate User Data to Analyze:\n\n${dataString}` }
+      ],
     });
-    
+
+    const output = response.output;
     if (!output) {
-      throw new Error("The AI failed to generate a valid insight.");
+      throw new Error("The AI model did not return a valid insight.");
     }
 
     return output;

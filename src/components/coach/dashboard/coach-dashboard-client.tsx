@@ -1,11 +1,10 @@
-
 'use client';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import type { ClientProfile, UserTier } from "@/types";
 import { TIER_ACCESS } from "@/types";
-import { Loader2, PlusCircle, User, Check, AlertTriangle, Trophy, Megaphone, Lightbulb, MessageSquare, Image as ImageIcon, Library, Calendar } from "lucide-react";
+import { Loader2, PlusCircle, User, Check, AlertTriangle, Trophy, Megaphone, Lightbulb, MessageSquare, Image as ImageIcon, Library, Calendar, Database } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { getClientsForCoach } from "@/app/coach/dashboard/actions";
@@ -20,18 +19,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ManageLibraryDialog } from "@/components/coach/library/manage-library-dialog";
 import { ManageChatsDialog } from "@/components/coach/chats/manage-chats-dialog";
-import { differenceInDays, differenceInHours } from "date-fns";
+import { differenceInDays, differenceInHours, format } from "date-fns";
 import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
 import { getCoachingChatIdForClient } from "@/app/coach/clients/actions";
 import { CoachCalendarDialog } from "@/app/coach/calendar/CoachCalendarDialog";
 import { useAuth } from '@/components/auth/auth-provider';
+import { ManageFoodCacheDialog } from '@/components/coach/food-cache/manage-food-cache-dialog';
 
-// This file has been renamed to coach-dashboard-client.tsx
-// This component now receives its initial data as a prop and handles all client-side interactivity.
+// SURGICAL FIX: Helper to get the most recent daily summary object from the dailySummaries map.
+const getMostRecentSummary = (summaries: ClientProfile['dailySummaries']) => {
+    if (!summaries) return null;
+    const sortedDates = Object.keys(summaries).sort((a, b) => b.localeCompare(a));
+    return sortedDates.length > 0 ? summaries[sortedDates[0]] : null;
+};
+
 export function CoachDashboardClient({ initialClients }: { initialClients: ClientProfile[] }) {
     const { toast } = useToast();
     const [allClients, setAllClients] = useState<ClientProfile[]>(initialClients);
-    const [isLoading, setIsLoading] = useState(false); // No longer loading on initial mount
+    const [isLoading, setIsLoading] = useState(false); 
     const [selectedClient, setSelectedClient] = useState<ClientProfile | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [tierFilter, setTierFilter] = useState('all');
@@ -44,11 +49,11 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
     const [isChatsOpen, setIsChatsOpen] = useState(false);
     const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+    const [isFoodCacheOpen, setIsFoodCacheOpen] = useState(false); 
     const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
     const [selectedChatInfo, setSelectedChatInfo] = useState<{id: string, name: string} | null>(null);
     const [isFetchingChatId, setIsFetchingChatId] = useState(false);
 
-    // This function can now be used to refresh the data after an action
     const fetchClients = useCallback(async () => {
         setIsLoading(true);
         try {
@@ -65,9 +70,7 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
         }
     }, [toast]);
     
-    // This useEffect hook no longer contains the setInterval, removing the 10-minute auto-refresh.
     useEffect(() => {
-        // The dashboard now relies on the initial data load and manual refreshes.
     }, [fetchClients]);
 
     const handleQuickChatClick = async (client: ClientProfile) => {
@@ -106,19 +109,20 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
             if (statusFilter === 'at-risk') {
                  const atRiskClients: (ClientProfile & { reason: string; atRiskScore: number })[] = [];
                  clientsToShow.forEach(client => {
-                    const summary = client.dailySummary;
+                    // SURGICAL FIX: Look for dailySummaries (the map) and get the most recent entry.
+                    const summary = getMostRecentSummary(client.dailySummaries);
                     if (!summary) return;
 
                     let reason = '';
                     let score = 0;
 
-                    if (summary.binges > 0) {
+                    if ((summary.binges ?? 0) > 0) {
                         reason = 'Recent Binge';
-                        score = 3; // Highest priority
-                    } else if (summary.cravings > 1) {
+                        score = 3;
+                    } else if ((summary.cravings ?? 0) > 1) {
                         reason = 'Multiple Cravings';
                         score = 2;
-                    } else if (summary.stressEvents > 1) {
+                    } else if ((summary.stressEvents ?? 0) > 1) {
                         reason = 'Multiple Stress Events';
                         score = 1;
                     }
@@ -128,7 +132,6 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
                     }
                 });
 
-                // Sort by the score (descending), so highest priority is first
                 atRiskClients.sort((a, b) => b.atRiskScore - a.atRiskScore);
                 clientsToShow = atRiskClients;
             }
@@ -136,8 +139,11 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
         
         if (statusFilter !== 'at-risk') {
             clientsToShow.sort((a, b) => {
-                const dateA = a.dailySummary?.lastUpdated ? new Date(a.dailySummary.lastUpdated as string).getTime() : 0;
-                const dateB = b.dailySummary?.lastUpdated ? new Date(b.dailySummary.lastUpdated as string).getTime() : 0;
+                // SURGICAL FIX: Sort by the lastUpdated field from the most recent summary.
+                const summaryA = getMostRecentSummary(a.dailySummaries);
+                const summaryB = getMostRecentSummary(b.dailySummaries);
+                const dateA = summaryA?.lastUpdated ? new Date(summaryA.lastUpdated as string).getTime() : 0;
+                const dateB = summaryB?.lastUpdated ? new Date(summaryB.lastUpdated as string).getTime() : 0;
                 return dateB - dateA;
             });
         }
@@ -171,28 +177,30 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
         { label: 'Pop-ups', icon: Megaphone, action: () => setIsPopupsOpen(true) },
         { label: 'Library', icon: Library, action: () => setIsLibraryOpen(true) },
         { label: 'Calendar', icon: Calendar, action: () => setIsCalendarOpen(true) },
+        { label: 'Food Cache', icon: Database, action: () => setIsFoodCacheOpen(true) },
     ];
 
 
     return (
         <>
-            <div className="space-y-4">
+            <div className="w-full max-w-4xl mx-auto space-y-4">
                 {/* Mobile-Only Button Grid */}
-                <div className="grid grid-cols-5 gap-2 md:hidden">
+                <div className="grid grid-cols-6 gap-2 md:hidden">
                     {mobileButtons.map(({ label, icon: Icon, action }) => (
-                         <Button key={label} variant="outline" className="flex flex-col h-20" onClick={action}>
-                            <Icon className="h-7 w-7 mb-1" />
+                         <Button key={label} variant="outline" className="flex flex-col h-16 items-center justify-center" onClick={action}>
+                            <Icon className="h-7 w-7" />
                          </Button>
                     ))}
                 </div>
 
                 {/* Desktop-Only Button Row */}
-                <div className="hidden md:flex md:flex-wrap gap-2">
+                <div className="hidden md:flex md:flex-wrap gap-2 justify-between">
                     <Button variant="outline" onClick={() => setIsChatsOpen(true)}><MessageSquare /> Chats</Button>
                     <Button variant="outline" onClick={() => setIsChallengesOpen(true)}><Trophy/> Challenges</Button>
                     <Button variant="outline" onClick={() => setIsPopupsOpen(true)}><Megaphone /> Pop-ups</Button>
                     <Button variant="outline" onClick={() => setIsLibraryOpen(true)}><Library /> Library</Button>
-                    <Button variant="outline" onClick={() => setIsCalendarOpen(true)}><Calendar /> Calendar</Button> 
+                    <Button variant="outline" onClick={() => setIsCalendarOpen(true)}><Calendar /> Calendar</Button>
+                    <Button variant="outline" onClick={() => setIsFoodCacheOpen(true)}><Database /> Food Cache</Button>
                 </div>
                 
                 <Card>
@@ -264,7 +272,7 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
                     isOpen={!!selectedClient}
                     onClose={() => {
                         setSelectedClient(null);
-                        fetchClients(); // Refetch when modal closes
+                        fetchClients();
                     }}
                 />
             )}
@@ -304,10 +312,11 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
                 open={isCalendarOpen}
                 onOpenChange={setIsCalendarOpen}
             />
+            {/* Render the new modal */}
+            <ManageFoodCacheDialog
+                open={isFoodCacheOpen}
+                onOpenChange={setIsFoodCacheOpen}
+            />
         </>
     );
 }
-
-    
-
-    

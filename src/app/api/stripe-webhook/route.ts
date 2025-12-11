@@ -1,139 +1,145 @@
-
 'use server';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { headers } from 'next/headers';
-import { db as adminDb } from '@/lib/firebaseAdmin';
-import type { UserTier, ClientProfile } from '@/types';
-import { createClientFlow, CreateClientInput } from '@/ai/flows/create-client-flow';
+import { Timestamp } from 'firebase-admin/firestore';
+import { auth, db as adminDb } from '@/lib/firebaseAdmin';
+import type { ClientProfile, NutritionalGoals } from '@/types';
+import { calculateNutritionalGoals } from '@/services/goals';
 
 const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
-  apiVersion: '2024-06-20',
+    apiVersion: '2024-04-10',
 });
 
-// This is the mapping from your Stripe Price IDs to your application's tier names.
-// It's crucial that these Price IDs match what you have configured in your Stripe Dashboard.
-const priceIdToTier: Record<string, UserTier> = {
-    // Monthly
-    [process.env.STRIPE_AD_FREE_MONTHLY_PRICE_ID || '']: 'ad-free',
-    [process.env.STRIPE_BASIC_MONTHLY_PRICE_ID || '']: 'basic',
-    [process.env.STRIPE_PREMIUM_MONTHLY_PRICE_ID || '']: 'premium',
-    [process.env.STRIPE_COACHING_MONTHLY_PRICE_ID || '']: 'coaching',
-    // Yearly
-    [process.env.STRIPE_AD_FREE_YEARLY_PRICE_ID || '']: 'ad-free',
-    [process.env.STRIPE_BASIC_YEARLY_PRICE_ID || '']: 'basic',
-    [process.env.STRIPE_PREMIUM_YEARLY_PRICE_ID || '']: 'premium',
-    [process.env.STRIPE_COACHING_YEARLY_PRICE_ID || '']: 'coaching',
-};
+// This internal function creates the user in Firebase and sets up all associated data.
+async function createUserFromStripe(session: Stripe.Checkout.Session) {
+    const userDataString = session.metadata?.userData;
+    if (!userDataString) {
+        throw new Error("Webhook Error: checkout.session.completed event is missing userData in metadata.");
+    }
+    const data = JSON.parse(userDataString);
+    const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+
+    if (!customerId) {
+        throw new Error("Webhook Error: Customer ID is missing in the Stripe session.");
+    }
+
+    let uid = '';
+    try {
+        const userRecord = await auth.createUser({
+            email: data.email,
+            password: data.password,
+            displayName: data.fullName,
+            emailVerified: true,
+        });
+        uid = userRecord.uid;
+
+        // THE FIX: The data from Stripe metadata is just a string. 
+        // We need to convert `birthdate` back to a Date object before passing it to the calculator.
+        if (data.birthdate) {
+            data.birthdate = new Date(data.birthdate);
+        }
+
+        const batch = adminDb.batch();
+
+        // 1. Create the userProfile document
+        const userProfileRef = adminDb.collection('userProfiles').doc(uid);
+        batch.set(userProfileRef, {
+            uid: uid,
+            email: data.email,
+            fullName: data.fullName,
+            tier: data.tier,
+            role: 'client',
+            stripeCustomerId: customerId,
+            chatIds: [],
+            challengeIds: [],
+        });
+
+        // 2. Prepare the client document data
+        const { password, ...onboardingData } = data;
+
+        const clientDataForGoals: Partial<ClientProfile> = {
+            uid: uid,
+            email: data.email,
+            fullName: data.fullName,
+            tier: data.tier,
+            onboarding: onboardingData,
+            stripeCustomerId: customerId,
+        };
+
+        const initialGoals = calculateNutritionalGoals(clientDataForGoals as ClientProfile);
+
+        const clientDocRef = adminDb.collection('clients').doc(uid);
+
+        batch.set(clientDocRef, {
+            ...clientDataForGoals,
+            createdAt: Timestamp.now(),
+            suggestedGoals: initialGoals,
+            customGoals: initialGoals,
+        });
+
+        await batch.commit();
+        console.log(`[WEBHOOK] Successfully created user ${uid} and client documents.`);
+        return { success: true, uid: uid };
+
+    } catch (error: any) {
+        console.error(`[WEBHOOK] Error in createUserFromStripe for UID: ${uid}`, error);
+        if (uid) {
+            await auth.deleteUser(uid).catch(e => console.error(`[WEBHOOK] Cleanup failed for UID: ${uid}`, e));
+        }
+        throw error;
+    }
+}
 
 export async function POST(req: NextRequest) {
     const body = await req.text();
-    const signature = headers().get('Stripe-Signature') as string;
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-    if (!webhookSecret) {
-        console.error("CRITICAL: STRIPE_WEBHOOK_SECRET is not set.");
-        return new NextResponse('Webhook secret not configured on server.', { status: 500 });
-    }
+    // THE FIX: headers() returns a Promise, so we must await it.
+    const signature = (await headers()).get('stripe-signature') as string;
 
     let event: Stripe.Event;
 
     try {
-        event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+        event = stripe.webhooks.constructEvent(
+            body,
+            signature,
+            process.env.STRIPE_WEBHOOK_SECRET!
+        );
     } catch (err: any) {
-        console.error(`Webhook signature verification failed: ${err.message}`);
+        console.error('[WEBHOOK] Error constructing event:', err.message);
         return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 });
     }
 
-    // --- NEW: Handle account creation after successful payment ---
-    if (event.type === 'checkout.session.completed') {
-        const session = event.data.object as Stripe.Checkout.Session;
-        
-        const userDataString = session.metadata?.userData;
-
-        if (!userDataString) {
-            console.error("Webhook Error: checkout.session.completed event is missing userData in metadata.", session.id);
-            // Return 200 to Stripe so it doesn't retry for this non-actionable event.
-            return NextResponse.json({ received: true, message: "No user data in metadata." });
+    try {
+        switch (event.type) {
+            case 'checkout.session.completed':
+                console.log('[WEBHOOK] Received checkout.session.completed event.');
+                const session = event.data.object as Stripe.Checkout.Session;
+                await createUserFromStripe(session);
+                break;
+            case 'customer.subscription.updated':
+            case 'customer.subscription.deleted':
+                console.log(`[WEBHOOK] Received ${event.type} event.`);
+                const subscription = event.data.object as Stripe.Subscription;
+                const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+                
+                const users = await adminDb.collection('userProfiles').where('stripeCustomerId', '==', customerId).limit(1).get();
+                if (!users.empty) {
+                    const userDoc = users.docs[0];
+                    const newTier = subscription.items.data[0]?.price.metadata.tier as | 'free' | 'ad-free' | 'basic' | 'premium' | 'coaching' || 'free';
+                    await userDoc.ref.update({ tier: event.type === 'customer.subscription.deleted' ? 'free' : newTier });
+                    console.log(`[WEBHOOK] Updated user ${userDoc.id} tier to ${newTier}.`);
+                } else {
+                     console.warn(`[WEBHOOK] Could not find user for stripeCustomerId: ${customerId}`);
+                }
+                break;
+            default:
+                console.log(`[WEBHOOK] Unhandled event type: ${event.type}`);
         }
-        
-        try {
-            const userData: CreateClientInput = JSON.parse(userDataString);
-            
-            // Call the existing, robust flow to create the user in Firebase Auth and Firestore
-            const result = await createClientFlow(userData);
 
-            if (!result.success) {
-                // If user creation fails for some reason (e.g., email already exists unexpectedly),
-                // log a critical error for manual review.
-                console.error(`CRITICAL: Webhook could not create user after successful payment for email: ${userData.email}. Error: ${result.error}`);
-                // We still return a 200 to Stripe to acknowledge receipt and prevent retries.
-                // The issue is now on our end to resolve.
-                return new NextResponse(`Internal Server Error: ${result.error}`, { status: 500 });
-            }
-            
-            console.log(`Successfully created user ${userData.email} via Stripe webhook.`);
+        return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
 
-        } catch (error: any) {
-            console.error('CRITICAL: Failed to process checkout.session.completed webhook.', error);
-            return new NextResponse(`Webhook Error: ${error.message}`, { status: 400 });
-        }
+    } catch (error: any) {
+        console.error('[WEBHOOK] Handler error:', error.message);
+        return new NextResponse(JSON.stringify({ error: error.message }), { status: 500 });
     }
-
-
-    // --- EXISTING: Handle subscription tier changes for existing users ---
-    if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.created') {
-        const subscription = event.data.object as Stripe.Subscription;
-        const customerId = subscription.customer as string;
-
-        try {
-            // Find the user in our database who has this Stripe Customer ID.
-            const clientsQuery = adminDb.collection('clients').where('stripeCustomerId', '==', customerId).limit(1);
-            
-            const [clientsSnapshot] = await Promise.all([clientsQuery.get()]);
-
-            let firebaseUserId: string | null = null;
-            if (!clientsSnapshot.empty) {
-                firebaseUserId = clientsSnapshot.docs[0].id;
-            } else {
-                 const userProfileQuery = adminDb.collection('userProfiles').where('stripeCustomerId', '==', customerId).limit(1);
-                 const userProfilesSnapshot = await userProfileQuery.get();
-                 if (!userProfilesSnapshot.empty) {
-                     firebaseUserId = userProfilesSnapshot.docs[0].id;
-                 }
-            }
-
-
-            if (!firebaseUserId) {
-                // This can happen if it's the initial 'customer.subscription.created' event for a new sign-up.
-                // It's safe to ignore in that case, as the 'checkout.session.completed' handles creation.
-                console.log(`Webhook received subscription update for Stripe customer ${customerId}, but no matching Firebase user found yet. This is expected for new sign-ups.`);
-                return NextResponse.json({ received: true, message: 'User not found, likely a new sign-up handled by checkout session.' });
-            }
-
-            const subscriptionItem = subscription.items.data[0];
-            const priceId = subscriptionItem?.price.id;
-
-            // Determine the new tier. If the plan is cancelled or the price ID is unknown,
-            // default them to the 'free' tier.
-            const newTier: UserTier = (subscription.status === 'active' && priceId && priceIdToTier[priceId])
-                ? priceIdToTier[priceId]
-                : 'free';
-
-            // Update the tier in both the 'clients' and 'userProfiles' collections for consistency.
-            const clientRef = adminDb.collection('clients').doc(firebaseUserId);
-            const userProfileRef = adminDb.collection('userProfiles').doc(firebaseUserId);
-            
-            await clientRef.update({ tier: newTier });
-            await userProfileRef.update({ tier: newTier });
-
-            console.log(`Successfully updated user ${firebaseUserId} to tier: ${newTier} via subscription update.`);
-
-        } catch (error) {
-            console.error('Error handling subscription update:', error);
-            return new NextResponse('Internal server error while updating user tier.', { status: 500 });
-        }
-    }
-
-    return NextResponse.json({ received: true });
 }

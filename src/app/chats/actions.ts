@@ -5,7 +5,7 @@ import { db as adminDb, admin } from '@/lib/firebaseAdmin';
 import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath } from 'firebase-admin/firestore';
 
 
 function serializeTimestamps(docData: any) {
@@ -86,7 +86,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
             for (let i = 0; i < userChatIds.length; i += MAX_IDS_PER_QUERY) {
                 const chunk = userChatIds.slice(i, i + MAX_IDS_PER_QUERY);
                 if(chunk.length > 0) {
-                    const q = adminDb.collection('chats').where(admin.firestore.FieldPath.documentId(), 'in', chunk);
+                    const q = adminDb.collection('chats').where(FieldPath.documentId(), 'in', chunk);
                     const snapshot = await q.get();
                     snapshot.forEach(docSnap => {
                         userChats.push({ id: docSnap.id, ...docSnap.data() } as Chat);
@@ -245,7 +245,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             const messageData: any = {
                 userId,
                 userName,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: FieldValue.serverTimestamp(),
                 isSystemMessage: false,
             };
             
@@ -259,21 +259,24 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             // --- UNIVERSAL UPDATE LOGIC ---
             // The logic is now simplified to always update the same two fields.
             const updateData: { [key: string]: any } = {
-              lastMessage: admin.firestore.FieldValue.serverTimestamp(),
+              lastMessage: FieldValue.serverTimestamp(),
               lastMessageSenderId: userId,
             };
             
-            // For coaching chats, we also update the client/coach specific timestamps
-            // to maintain logic around the "MIA" queue if needed.
+                       // For coaching chats, robustly update the correct timestamp.
+            // This logic now uses the definitive COACH_UIDS list on the server
+            // instead of relying on a flag from the client.
             if (chatData?.type === 'coaching') {
+                const senderIsCoach = COACH_UIDS.includes(userId);
                 if (isAutomated) {
-                    updateData.lastAutomatedMessage = admin.firestore.FieldValue.serverTimestamp();
-                } else if (isCoach) {
-                    updateData.lastCoachMessage = admin.firestore.FieldValue.serverTimestamp();
+                    updateData.lastAutomatedMessage = FieldValue.serverTimestamp();
+                } else if (senderIsCoach) {
+                    updateData.lastCoachMessage = FieldValue.serverTimestamp();
                 } else {
-                    updateData.lastClientMessage = admin.firestore.FieldValue.serverTimestamp();
+                    updateData.lastClientMessage = FieldValue.serverTimestamp();
                 }
             }
+
 
             transaction.update(chatDocRef, updateData);
         });
@@ -282,7 +285,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
         if (chatData) {
             const recipients = chatData.participants.filter(pId => pId !== userId);
             if (recipients.length > 0) {
-                const profilesSnap = await adminDb.collection('userProfiles').where(admin.firestore.FieldPath.documentId(), 'in', recipients).get();
+                const profilesSnap = await adminDb.collection('userProfiles').where(FieldPath.documentId(), 'in', recipients).get();
                 
                 let tokens: string[] = [];
                 profilesSnap.forEach(doc => {
@@ -384,7 +387,7 @@ export async function deleteChatAction(chatId: string, requesterId: string) {
         if (chatData.participants && chatData.participants.length > 0) {
             for (const uid of chatData.participants) {
                 const userProfileRef = adminDb.collection('userProfiles').doc(uid);
-                batch.update(userProfileRef, { chatIds: admin.firestore.FieldValue.arrayRemove(chatId) });
+                batch.update(userProfileRef, { chatIds: FieldValue.arrayRemove(chatId) });
             }
         }
         
@@ -430,7 +433,7 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
             participants,
             participantCount: participants.length,
             ownerId,
-            createdAt: admin.firestore.FieldValue.serverTimestamp() as any,
+            createdAt: FieldValue.serverTimestamp() as any,
             rules: rules?.split('\n') || [],
         };
         
@@ -440,7 +443,7 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
             userId: 'system',
             userName: 'System',
             text: `Chat "${name}" created by an admin.`,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             isSystemMessage: true,
         };
         const messageRef = chatRef.collection('messages').doc();
@@ -459,8 +462,29 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
         return { success: false, error: error.message };
     }
 }
-    
 
-    
+/**
+ * Finds the specific one-on-one coaching chat ID for a given client.
+ * This is a new function created to restore dashboard functionality.
+ */
+export async function getCoachingChatIdForClient(clientId: string): Promise<{ success: boolean; chatId?: string; error?: string }> {
+    try {
+        const chatsQuery = adminDb.collection('chats')
+            .where('type', '==', 'coaching')
+            .where('participants', 'array-contains', clientId)
+            .limit(1);
 
-  
+        const chatsSnapshot = await chatsQuery.get();
+
+        if (chatsSnapshot.empty) {
+            return { success: false, error: 'No coaching chat found for this client.' };
+        }
+
+        const chatId = chatsSnapshot.docs[0].id;
+        return { success: true, chatId };
+
+    } catch (error: any) {
+        console.error(`Error finding coaching chat for client ${clientId}:`, error);
+        return { success: false, error: error.message || 'An unknown server error occurred.' };
+    }
+}

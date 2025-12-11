@@ -1,22 +1,32 @@
-
 'use server';
 
-import { db as adminDb, admin } from '@/lib/firebaseAdmin';
-import { startOfDay, subDays } from 'date-fns';
+import { db as adminDb } from '@/lib/firebaseAdmin';
+import { Timestamp, DocumentSnapshot } from 'firebase-admin/firestore';
+import { subDays, addDays, isWithinInterval } from 'date-fns';
+// CORRECT IMPORT: Point to the real summary calculator
+import { calculateDailySummaryForUser } from '@/services/summary-calculator'; 
 
-const ALL_DATA_COLLECTIONS = [
-    'nutrition', 'hydration', 'activity', 'sleep',
-    'stress', 'measurements', 'protocol', 'planner', 'cravings'
-];
+const ALL_DATA_COLLECTIONS = ['nutrition', 'hydration', 'activity', 'sleep', 'stress', 'measurements', 'protocol', 'planner', 'cravings'];
 
+// CORRECTED TRIGGER: This now calls the real calculator with all required parameters.
+export async function triggerSummaryRecalculation(userId: string, date: string, userTimezone: string, timezoneOffset: number) {
+    if (!userId || !date) {
+        console.error("[Action] Missing userId or date for summary recalculation");
+        return { success: false, error: "User ID and date are required." };
+    }
+    try {
+        return await calculateDailySummaryForUser(userId, date, userTimezone, timezoneOffset);
+    } catch (error: any) {
+        console.error(`[Action] CRITICAL ERROR in triggerSummaryRecalculation for user ${userId} on date ${date}:`, error);
+        return { success: false, error: error.message };
+    }
+}
 
-/**
- * Recursively converts Firestore Timestamps within an object to ISO strings,
- * making the data safe to pass from Server Components to Client Components.
- */
+// --- The rest of the file remains unchanged. --- 
+
 function serializeTimestamps(data: any): any {
     if (!data) return data;
-    if (data instanceof admin.firestore.Timestamp) {
+    if (data instanceof Timestamp) {
         return data.toDate().toISOString();
     }
     if (Array.isArray(data)) {
@@ -34,143 +44,173 @@ function serializeTimestamps(data: any): any {
     return data;
 }
 
-/**
- * Fetches all log entries for a specific user on a given day.
- * This is a server action that uses admin privileges to securely access data.
- */
-export async function getCalendarDataForDay(userId: string, date: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+function unnestLogData(doc: DocumentSnapshot) {
+    const data = doc.data();
+    if (!data) return null;
+
+    const baseData = { id: doc.id, ...data };
+    if (data.log) {
+        return { ...baseData, ...data.log };
+    }
+    return baseData;
+}
+
+export async function getCalendarDataForDay(userId: string, date: string, userTimezone: string, timezoneOffset: number): Promise<{ success: boolean; data?: any[]; summary?: any; error?: string }> {
     if (!userId) {
         console.error("No user ID provided to getCalendarDataForDay");
         return { success: false, error: "User ID is required." };
     }
+     if (userTimezone === undefined || timezoneOffset === undefined) {
+        console.error("Missing timezone information in getCalendarDataForDay");
+        return { success: false, error: "Timezone information is required." };
+    }
 
-    // The date string is already in UTC yyyy-mm-dd format from the client.
-    const startOfDay = new Date(`${date}T00:00:00.000Z`);
-    const endOfDay = new Date(`${date}T23:59:59.999Z`);
+    const dateAtUtcMidnight = new Date(`${date}T00:00:00.000Z`);
+    const offsetInMilliseconds = timezoneOffset * 60 * 1000;
+    
+    const filterRangeStartUTC = new Date(dateAtUtcMidnight.getTime() + offsetInMilliseconds);
+    const filterRangeEndUTC = new Date(filterRangeStartUTC.getTime() + (24 * 60 * 60 * 1000) - 1);
 
-    // Convert to Firestore Timestamps for querying.
-    const startTimestamp = admin.firestore.Timestamp.fromDate(startOfDay);
-    const endTimestamp = admin.firestore.Timestamp.fromDate(endOfDay);
+    const firestoreQueryStartUTC = subDays(filterRangeStartUTC, 1);
+    const firestoreQueryEndUTC = addDays(filterRangeEndUTC, 1);
 
     try {
-        const personalLogPromises = ALL_DATA_COLLECTIONS.map(collectionName => {
-             const collectionPath = `clients/${userId}/${collectionName}`;
-             
-             // Sleep entries are queried by their wake-up day, not their start time.
-             if (collectionName === 'sleep') {
-                 const q = adminDb.collection(collectionPath)
-                    .where("wakeUpDay", ">=", startTimestamp)
-                    .where("wakeUpDay", "<=", endTimestamp);
-                 return q.get().then(snapshot => snapshot.docs.map(doc => ({ id: doc.id, pillar: collectionName, ...doc.data() })));
-             }
-             
-             // All other entries are queried by their entry date.
-             const q = adminDb.collection(collectionPath)
-                .where("entryDate", ">=", startTimestamp)
-                .where("entryDate", "<=", endTimestamp);
+        const summaryRef = adminDb.collection(`clients/${userId}/dailySummaries`).doc(date);
+        const summaryPromise = summaryRef.get();
+
+        const personalLogPromises = ALL_DATA_COLLECTIONS.map(async (collectionName) => {
+            try {
+                const collectionPath = `clients/${userId}/${collectionName}`;
                 
-            return q.get().then(snapshot => snapshot.docs.map(doc => ({
-                id: doc.id,
-                pillar: collectionName,
-                ...doc.data()
-            })));
+                const dateField = collectionName === 'planner' ? 'indulgenceDate' : 'entryDate';
+                const nestedDateField = collectionName === 'planner' ? 'log.indulgenceDate' : 'log.entryDate';
+
+                const flatQuery = adminDb.collection(collectionPath).where(dateField, '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where(dateField, '<=', Timestamp.fromDate(firestoreQueryEndUTC));
+                const nestedQuery = adminDb.collection(collectionPath).where(nestedDateField, '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where(nestedDateField, '<=', Timestamp.fromDate(firestoreQueryEndUTC))
+
+                const [flatSnapshot, nestedSnapshot] = await Promise.all([
+                    flatQuery.get(),
+                    collectionName === 'planner' ? Promise.resolve({ docs: [] }) : nestedQuery.get()
+                ]);
+
+                const docs = new Map<string, DocumentSnapshot>();
+                flatSnapshot.docs.forEach(doc => docs.set(doc.id, doc));
+                nestedSnapshot.docs.forEach(doc => docs.set(doc.id, doc));
+
+                return Array.from(docs.values()).map(doc => ({ ...unnestLogData(doc), pillar: collectionName }));
+            } catch (error) {
+                console.error(`Failed to fetch data for collection ${collectionName}:`, error);
+                return [];
+            }
         });
-        
-        const indulgencePlansPromise = adminDb.collection('indulgencePlans')
-            .where('userId', '==', userId)
-            .where('indulgenceDate', '>=', startTimestamp)
-            .where('indulgenceDate', '<=', endTimestamp)
-            .get().then(snapshot => snapshot.docs.map(doc => ({ id: doc.id, pillar: 'planner', ...doc.data() })));
-            
+
         const coachAppointmentsPromise = adminDb.collection('coachCalendar')
             .where('clientId', '==', userId)
-            .where('start', '>=', startTimestamp)
-            .where('start', '<=', endTimestamp)
-            .get().then(snapshot => 
+            .where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC))
+            .where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC))
+            .get().then(snapshot =>
                 snapshot.docs.map(doc => {
                     const data = doc.data();
-                    return { 
-                        ...data, // This ensures all fields, including videoCallLink, are preserved.
-                        id: doc.id, 
-                        pillar: 'appointment', 
-                        entryDate: data.start 
-                    };
+                    return { ...data, id: doc.id, pillar: 'appointment', entryDate: data.start };
                 })
-            );
+            ).catch(err => {
+                console.error(`Failed to fetch coach appointments:`, err);
+                return [];
+            });
 
-
-        const [personalLogs, indulgencePlans, coachAppointments] = await Promise.all([
-            Promise.all(personalLogPromises), 
-            indulgencePlansPromise,
+        const [summarySnap, personalLogsNested, coachAppointments] = await Promise.all([
+            summaryPromise,
+            Promise.all(personalLogPromises),
             coachAppointmentsPromise,
         ]);
-        
-        const allEntries = (personalLogs as any).flat().concat(indulgencePlans as any).concat(coachAppointments as any);
 
+        const allEntriesRaw = (personalLogsNested as any).flat().concat(coachAppointments as any).filter(Boolean);
 
-        if (allEntries.length === 0) {
-            return { success: true, data: [] };
-        }
-        
-        allEntries.sort((a: any, b: any) => {
-            const dateA = a.entryDate || a.wakeUpDay || a.indulgenceDate || a.start;
-            const dateB = b.entryDate || b.wakeUpDay || b.indulgenceDate || b.start;
-            if(!dateA || !dateB) return 0;
-            return (dateA as admin.firestore.Timestamp).toMillis() - (dateB as admin.firestore.Timestamp).toMillis()
+        const finalEntries = allEntriesRaw.filter(entry => {
+            const getJSDate = (d: any) => {
+                if (!d) return null;
+                if (d.seconds) return new Date(d.seconds * 1000); 
+                if (typeof d === 'string') return new Date(d);
+                return null;
+            }
+
+            if (entry.pillar === 'sleep') {
+                const wakeUpDay = getJSDate(entry.wakeUpDay);
+                if (wakeUpDay && wakeUpDay.getTime() >= filterRangeStartUTC.getTime() && wakeUpDay.getTime() <= filterRangeEndUTC.getTime()) {
+                    return true;
+                }
+                const entryDate = getJSDate(entry.entryDate);
+                if (entry.isNap && entryDate && isWithinInterval(entryDate, { start: filterRangeStartUTC, end: filterRangeEndUTC })) {
+                    return true;
+                }
+                return false;
+            }
+            if (entry.pillar === 'planner') {
+                const indulgenceDate = getJSDate(entry.indulgenceDate);
+                return indulgenceDate && isWithinInterval(indulgenceDate, { start: filterRangeStartUTC, end: filterRangeEndUTC });
+            }
+            const entryDate = getJSDate(entry.entryDate);
+            return entryDate && isWithinInterval(entryDate, { start: filterRangeStartUTC, end: filterRangeEndUTC });
         });
 
-        const serializableData = allEntries.map(serializeTimestamps);
-        
-        return { success: true, data: serializableData };
+        finalEntries.sort((a: any, b: any) => {
+            const getJSDate = (d: any) => d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
+            const dateA = getJSDate(a.indulgenceDate || a.entryDate || a.wakeUpDay);
+            const dateB = getJSDate(b.indulgenceDate || b.entryDate || b.wakeUpDay);
+            return dateA.getTime() - dateB.getTime();
+        });
 
-    } catch(e: any) {
-        console.error("Error in getCalendarDataForDay: ", e);
-        return { success: false, error: e.message || "An unknown server error occurred." };
+        const serializableData = finalEntries.map(serializeTimestamps);
+        const summaryData = summarySnap.exists ? serializeTimestamps(summarySnap.data()) : { calories: 0, hydration: 0, sleep: 0, activity: 0, upf: 0, allNutrients: {} };
+
+        return { success: true, data: serializableData, summary: summaryData };
+
+    } catch (e: any) {
+        console.error("CRITICAL ERROR in getCalendarDataForDay: ", e);
+        return { success: false, data: [], summary: {}, error: e.message || "An unknown server error occurred." };
     }
 }
 
-
-/**
- * Fetches contextual data for today, such as last night's sleep and today's hydration.
- */
 export async function getTodaysContextualData(userId: string) {
     if (!userId) return null;
 
-    const today = new Date();
-    const startOfToday = startOfDay(today);
-    const startOfYesterday = startOfDay(subDays(today, 1));
-    const startTimestamp = admin.firestore.Timestamp.fromDate(startOfToday);
+    const startOfToday = new Date();
+    const startTimestamp = Timestamp.fromDate(startOfToday);
 
     try {
         const sleepPath = `clients/${userId}/sleep`;
         const hydrationPath = `clients/${userId}/hydration`;
-        
-        // Find sleep entry where wakeUpDay is today
-        const sleepQuery = adminDb.collection(sleepPath)
-            .where('wakeUpDay', '==', startTimestamp)
-            .where('isNap', '==', false)
-            .limit(1);
 
-        // Find all hydration entries for today
-        const hydrationQuery = adminDb.collection(hydrationPath)
-            .where('entryDate', '>=', startTimestamp);
+        const sleepQueryFlat = adminDb.collection(sleepPath).where('wakeUpDay', '==', startTimestamp).where('isNap', '==', false).limit(1);
+        const sleepQueryNested = adminDb.collection(sleepPath).where('log.wakeUpDay', '==', startTimestamp).where('log.isNap', '==', false).limit(1);
 
-        const [sleepSnapshot, hydrationSnapshot] = await Promise.all([
-            sleepQuery.get(),
-            hydrationQuery.get()
+        const hydrationQueryFlat = adminDb.collection(hydrationPath).where('entryDate', '>=', startTimestamp);
+        const hydrationQueryNested = adminDb.collection(hydrationPath).where('log.entryDate', '>=', startTimestamp);
+
+        const [sleepFlatSnap, sleepNestedSnap, hydrationFlatSnap, hydrationNestedSnap] = await Promise.all([
+            sleepQueryFlat.get(),
+            sleepQueryNested.get(),
+            hydrationQueryFlat.get(),
+            hydrationQueryNested.get(),
         ]);
+
+        const sleepSnapshot = !sleepFlatSnap.empty ? sleepFlatSnap : sleepNestedSnap;
 
         let lastNightSleep = null;
         if (!sleepSnapshot.empty) {
-            lastNightSleep = sleepSnapshot.docs[0].data().duration;
+            const sleepData = sleepSnapshot.docs[0].data();
+            lastNightSleep = sleepData.log ? sleepData.log.duration : sleepData.duration;
         }
 
+        const hydrationDocs = hydrationFlatSnap.docs.concat(hydrationNestedSnap.docs);
+        const uniqueHydrationDocs = new Map();
+        hydrationDocs.forEach(doc => uniqueHydrationDocs.set(doc.id, doc));
+
         let todaysHydration = 0;
-        if (!hydrationSnapshot.empty) {
-            hydrationSnapshot.forEach(doc => {
-                todaysHydration += doc.data().amount || 0;
-            });
-        }
+        uniqueHydrationDocs.forEach(doc => {
+            const data = doc.data();
+            todaysHydration += (data.log ? data.log.amount : data.amount) || 0;
+        });
         
         return {
             lastNightSleep,

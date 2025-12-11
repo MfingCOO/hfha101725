@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -10,7 +9,7 @@ import { Textarea } from '../ui/textarea';
 import { Input } from '../ui/input';
 
 interface ContentProps {
-    onFormStateChange: (newState: any) => void;
+    onFormStateChange: (newState: Partial<any>) => void;
     formState?: any;
 }
 
@@ -58,31 +57,23 @@ const intensityLevels = [
     { value: 'maximum', 'label': 'Maximum' }
 ];
 
-export const ActivityContent = ({ onFormStateChange, formState }: Omit<ContentProps, 'pillar' | 'entryDate' | 'clientProfile'>) => {
-    const {
-        category = '',
-        activityType = '',
-        otherActivityType = '',
-        duration = 30,
-        intensity = 'moderate',
-        hungerBefore = 4,
-        hungerAfter = 6,
-        notes = ''
-    } = formState?.log || {};
-
+// This component is now correctly "controlled"
+export function ActivityContent({ onFormStateChange, formState }: ContentProps) {
+    
+    // This handler now correctly sends only the changed fields to the parent
     const handleFieldChange = (field: string, value: any) => {
-        const newState = { ...formState.log, [field]: value };
-        // If category changes, reset activityType
+        onFormStateChange({ [field]: value });
+        
+        // If category changes, also send an update to reset activityType
         if (field === 'category') {
-            newState.activityType = '';
+            onFormStateChange({ activityType: '' });
         }
-        onFormStateChange({ ...formState, log: newState });
     };
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-3 p-1">
             <div className="space-y-2">
-                <Tabs value={category} onValueChange={(value) => handleFieldChange('category', value as any)}>
+                <Tabs value={formState.category} onValueChange={(value) => handleFieldChange('category', value)}>
                     <TabsList className="grid w-full grid-cols-3">
                         <TabsTrigger value="cardio">Cardio</TabsTrigger>
                         <TabsTrigger value="strength">Strength</TabsTrigger>
@@ -91,20 +82,23 @@ export const ActivityContent = ({ onFormStateChange, formState }: Omit<ContentPr
                 </Tabs>
             </div>
 
-            {category && (
+            {formState.category && (
                 <div className="space-y-3">
-                    <Select value={activityType} onValueChange={(v) => handleFieldChange('activityType', v)}>
-                        <SelectTrigger placeholder="Activity Type"><SelectValue placeholder="Select an activity..." /></SelectTrigger>
+                    <Select value={formState.activityType} onValueChange={(v) => handleFieldChange('activityType', v)}>
+                        {/* FIX: Removed invalid "placeholder" prop from SelectTrigger */}
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select an activity..." />
+                        </SelectTrigger>
                         <SelectContent>
-                            {activityConfig[category as keyof typeof activityConfig].map(activity => (
+                            {activityConfig[formState.category as keyof typeof activityConfig].map(activity => (
                                 <SelectItem key={activity} value={activity}>{activity}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
-                    {activityType === 'Other' && (
+                    {formState.activityType === 'Other' && (
                         <Input
                             placeholder="Specify other activity"
-                            value={otherActivityType}
+                            value={formState.otherActivityType}
                             onChange={(e) => handleFieldChange('otherActivityType', e.target.value)}
                         />
                     )}
@@ -115,14 +109,16 @@ export const ActivityContent = ({ onFormStateChange, formState }: Omit<ContentPr
                 <div className="space-y-1">
                     <Label>Duration (min)</Label>
                     <AppNumberInput
-                        value={duration}
+                        value={formState.duration}
                         onChange={(value) => handleFieldChange('duration', value === '' ? 0 : value)}
                     />
                 </div>
                 <div className="space-y-1">
                     <Label>Intensity</Label>
-                    <Select value={intensity} onValueChange={(v) => handleFieldChange('intensity', v)}>
-                        <SelectTrigger><SelectValue placeholder="Intensity" /></SelectTrigger>
+                    <Select value={formState.intensity} onValueChange={(v) => handleFieldChange('intensity', v)}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Intensity" />
+                        </SelectTrigger>
                         <SelectContent>
                             {intensityLevels.map(level => (
                                 <SelectItem key={level.value} value={level.value}>{level.label}</SelectItem>
@@ -133,11 +129,11 @@ export const ActivityContent = ({ onFormStateChange, formState }: Omit<ContentPr
             </div>
 
             <div className="grid grid-cols-2 gap-x-2 gap-y-2">
-                <HungerScaleDropdown value={hungerBefore} onValueChange={(v) => handleFieldChange('hungerBefore', v)} label="Hunger Before" />
-                <HungerScaleDropdown value={hungerAfter} onValueChange={(v) => handleFieldChange('hungerAfter', v)} label="Hunger After" />
+                <HungerScaleDropdown value={formState.hungerBefore} onValueChange={(v) => handleFieldChange('hungerBefore', v)} label="Hunger Before" />
+                <HungerScaleDropdown value={formState.hungerAfter} onValueChange={(v) => handleFieldChange('hungerAfter', v)} label="Hunger After" />
             </div>
             <Textarea
-                value={notes}
+                value={formState.notes}
                 onChange={(e) => handleFieldChange('notes', e.target.value)}
                 placeholder="Notes (e.g., felt great, a little tired...)"
             />

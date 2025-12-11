@@ -1,25 +1,43 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# Dependencies
-/node_modules
-/.pnp
-.pnp.js
-.yarn/install-state.gz
+# Dependency directories
+# These are installed during the build process
+node_modules/
 
 # Next.js build output
-/.next/
-/out/
+# This is generated when you run `npm run build`
+.next/
 
-# Local Environment Variables & Secrets
-# NEVER commit these files to a public repository!
-.env
+# Vercel directory
+.vercel/
+
+# TypeScript cache file
+*.tsbuildinfo
+
+# Local Environment Variables
+# These contain secrets and local settings, never commit them!
 .env.local
-firebase-service-account-key.json
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Misc
-.DS_Store
-*.pem
+# Log files
+# Generic rule for all log files
+*.log
+# More specific debug logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Secrets
+# The Firebase service account key MUST BE KEPT SECRET
+firebase-service-account-key.json
+
+# Development scripts & diagnostics
+# These are helper scripts, not part of the production app
+diagnose*.js
+encode-key.js
+
+# Next.js generated type file
+# This file is auto-generated and doesn't need to be in source control
 next-env.d.ts
+# Genkit local cache and traces
+.genkit/

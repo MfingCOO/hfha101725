@@ -1,7 +1,8 @@
 
 'use server';
 
-import { db as adminDb, admin } from '@/lib/firebaseAdmin';
+import { db as adminDb } from '@/lib/firebaseAdmin';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { uploadImageAction } from '../actions';
 import { z } from 'zod';
 import { format } from 'date-fns';
@@ -42,7 +43,7 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
         
         const popupToSave = {
             ...restOfData,
-            scheduledAt: admin.firestore.Timestamp.fromDate(restOfData.scheduledAt),
+            scheduledAt: Timestamp.fromDate(restOfData.scheduledAt),
             status: 'scheduled',
         };
 
@@ -58,10 +59,10 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
         if (id) {
             // Update existing document
             const docRef = adminDb.collection('popups').doc(id);
-            await docRef.update({ ...popupToSave, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+            await docRef.update({ ...popupToSave, updatedAt: FieldValue.serverTimestamp() });
         } else {
             // Create new document
-            await adminDb.collection('popups').add({ ...popupToSave, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+            await adminDb.collection('popups').add({ ...popupToSave, createdAt: FieldValue.serverTimestamp() });
         }
 
 
@@ -90,7 +91,7 @@ function serializeTimestamps(docData: any) {
     if (!docData) return docData;
     const newObject: { [key: string]: any } = { ...docData };
     for (const key in newObject) {
-      if (newObject[key] instanceof admin.firestore.Timestamp) {
+        if (newObject[key] instanceof Timestamp) {
         newObject[key] = newObject[key].toDate().toISOString();
       } else if (typeof newObject[key] === 'object' && newObject[key] !== null && !Array.isArray(newObject[key])) {
           newObject[key] = serializeTimestamps(newObject[key]);
@@ -107,8 +108,8 @@ export type Popup = {
     imageUrl?: string;
     ctaText: string;
     ctaUrl?: string;
-    scheduledAt: admin.firestore.Timestamp;
-    createdAt: admin.firestore.Timestamp;
+    scheduledAt: Timestamp;
+    createdAt: Timestamp;
     targetType: 'all' | 'tier' | 'user';
     targetValue?: string;
     status: 'scheduled' | 'active' | 'ended';

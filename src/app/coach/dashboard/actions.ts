@@ -1,7 +1,9 @@
 
 'use server';
 
-import { db as adminDb, admin } from '@/lib/firebaseAdmin';
+import { db as adminDb } from '@/lib/firebaseAdmin';
+import { Timestamp } from 'firebase-admin/firestore';
+
 import type { ClientProfile } from '@/types';
 
 /**
@@ -12,7 +14,7 @@ function serializeTimestamps(data: any): any {
     if (!data) {
         return data;
     }
-    if (data instanceof admin.firestore.Timestamp) {
+    if (data instanceof Timestamp) {
         return data.toDate().toISOString();
     }
     if (Array.isArray(data)) {
@@ -50,3 +52,4 @@ export async function getClientsForCoach(): Promise<{ success: boolean; data?: C
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
     }
 }
+

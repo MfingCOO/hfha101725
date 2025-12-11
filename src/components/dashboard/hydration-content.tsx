@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -14,12 +13,12 @@ import { Textarea } from '../ui/textarea';
 import { UpgradeModal } from '../modals/upgrade-modal';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Lock, PlusCircle, X } from 'lucide-react';
-import { ClientProfile } from '@/types';
+import { ClientProfile, UserTier } from '@/types';
 import { AppNumberInput } from '../ui/number-input';
 
 interface ContentProps {
-    onFormStateChange: (newState: any) => void;
-    formState?: any;
+    onFormStateChange: (newState: Partial<any>) => void;
+    formState: any;
     clientProfile: ClientProfile | null;
 }
 
@@ -53,18 +52,14 @@ const HungerScaleDropdown = ({ value, onValueChange, label = "Hunger Level (0-10
     );
 };
 
-export const HydrationContent = ({ clientProfile, formState, onFormStateChange }: Omit<ContentProps, 'pillar' | 'entryDate' >) => {
-    const { log = {}, settings = {} } = formState || {};
+export function HydrationContent({ clientProfile, formState, onFormStateChange }: ContentProps) {
     const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
-    const suggestedGoal = clientProfile?.suggestedHydrationGoal;
 
-    const handleLogChange = (field: string, value: any) => {
-        onFormStateChange({ ...formState, log: { ...log, [field]: value }});
-    }
-    const handleSettingsChange = (field: string, value: any) => {
-        onFormStateChange({ ...formState, settings: { ...settings, [field]: value }});
-    }
+    const handleFieldChange = (field: string, value: any) => {
+        onFormStateChange({ [field]: value });
+    };
 
+    // Correctly identifies if the REMINDERS feature should be locked.
     const isRemindersLocked = clientProfile?.tier === 'free' || clientProfile?.tier === 'ad-free';
 
     const handleReminderToggle = (checked: boolean) => {
@@ -72,121 +67,137 @@ export const HydrationContent = ({ clientProfile, formState, onFormStateChange }
             setIsUpgradeModalOpen(true);
             return;
         }
-        handleSettingsChange('remindersEnabled', checked);
-        if (checked && (!formState.settings.reminderTimes || formState.settings.reminderTimes.length === 0)) {
-             handleSettingsChange('reminderTimes', ['09:00', '12:00', '15:00']);
+        handleFieldChange('remindersEnabled', checked);
+        if (checked && (!formState.reminderTimes || formState.reminderTimes.length === 0)) {
+            handleFieldChange('reminderTimes', ['09:00', '12:00', '15:00']);
         }
-        if (checked) {
-            if (Notification.permission !== "granted") {
-                 Notification.requestPermission();
-            }
+        if (checked && Notification.permission !== "granted") {
+            Notification.requestPermission();
         }
     };
     
-    const addReminderTime = () => handleSettingsChange('reminderTimes', [...(formState.settings.reminderTimes || []), '17:00']);
-    const removeReminderTime = (index: number) => handleSettingsChange('reminderTimes', formState.settings.reminderTimes.filter((_: any, i: number) => i !== index));
-    const updateReminderTime = (index: number, value: string) => {
-        const newTimes = [...formState.settings.reminderTimes];
-        newTimes[index] = value;
-        handleSettingsChange('reminderTimes', newTimes);
-    }
+    const addReminderTime = () => handleFieldChange('reminderTimes', [...(formState.reminderTimes || []), '17:00']);
     
+    const removeReminderTime = (index: number) => {
+        const newTimes = (formState.reminderTimes || []).filter((_: any, i: number) => i !== index);
+        handleFieldChange('reminderTimes', newTimes);
+    };
+    
+    const updateReminderTime = (index: number, value: string) => {
+        const newTimes = [...(formState.reminderTimes || [])];
+        newTimes[index] = value;
+        handleFieldChange('reminderTimes', newTimes);
+    };
+    
+    // **THE FIX**: Use the ideal protein goal (which equals ideal weight in lbs) as the suggested hydration goal in oz.
+    const suggestedGoal = clientProfile?.customGoals?.protein;
+
     return (
         <>
-        <div className="space-y-4">
-            <div className="space-y-2">
-                <Label>How much did you drink (oz)?</Label>
-                <AppNumberInput
-                    value={log.amount || ''}
-                    onChange={value => handleLogChange('amount', value === '' ? 0 : value)}
-                    placeholder="e.g. 16"
-                />
-                 <div className="grid grid-cols-4 gap-2 pt-2">
-                    <Button variant="outline" size="sm" onClick={() => handleLogChange('amount', (log.amount || 0) + 8)}>+8oz</Button>
-                    <Button variant="outline" size="sm" onClick={() => handleLogChange('amount', (log.amount || 0) + 12)}>+12oz</Button>
-                    <Button variant="outline" size="sm" onClick={() => handleLogChange('amount', (log.amount || 0) + 16)}>+16oz</Button>
-                    <Button variant="outline" size="sm" onClick={() => handleLogChange('amount', (log.amount || 0) + 20)}>+20oz</Button>
-                </div>
-            </div>
-            <HungerScaleDropdown value={log.hunger || 5} onValueChange={(v) => handleLogChange('hunger', v)} />
-            <div className="space-y-2">
-                <Textarea value={log.notes || ''} onChange={(e) => handleLogChange('notes', e.target.value)} placeholder="Notes" />
-            </div>
-
-            <Separator />
-            <h4 className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">Hydration Settings</h4>
-
-             <div className="space-y-2">
-                <Label>Daily Goal (oz)</Label>
-                <AppNumberInput
-                    value={settings.customGoal || ''}
-                    onChange={value => handleSettingsChange('customGoal', value)}
-                    placeholder={`Suggested: ${suggestedGoal} oz`}
-                />
-            </div>
-             <div className="space-y-2">
-                 <Label>Reminders</Label>
-                 <div className={cn("flex flex-col gap-4 rounded-lg border p-3", isRemindersLocked ? "border-amber-500/50 bg-amber-500/10" : "border-border")}>
-                    <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                            <Label htmlFor="reminders-switch" className="text-sm font-medium">
-                               Enable Drink Reminders
-                            </Label>
-                            <p className="text-xs text-muted-foreground">
-                                Get notifications to help you stay hydrated.
-                            </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {isRemindersLocked && (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Lock className="h-4 w-4 text-amber-400" />
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Available on Basic tier and up.</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          )}
-                          <Switch
-                            id="reminders-switch"
-                            checked={settings.remindersEnabled}
-                            onCheckedChange={handleReminderToggle}
-                            disabled={isRemindersLocked}
-                          />
-                        </div>
+            <div className="space-y-4 p-1">
+                <div className="space-y-2">
+                    <Label>How much did you drink?</Label>
+                    <div className="flex items-center gap-2">
+                        <AppNumberInput
+                            value={formState.amount || ''}
+                            onChange={value => handleFieldChange('amount', value === '' ? 0 : Number(value))}
+                        />
+                         <Select value={formState.unit || 'oz'} onValueChange={value => handleFieldChange('unit', value)}>
+                            <SelectTrigger className="w-[80px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="oz">oz</SelectItem>
+                                <SelectItem value="ml">ml</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
-                     {settings.remindersEnabled && !isRemindersLocked && (
-                        <div className="space-y-3 pt-2 border-t border-border">
-                            {(settings.reminderTimes || []).map((time: string, index: number) => (
-                                <div key={index} className="flex items-center gap-2">
-                                    <Input 
-                                        type="time" 
-                                        value={time} 
-                                        onChange={e => updateReminderTime(index, e.target.value)} 
-                                        className="flex-1"
-                                    />
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeReminderTime(index)}>
-                                        <X className="h-4 w-4"/>
-                                    </Button>
-                                </div>
-                            ))}
-                            <Button variant="outline" size="sm" className="w-full" onClick={addReminderTime}>
-                                <PlusCircle className="mr-2 h-4 w-4" /> Add Reminder
-                            </Button>
+                     <div className="grid grid-cols-4 gap-2 pt-2">
+                        <Button variant="outline" size="sm" onClick={() => handleFieldChange('amount', (formState.amount || 0) + 8)}>+8</Button>
+                        <Button variant="outline" size="sm" onClick={() => handleFieldChange('amount', (formState.amount || 0) + 12)}>+12</Button>
+                        <Button variant="outline" size="sm" onClick={() => handleFieldChange('amount', (formState.amount || 0) + 16)}>+16</Button>
+                        <Button variant="outline" size="sm" onClick={() => handleFieldChange('amount', (formState.amount || 0) + 20)}>+20</Button>
+                    </div>
+                </div>
+                <HungerScaleDropdown value={formState.hunger || 5} onValueChange={(v) => handleFieldChange('hunger', v)} />
+                <div className="space-y-2">
+                    <Textarea value={formState.notes || ''} onChange={(e) => handleFieldChange('notes', e.target.value)} placeholder="Notes" />
+                </div>
+
+                <Separator />
+                <h4 className="text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">Hydration Settings</h4>
+
+                 <div className="space-y-2">
+                    <Label>Daily Goal ({formState.unit || 'oz'})</Label>
+                    <AppNumberInput
+                        value={formState.target || ''}
+                        onChange={value => handleFieldChange('target', Number(value))}
+                        placeholder={suggestedGoal ? `Suggested: ${suggestedGoal} oz` : "Set a daily goal"}
+                    />
+                </div>
+                 <div className="space-y-2">
+                     <Label>Reminders</Label>
+                     <div className={cn("flex flex-col gap-4 rounded-lg border p-3", isRemindersLocked ? "border-amber-500/50 bg-amber-500/10" : "border-border")}>
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <Label htmlFor="reminders-switch" className="text-sm font-medium">
+                                   Enable Drink Reminders
+                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Get notifications to help you stay hydrated.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {isRemindersLocked && (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Lock className="h-4 w-4 text-amber-400" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Available on Basic tier and up.</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                              <Switch
+                                id="reminders-switch"
+                                checked={!!formState.remindersEnabled}
+                                onCheckedChange={handleReminderToggle}
+                              />
+                            </div>
                         </div>
-                    )}
+                         {formState.remindersEnabled && !isRemindersLocked && (
+                            <div className="space-y-3 pt-2 border-t border-border">
+                                {(formState.reminderTimes || []).map((time: string, index: number) => (
+                                    <div key={index} className="flex items-center gap-2">
+                                        <Input 
+                                            type="time" 
+                                            value={time} 
+                                            onChange={e => updateReminderTime(index, e.target.value)} 
+                                            className="flex-1"
+                                        />
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeReminderTime(index)}>
+                                            <X className="h-4 w-4"/>
+                                        </Button>
+                                    </div>
+                                ))}
+                                <Button variant="outline" size="sm" className="w-full" onClick={addReminderTime}>
+                                    <PlusCircle className="mr-2 h-4 w-4" /> Add Reminder
+                                </Button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
-        </div>
-         <UpgradeModal
-            isOpen={isUpgradeModalOpen}
-            onClose={() => setIsUpgradeModalOpen(false)}
-            requiredTier="basic"
-            featureName="Hydration Reminders"
-            reason="Build consistent hydration habits with gentle reminders."
-        />
+             <UpgradeModal
+                isOpen={isUpgradeModalOpen}
+                onClose={() => setIsUpgradeModalOpen(false)}
+                // **THE FIX**: Use the correct enum syntax for the tier.
+                requiredTier={UserTier.Basic}
+                featureName="Hydration Reminders"
+                reason="Build consistent hydration habits with gentle reminders."
+            />
         </>
     );
-};
+}

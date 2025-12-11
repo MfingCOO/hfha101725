@@ -1,71 +1,34 @@
 
 'use server';
 /**
- * @fileOverview A unified Genkit flow to manage the lifecycle of all scheduled events,
- * including indulgence plans and pop-up campaigns. This flow is designed to be
- * run by a recurring cron job.
+ * @fileOverview A unified Genkit flow to manage the lifecycle of scheduled pop-up campaigns.
+ * This flow is designed to be run by a recurring cron job.
  */
 
-import { ai } from '@/ai/genkit';
+
+import { defineFlow } from '@genkit-ai/core';
 import { z } from 'zod';
-import { db, admin } from '@/lib/firebaseAdmin';
+import { db } from '@/lib/firebaseAdmin';
+import { Timestamp } from 'firebase-admin/firestore';
 import { sendScheduledPopupNotification } from '@/services/reminders';
 
-// This is the new master flow for all scheduled events.
-export const processScheduledEventsFlow = ai.defineFlow(
-  {
-    name: 'processScheduledEventsFlow',
-    inputSchema: z.object({ dryRun: z.boolean().optional().default(false) }),
-    outputSchema: z.object({ 
-      processedPlans: z.number(),
-      activatedPlans: z.number(),
-      completedPlans: z.number(),
-      processedPopups: z.number(),
-      activatedPopups: z.number(),
-      completedPopups: z.number(),
-    }),
-  },
-  async ({ dryRun }) => {
-    console.log(`Running master scheduled event processing... ${dryRun ? '[DRY RUN]' : ''}`);
-    const now = admin.firestore.Timestamp.now();
-    const twentyFourHoursAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 24 * 60 * 60 * 1000);
-    
-    let activatedPlans = 0;
-    let completedPlans = 0;
+// Defines the shape of a Popup document for TypeScript
+interface Popup {
+  id: string;
+  name: string;
+  [key: string]: any; // Allows for other properties we don't need to name explicitly
+}
+// This flow processes all scheduled pop-up events.
+export const processScheduledEventsFlow = async (dryRun: boolean = false) => {
+
+    console.log(`Running scheduled pop-up processing... ${dryRun ? '[DRY RUN]' : ''}`);
+    const now = Timestamp.now();
+    const twentyFourHoursAgo = Timestamp.fromMillis(now.toMillis() - 24 * 60 * 60 * 1000);
     let activatedPopups = 0;
     let completedPopups = 0;
+    
 
     const masterBatch = db.batch();
-
-    // --- 1. Process Indulgence Plans ---
-    const plannedIndulgenceQuery = db.collection('indulgencePlans')
-        .where('status', '==', 'planned')
-        .where('indulgenceDate', '<=', now);
-
-    const activeIndulgenceQuery = db.collection('indulgencePlans')
-        .where('status', '==', 'active')
-        .where('indulgenceDate', '<=', twentyFourHoursAgo);
-
-    const [plannedIndulgenceSnapshot, activeIndulgenceSnapshot] = await Promise.all([
-      plannedIndulgenceQuery.get(),
-      activeIndulgenceQuery.get(),
-    ]);
-    
-    if (!plannedIndulgenceSnapshot.empty) {
-        plannedIndulgenceSnapshot.forEach(doc => {
-            console.log(`Activating indulgence plan ${doc.id}`);
-            masterBatch.update(doc.ref, { status: 'active' });
-            activatedPlans++;
-        });
-    }
-    
-    if (!activeIndulgenceSnapshot.empty) {
-        activeIndulgenceSnapshot.forEach(doc => {
-            console.log(`Completing indulgence plan ${doc.id}`);
-            masterBatch.update(doc.ref, { status: 'completed' });
-            completedPlans++;
-        });
-    }
     
     // --- 2. Process Pop-up Campaigns ---
     const scheduledPopupsQuery = db.collection('popups')
@@ -84,7 +47,7 @@ export const processScheduledEventsFlow = ai.defineFlow(
     // Process and deliver scheduled pop-ups
     if (!scheduledPopupsSnapshot.empty) {
         const deliveryPromises = scheduledPopupsSnapshot.docs.map(async (doc) => {
-            const popupData = { id: doc.id, ...doc.data() };
+          const popupData = { id: doc.id, ...doc.data() } as Popup;
             console.log(`Delivering scheduled pop-up: ${popupData.name} (ID: ${popupData.id})`);
             // This is the critical missing line that actually delivers the notification.
             await sendScheduledPopupNotification(popupData);
@@ -108,17 +71,13 @@ export const processScheduledEventsFlow = ai.defineFlow(
         await masterBatch.commit();
     }
     
-    const processedPlans = activatedPlans + completedPlans;
     const processedPopups = activatedPopups + completedPopups;
-    console.log(`Processed ${processedPlans} indulgence plans and ${processedPopups} pop-ups.`);
+console.log(`Processed ${processedPopups} pop-ups.`);
+
     
-    return { 
-      processedPlans, 
-      activatedPlans, 
-      completedPlans,
+    return {
       processedPopups,
       activatedPopups,
       completedPopups
-    };
+    };    
   }
-);

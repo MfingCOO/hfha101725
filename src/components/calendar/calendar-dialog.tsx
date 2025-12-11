@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
@@ -14,8 +13,8 @@ import type { ClientProfile, NutritionalGoals } from '@/types';
 import { DayView } from './day-view';
 import { WeekView } from './WeekView';
 import { MonthView } from './MonthView';
-import { getCalendarDataForDay } from '@/app/calendar/actions';
-import { UtensilsCrossed, Droplet, Moon, Flame, ShieldAlert, ClipboardList, X, Pencil } from 'lucide-react';
+import { getCalendarDataForDay, triggerSummaryRecalculation } from '@/app/calendar/actions';
+import { UtensilsCrossed, Droplet, Moon, Flame, ShieldAlert, ClipboardList, Pencil } from 'lucide-react';
 import { Button } from '../ui/button';
 import { BaseModal } from '../ui/base-modal';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
@@ -23,9 +22,8 @@ import { Progress } from '../ui/progress';
 import { rda } from '@/lib/rda';
 import { getClientByIdAction } from '@/app/coach/clients/actions';
 import { useToast } from '@/hooks/use-toast';
-import { Separator } from '../ui/separator';
 import { SettingsDialog } from '../settings/SettingsDialog';
-import { useDashboardActions } from '@/contexts/DashboardActionsContext';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const NutrientRow = ({ name, value, unit, goal, isTrackOnly = false }: { name: string, value: number, unit: string, goal: number, isTrackOnly?: boolean }) => {
     const percentage = goal > 0 && !isTrackOnly ? (value / goal) * 100 : value > 0 ? 100 : 0;
@@ -73,7 +71,6 @@ const NutritionalSummaryDialog = ({ isOpen, onClose, summary, client, onEditGoal
         return { macros, vitamins, minerals };
     }, []);
 
-    // Directly use the saved goals. This is the single source of truth.
     const goals = client.customGoals;
     
     const renderSection = (title: string, keys: Record<string, any>) => (
@@ -86,28 +83,14 @@ const NutritionalSummaryDialog = ({ isOpen, onClose, summary, client, onEditGoal
                     const goal = goals?.[key as keyof NutritionalGoals] as number || rda[key as keyof typeof rda]?.value || 0;
                     const unit = keys[key]?.unit || 'g';
                     
-                    return (
-                        <NutrientRow
-                            key={key}
-                            name={key}
-                            value={value}
-                            unit={unit}
-                            goal={goal}
-                        />
-                    );
+                    return <NutrientRow key={key} name={key} value={value} unit={unit} goal={goal} />;
                 })}
             </AccordionContent>
         </AccordionItem>
     );
 
     return (
-        <BaseModal
-            isOpen={isOpen}
-            onClose={onClose}
-            title="Daily Nutritional Summary"
-            description="A detailed breakdown of your nutrient intake for the day."
-            className="max-w-lg"
-        >
+        <BaseModal isOpen={isOpen} onClose={onClose} title="Daily Nutritional Summary" description="A detailed breakdown of your nutrient intake for the day." className="max-w-lg">
              <div className="max-h-[60vh] overflow-y-auto pr-6 -mr-6 space-y-4">
                 <Accordion type="multiple" defaultValue={['macros', 'vitamins']} className="w-full">
                     <AccordionItem value="macros">
@@ -115,49 +98,15 @@ const NutritionalSummaryDialog = ({ isOpen, onClose, summary, client, onEditGoal
                          <AccordionContent className="space-y-3">
                              <div className="p-2 rounded-md bg-muted/50 text-center relative">
                                 <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Recommended Daily Calorie Range</p>
-                                <p className="font-bold text-base">{Math.round(goals?.calorieGoalRange?.min || 0).toLocaleString()} - {Math.round(goals?.calorieGoalRange?.max || 0).toLocaleString()}</p>
-                                 <Button variant="ghost" size="icon" className="absolute top-1/2 right-1 -translate-y-1/2 h-7 w-7 text-muted-foreground" onClick={onEditGoals}>
-                                    <Pencil className="h-4 w-4" />
-                                </Button>
+                                <p className="font-bold text-base">{Math.round((goals?.calorieGoalRange as any)?.min || 0).toLocaleString()} - {Math.round((goals?.calorieGoalRange as any)?.max || 0).toLocaleString()}</p>
+                                 <Button variant="ghost" size="icon" className="absolute top-1/2 right-1 -translate-y-1/2 h-7 w-7 text-muted-foreground" onClick={onEditGoals}><Pencil className="h-4 w-4" /></Button>
                             </div>
-                            <NutrientRow
-                                name="Energy"
-                                value={summary.allNutrients['Energy']?.value || 0}
-                                unit="kcal"
-                                goal={goals?.calorieGoal || 0}
-                            />
-                            <NutrientRow
-                                name="Protein"
-                                value={summary.allNutrients['Protein']?.value || 0}
-                                unit="g"
-                                goal={goals?.protein || 0}
-                            />
-                            <NutrientRow
-                                name="Total lipid (fat)"
-                                value={summary.allNutrients['Total lipid (fat)']?.value || 0}
-                                unit="g"
-                                goal={goals?.fat || 0}
-                            />
-                            <NutrientRow
-                                name="Carbohydrate"
-                                value={summary.allNutrients['Carbohydrate, by difference']?.value || 0}
-                                unit="g"
-                                goal={goals?.carbs || 0}
-                            />
-                             <NutrientRow
-                                name="Fiber, total dietary"
-                                value={summary.allNutrients['Fiber, total dietary']?.value || 0}
-                                unit="g"
-                                goal={goals?.fiber || 35}
-                                isTrackOnly={true}
-                            />
-                             <NutrientRow
-                                name="Sugars, added"
-                                value={summary.allNutrients['Sugars, added']?.value || 0}
-                                unit="g"
-                                goal={0}
-                                isTrackOnly={true}
-                            />
+                            <NutrientRow name="Energy" value={summary.allNutrients['Energy']?.value || 0} unit="kcal" goal={goals?.calorieGoal || 0} />
+                            <NutrientRow name="Protein" value={summary.allNutrients['Protein']?.value || 0} unit="g" goal={goals?.protein || 0} />
+                            <NutrientRow name="Total lipid (fat)" value={summary.allNutrients['Total lipid (fat)']?.value || 0} unit="g" goal={goals?.fat || 0} />
+                            <NutrientRow name="Carbohydrate" value={summary.allNutrients['Carbohydrate, by difference']?.value || 0} unit="g" goal={goals?.carbs || 0} />
+                            <NutrientRow name="Fiber, total dietary" value={summary.allNutrients['Fiber, total dietary']?.value || 0} unit="g" goal={goals?.fiber || 35} isTrackOnly={true} />
+                            <NutrientRow name="Sugars, added" value={summary.allNutrients['Sugars, added']?.value || 0} unit="g" goal={0} isTrackOnly={true} />
                          </AccordionContent>
                     </AccordionItem>
                     {renderSection('Vitamins', nutrientCategories.vitamins)}
@@ -169,41 +118,45 @@ const NutritionalSummaryDialog = ({ isOpen, onClose, summary, client, onEditGoal
 }
 
 const DailySummaryBar = ({ summary, onSummaryClick }: { summary: any, onSummaryClick: () => void }) => {
-    if (!summary) return null;
-    
+    const displaySummary = {
+        calories: summary?.calories || 0,
+        hydration: summary?.hydration || 0,
+        sleep: summary?.sleep || 0,
+        activity: summary?.activity || 0,
+        upf: summary?.upf || 0
+    };
+
     return (
         <div className="flex-shrink-0 p-2 border-b bg-background/50 flex items-center justify-between gap-2">
             <div className="grid grid-cols-5 gap-1 text-center flex-1">
                 <div className="flex flex-col items-center">
                     <UtensilsCrossed className="h-4 w-4 text-amber-400" />
-                    <span className="text-xs font-bold">{summary.calories.toFixed(0)}</span>
+                    <span className="text-xs font-bold">{displaySummary.calories.toFixed(0)}</span>
                     <span className="text-[10px] text-muted-foreground -mt-1">kcal</span>
                 </div>
                  <div className="flex flex-col items-center">
                     <Droplet className="h-4 w-4 text-blue-400" />
-                    <span className="text-xs font-bold">{summary.hydration.toFixed(0)}</span>
+                    <span className="text-xs font-bold">{displaySummary.hydration.toFixed(0)}</span>
                     <span className="text-[10px] text-muted-foreground -mt-1">oz</span>
                 </div>
                  <div className="flex flex-col items-center">
                     <Moon className="h-4 w-4 text-indigo-400" />
-                    <span className="text-xs font-bold">{summary.sleep.toFixed(1)}</span>
+                    <span className="text-xs font-bold">{displaySummary.sleep.toFixed(1)}</span>
                     <span className="text-[10px] text-muted-foreground -mt-1">hr</span>
                 </div>
                  <div className="flex flex-col items-center">
                     <Flame className="h-4 w-4 text-orange-400" />
-                    <span className="text-xs font-bold">{summary.activity.toFixed(0)}</span>
+                    <span className="text-xs font-bold">{displaySummary.activity.toFixed(0)}</span>
                     <span className="text-[10px] text-muted-foreground -mt-1">min</span>
                 </div>
                  <div className="flex flex-col items-center">
                     <ShieldAlert className="h-4 w-4 text-red-400" />
-                    <span className="text-xs font-bold">{summary.upf.toFixed(0)}%</span>
+                    <span className="text-xs font-bold">{displaySummary.upf.toFixed(0)}%</span>
                     <span className="text-[10px] text-muted-foreground -mt-1">UPF</span>
                 </div>
             </div>
             <div className="flex-shrink-0">
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onSummaryClick}>
-                    <ClipboardList className="h-5 w-5 text-muted-foreground" />
-                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onSummaryClick}><ClipboardList className="h-5 w-5 text-muted-foreground" /></Button>
             </div>
         </div>
     )
@@ -214,19 +167,24 @@ interface CalendarDialogProps {
   onClose: () => void;
   client: ClientProfile;
   initialDate?: Date;
+  highlightedEntryId?: string; 
 }
 
-export function CalendarDialog({ isOpen, onClose, client: initialClient, initialDate }: CalendarDialogProps) {
+export function CalendarDialog({ isOpen, onClose, client: initialClient, initialDate, highlightedEntryId }: CalendarDialogProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'day' | 'week' | 'month'>('day');
   const [selectedDate, setSelectedDate] = useState(initialDate || new Date());
-  const [entries, setEntries] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
   const [fullClientProfile, setFullClientProfile] = useState<ClientProfile | null>(initialClient);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState('account');
   const [settingsDefaultAccordion, setSettingsDefaultAccordion] = useState<string | undefined>(undefined);
+  const [userTimezone, setUserTimezone] = useState<string>('');
+
+  useEffect(() => {
+      setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  }, []);
 
   useEffect(() => {
     if (initialDate) {
@@ -239,42 +197,50 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
     const result = await getClientByIdAction(initialClient.uid);
     if (result.success && result.data) {
         setFullClientProfile(result.data);
+    } else {
+        setFullClientProfile(initialClient);
     }
-  }, [initialClient.uid]);
+  }, [initialClient]);
   
   useEffect(() => {
-    // This effect ensures that if the settings dialog is closed, we refetch the
-    // client profile to get the latest goal data.
-    if (!isSettingsOpen) {
+    if (isOpen) {
       fetchClientProfile();
     }
-  }, [isSettingsOpen, fetchClientProfile]);
-
-
-  const fetchEntries = useCallback(async (date: Date) => {
-      setIsLoading(true);
-      const result = await getCalendarDataForDay(initialClient.uid, date.toISOString().split('T')[0]);
-      if (result.success && result.data) {
-          setEntries(result.data);
-      } else {
-          console.error("Failed to fetch calendar data:", result.error);
-          setEntries([]);
-      }
-      setIsLoading(false);
-  }, [initialClient.uid]);
+  }, [isOpen, fetchClientProfile]);
 
   useEffect(() => {
-      if (isOpen) {
+      if (!isSettingsOpen) {
           fetchClientProfile();
-          fetchEntries(selectedDate);
       }
-  }, [isOpen, selectedDate, fetchEntries, fetchClientProfile]);
+  }, [isSettingsOpen, fetchClientProfile]);
+
+  const dateString = selectedDate.toISOString().split('T')[0];
+  const timezoneOffset = selectedDate.getTimezoneOffset();
+  
+  const { data: calendarData, isLoading } = useQuery({
+      queryKey: ['calendarData', dateString, initialClient.uid, userTimezone, timezoneOffset],
+      queryFn: async () => {
+          const result = await getCalendarDataForDay(initialClient.uid, dateString, userTimezone, timezoneOffset);
+          if (result.success) {
+              return result;
+          } else {
+              console.error("Failed to fetch calendar data:", result.error);
+              toast({ variant: 'destructive', title: 'Error', description: 'Could not load calendar data.' });
+              return { data: [], summary: null };
+          }
+      },
+      enabled: isOpen && !!initialClient.uid && !!userTimezone
+  });
+
+  const handleEntryChange = async () => {
+      await triggerSummaryRecalculation(initialClient.uid, dateString, userTimezone, timezoneOffset);
+      queryClient.invalidateQueries({ queryKey: ['calendarData', dateString, initialClient.uid, userTimezone, timezoneOffset] });
+  };
 
   const handleEditGoals = () => {
-    setIsSummaryOpen(false); // Close the summary dialog
-    // A short delay ensures the summary dialog is closed before the settings dialog opens
+    setIsSummaryOpen(false);
     setTimeout(() => {
-        setSettingsDefaultTab('account'); // Or whichever tab your goals are on
+        setSettingsDefaultTab('account');
         setSettingsDefaultAccordion('goals');
         setIsSettingsOpen(true);
     }, 150);
@@ -282,83 +248,36 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
 
   const handleSummaryClick = () => {
     if (fullClientProfile?.trackingSettings?.nutrition === false) {
-        toast({
-            title: "Nutrition Tracking Disabled",
-            description: "Please enable nutrition tracking in your settings to view the summary.",
-        });
+        toast({ title: "Nutrition Tracking Disabled", description: "Please enable nutrition tracking in your settings to view the summary." });
         return;
     }
     setIsSummaryOpen(true);
   };
 
-  const dailySummary = useMemo(() => {
-    if (!entries) return null;
-      let calories = 0, hydration = 0, sleep = 0, activity = 0, totalUpfScore = 0, upfMeals = 0;
-      const allNutrients: { [key: string]: { value: number, unit: string } } = {};
-      entries.forEach(entry => {
-        if (entry.pillar === 'nutrition' && entry.summary?.nutrients) {
-            Object.entries(entry.summary.nutrients).forEach(([key, nutrient]: [string, any]) => {
-                if (typeof nutrient.value === 'number') {
-                    if (!allNutrients[key]) allNutrients[key] = { value: 0, unit: nutrient.unit };
-                    allNutrients[key].value += nutrient.value;
-                }
-            });
-            calories += entry.summary.nutrients.Energy?.value || 0;
-        }
-        if (entry.pillar === 'hydration') hydration += entry.amount || 0;
-        if (entry.pillar === 'sleep' && !entry.isNap) sleep += entry.duration || 0;
-        if (entry.pillar === 'activity') activity += entry.duration || 0;
-        if (entry.pillar === 'nutrition' && entry.summary?.upf) {
-            totalUpfScore += entry.summary.upf.score;
-            upfMeals++;
-        }
-      });
-      return { calories, hydration, sleep, activity, upf: upfMeals > 0 ? (totalUpfScore / upfMeals) : 0, allNutrients };
-  }, [entries]);
-
   return (
     <>
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="w-[90vw] max-w-7xl h-[90dvh] flex flex-col p-0">
-         <DialogHeader className="p-0 -m-2">
-            <DialogTitle srOnly>{initialClient.fullName}'s Calendar</DialogTitle>
-            <DialogDescription srOnly>View and manage calendar entries.</DialogDescription>
-        </DialogHeader>
+         <DialogHeader className="p-0 -m-2"><DialogTitle srOnly>{initialClient.fullName}&apos;s Calendar</DialogTitle><DialogDescription srOnly>View and manage calendar entries.</DialogDescription></DialogHeader>
         
         <div className="flex flex-col h-full w-full">
             <div className="flex-shrink-0">
                 <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)} className="w-full">
-                    <div className="p-2 border-b">
-                        <TabsList className="grid w-full grid-cols-3 mx-auto max-w-xs">
-                            <TabsTrigger value="day">Day</TabsTrigger>
-                            <TabsTrigger value="week">Week</TabsTrigger>
-                            <TabsTrigger value="month">Month</TabsTrigger>
-                        </TabsList>
-                    </div>
+                    <div className="p-2 border-b"><TabsList className="grid w-full grid-cols-3 mx-auto max-w-xs"><TabsTrigger value="day">Day</TabsTrigger><TabsTrigger value="week">Week</TabsTrigger><TabsTrigger value="month">Month</TabsTrigger></TabsList></div>
                 </Tabs>
-                {activeTab === 'day' && <DailySummaryBar summary={dailySummary} onSummaryClick={handleSummaryClick} />}
+                {activeTab === 'day' && <DailySummaryBar summary={calendarData?.summary} onSummaryClick={handleSummaryClick} />}
             </div>
             <div className="flex-1 min-h-0">
-              {activeTab === 'day' && <DayView client={initialClient} selectedDate={selectedDate} entries={entries} isLoading={isLoading} onDateChange={setSelectedDate} onEntryChange={() => fetchEntries(selectedDate)} />}
-              {activeTab === 'week' && <WeekView client={initialClient} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setActiveTab={setActiveTab} entries={entries} isLoading={isLoading} onDateChange={setSelectedDate}/>}
-              {activeTab === 'month' && <MonthView client={initialClient} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setActiveTab={setActiveTab} entries={entries} isLoading={isLoading} onDateChange={setSelectedDate}/>}
+              {activeTab === 'day' && <DayView client={initialClient} selectedDate={selectedDate} entries={calendarData?.data || []} isLoading={isLoading} onDateChange={setSelectedDate} onEntryChange={handleEntryChange} highlightedEntryId={highlightedEntryId} />}
+              {/* The other views may also need to be adapted if they consume this data differently */}
+              {activeTab === 'week' && <WeekView client={initialClient} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setActiveTab={setActiveTab} onDateChange={setSelectedDate} entries={calendarData?.data || []} isLoading={isLoading} />}
+              {activeTab === 'month' && <MonthView client={initialClient} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setActiveTab={setActiveTab} onDateChange={setSelectedDate} entries={calendarData?.data || []} isLoading={isLoading} />}
             </div>
         </div>
       </DialogContent>
     </Dialog>
-    <NutritionalSummaryDialog 
-        isOpen={isSummaryOpen}
-        onClose={() => setIsSummaryOpen(false)}
-        summary={dailySummary}
-        client={fullClientProfile}
-        onEditGoals={handleEditGoals}
-    />
-    <SettingsDialog
-        open={isSettingsOpen}
-        onOpenChange={setIsSettingsOpen}
-        defaultTab="account"
-        defaultAccordion={settingsDefaultAccordion}
-    />
+    <NutritionalSummaryDialog isOpen={isSummaryOpen} onClose={() => setIsSummaryOpen(false)} summary={calendarData?.summary} client={fullClientProfile} onEditGoals={handleEditGoals} />
+    <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} defaultTab="account" defaultAccordion={settingsDefaultAccordion} />
     </>
   );
 }

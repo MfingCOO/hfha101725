@@ -1,31 +1,48 @@
-
 'use server';
 /**
  * @fileOverview This flow calculates a 7-day rolling summary of key metrics for a client.
  * It is designed to be triggered after a new data entry is logged.
  */
 
-import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
-import { db as adminDb, admin } from '@/lib/firebaseAdmin';
+import { defineFlow, runFlow } from '@genkit-ai/flow';
+import { z } from 'zod';
+import { db as adminDb } from '@/lib/firebaseAdmin';
+import { Timestamp } from 'firebase-admin/firestore';
 import { getAllDataForPeriod } from '@/services/firestore';
-import { differenceInCalendarDays, startOfDay, subDays, isWithinInterval } from 'date-fns';
-import type { ClientProfile } from '@/types';
+import { differenceInCalendarDays, subDays, isWithinInterval } from 'date-fns';
+import type { ClientProfile } from '@/types/index';
 
 const CalculateSummariesInputSchema = z.object({
   clientId: z.string().describe('The UID of the client to process.'),
   dryRun: z.boolean().optional().default(false),
 });
-export type CalculateSummariesInput = z.infer<typeof CalculateSummariesInputSchema>;
+
+// DO NOT EXPORT the type directly in a 'use server' file.
+type CalculateSummariesInput = z.infer<typeof CalculateSummariesInputSchema>;
 
 const CalculateSummariesOutputSchema = z.object({
   success: z.boolean(),
   message: z.string(),
   summary: z.any().optional(),
 });
-export type CalculateSummariesOutput = z.infer<typeof CalculateSummariesOutputSchema>;
 
-export const calculateDailySummariesFlow = ai.defineFlow(
+// DO NOT EXPORT the type directly in a 'use server' file.
+type CalculateSummariesOutput = z.infer<typeof CalculateSummariesOutputSchema>;
+
+const safeToDate = (date: any): Date | null => {
+    if (!date) return null;
+    if (date.toDate) return date.toDate();
+    try {
+        const d = new Date(date);
+        if (isNaN(d.getTime())) return null;
+        return d;
+    } catch (e) {
+        return null;
+    }
+};
+
+// DO NOT EXPORT the flow definition directly in a 'use server' file.
+const calculateDailySummariesFlow = defineFlow(
   {
     name: 'calculateDailySummariesFlow',
     inputSchema: CalculateSummariesInputSchema,
@@ -35,25 +52,21 @@ export const calculateDailySummariesFlow = ai.defineFlow(
     console.log(`Starting daily summary calculation for client: ${clientId}`);
     const clientRef = adminDb.collection('clients').doc(clientId);
     
-    // 1. Fetch client's basic data
     const clientSnap = await clientRef.get();
     if (!clientSnap.exists) {
         throw new Error(`Client ${clientId} not found.`);
     }
     const clientData = clientSnap.data() as ClientProfile;
 
-    // 2. Fetch all relevant data for the last 7 days
     const result = await getAllDataForPeriod(7, clientId);
     if (!result.success || !result.data) {
         throw new Error(`Failed to fetch 7-day data for client ${clientId}.`);
     }
     const entries = result.data;
     
-    // Define the 24-hour window for recent binge check
     const now = new Date();
     const twentyFourHoursAgo = subDays(now, 1);
 
-    // 3. Initialize counters and aggregators
     let totalSleepHours = 0;
     let sleepDays = 0;
     let totalActivityMinutes = 0;
@@ -65,18 +78,21 @@ export const calculateDailySummariesFlow = ai.defineFlow(
     let totalUpfScore = 0;
     let upfMeals = 0;
     let recentBingeDetected = false;
-    let mostRecentBingeTimestamp: admin.firestore.Timestamp | null = null;
+    let mostRecentBingeTimestamp: Timestamp | null = null;
     const nutrientTotals: Record<string, number> = {};
 
-    // 4. Process each entry to build the summary
     for (const entry of entries) {
+        if (!entry.pillar) continue;
+
+        const entryDate = safeToDate(entry.entryDate);
+        if (!entryDate) continue;
+
         if (entry.pillar === 'cravings') {
             if (entry.type === 'binge') {
                 binges++;
-                const bingeDate = new Date(entry.entryDate);
-                if (isWithinInterval(bingeDate, { start: twentyFourHoursAgo, end: now })) {
+                if (isWithinInterval(entryDate, { start: twentyFourHoursAgo, end: now })) {
                     recentBingeDetected = true;
-                    const bingeTimestamp = admin.firestore.Timestamp.fromDate(bingeDate);
+                    const bingeTimestamp = Timestamp.fromDate(entryDate);
                     if (!mostRecentBingeTimestamp || bingeTimestamp.toMillis() > mostRecentBingeTimestamp.toMillis()) {
                          mostRecentBingeTimestamp = bingeTimestamp;
                     }
@@ -105,25 +121,35 @@ export const calculateDailySummariesFlow = ai.defineFlow(
             
             if (entry.summary.nutrients) {
                 for (const key in entry.summary.nutrients) {
-                    nutrientTotals[key] = (nutrientTotals[key] || 0) + (entry.summary.nutrients[key].value || 0);
+                    const nutrient = entry.summary.nutrients[key];
+                    if(nutrient && typeof nutrient.value === 'number') {
+                      nutrientTotals[key] = (nutrientTotals[key] || 0) + nutrient.value;
+                    }
                 }
             }
         }
     }
     
-    // 5. Fetch weight and waist data for trend calculation
     const measurementsQuery = await clientRef.collection('measurements')
         .orderBy('entryDate', 'asc')
         .get();
         
-    const weightData = measurementsQuery.docs.map(d => ({ weight: d.data().weight, date: d.data().entryDate.toDate() })).filter(d => d.weight);
-    const waistData = measurementsQuery.docs.map(d => ({ waist: d.data().waist, date: d.data().entryDate.toDate() })).filter(d => d.waist);
+    const weightData = measurementsQuery.docs.map(d => {
+        const data = d.data();
+        const date = safeToDate(data.entryDate);
+        return date ? { weight: data.weight, date } : null;
+    }).filter(d => d && d.weight);
 
-    // 6. Assemble the final summary object
+    const waistData = measurementsQuery.docs.map(d => {
+        const data = d.data();
+        const date = safeToDate(data.entryDate);
+        return date ? { waist: data.waist, date } : null;
+    }).filter(d => d && d.waist);
+
     const age = clientData.onboarding?.birthdate ? differenceInCalendarDays(new Date(), new Date(clientData.onboarding.birthdate)) / 365.25 : 0;
     
     const summary = {
-        lastUpdated: admin.firestore.Timestamp.now(),
+        lastUpdated: Timestamp.now(),
         age: Math.floor(age),
         sex: clientData.onboarding?.sex || 'unspecified',
         unit: clientData.onboarding?.units === 'metric' ? 'kg' : 'lbs',
@@ -148,7 +174,6 @@ export const calculateDailySummariesFlow = ai.defineFlow(
         },
     };
 
-    // 7. Save the summary to Firestore if not a dry run
     if (!dryRun) {
         await clientRef.set({ dailySummary: summary }, { merge: true });
         console.log(`Successfully updated daily summary for client: ${clientId}`);
@@ -161,3 +186,8 @@ export const calculateDailySummariesFlow = ai.defineFlow(
     };
   }
 );
+
+// EXPORT ONLY the async server action. This is the only function that should be callable from the client.
+export async function calculateDailySummaries(input: CalculateSummariesInput): Promise<CalculateSummariesOutput> {
+    return await runFlow(calculateDailySummariesFlow, input);
+}

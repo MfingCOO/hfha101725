@@ -3,7 +3,7 @@
 
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import type { Challenge } from '@/services/firestore';
-import { Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 function serializeTimestamps(docData: any) {
     if (!docData) return docData;
@@ -47,45 +47,69 @@ export async function getChallengesForClient(): Promise<{ success: boolean; data
  */
 export async function getLatestChallengeForClient(): Promise<{ success: boolean; data?: Challenge | null; error?: any; }> {
     try {
-        const now = Timestamp.now();
-        
-        // 1. Look for an active challenge
-        const activeQuery = adminDb.collection('challenges')
-            .where("dates.from", "<=", now)
-            .orderBy("dates.from", "desc");
-
-        const activeSnapshot = await activeQuery.get();
-        const activeChallengeDoc = activeSnapshot.docs.find(doc => {
-            const data = doc.data();
-            return data.dates.to.toMillis() >= now.toMillis();
-        });
-
-        if (activeChallengeDoc) {
-            const challengeData = { id: activeChallengeDoc.id, ...activeChallengeDoc.data() };
-            const serializableData = serializeTimestamps(challengeData);
-            return { success: true, data: serializableData as Challenge };
-        }
-
-        // 2. If no active challenge, look for the next upcoming one
-        const upcomingQuery = adminDb.collection('challenges')
-            .where("dates.from", ">", now)
-            .orderBy("dates.from", "asc")
+        const challengesQuery = adminDb.collection('challenges')
+            .orderBy("dates.from", "desc")
             .limit(1);
             
-        const upcomingSnapshot = await upcomingQuery.get();
+        const snapshot = await challengesQuery.get();
         
-        if (!upcomingSnapshot.empty) {
-            const upcomingChallengeDoc = upcomingSnapshot.docs[0];
-            const challengeData = { id: upcomingChallengeDoc.id, ...upcomingChallengeDoc.data() };
-            const serializableData = serializeTimestamps(challengeData);
-            return { success: true, data: serializableData as Challenge };
+        if (snapshot.empty) {
+            return { success: true, data: null };
         }
 
-        // 3. If no active or upcoming challenges are found
-        return { success: true, data: null };
+        const challengeDoc = snapshot.docs[0];
+        const challengeData = { id: challengeDoc.id, ...challengeDoc.data() };
+        const serializableData = serializeTimestamps(challengeData);
+        
+        return { success: true, data: serializableData as Challenge };
 
     } catch (error: any) {
         console.error("Error fetching latest challenge for client (admin): ", error);
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
+    }
+}
+
+export async function joinChallengeAction(challengeId: string, userId: string): Promise<{ success: boolean, error?: string}> {
+    if (!challengeId || !userId) {
+        return { success: false, error: "Challenge ID and User ID are required." };
+    }
+
+    const challengeRef = adminDb.collection('challenges').doc(challengeId);
+    const userRef = adminDb.collection('clients').doc(userId);
+
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const challengeDoc = await transaction.get(challengeRef);
+            if (!challengeDoc.exists) {
+                throw new Error("Challenge not found!");
+            }
+
+            const challengeData = challengeDoc.data() as Challenge;
+
+            if (challengeData.participants.includes(userId)) {
+                // User is already in the challenge, so no need to do anything.
+                return;
+            }
+            
+            if (challengeData.participantCount >= challengeData.maxParticipants) {
+                throw new Error("This challenge is already full.");
+            }
+
+            // Atomically update both documents
+            transaction.update(challengeRef, {
+                participants: FieldValue.arrayUnion(userId),
+                participantCount: FieldValue.increment(1)
+            });
+
+            transaction.update(userRef, {
+                challengeIds: FieldValue.arrayUnion(challengeId)
+            });
+        });
+
+        return { success: true };
+
+    } catch (error: any) {
+        console.error('Error joining challenge:', error);
+        return { success: false, error: error.message || "An unknown error occurred while trying to join the challenge." };
     }
 }

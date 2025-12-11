@@ -49,7 +49,7 @@ const createClientSchema = z.object({
     sleepTime: z.string(),
 });
 
-type CreateClientValues = z.infer<typeof createClientSchema>;
+export type CreateClientValues = z.infer<typeof createClientSchema>;
 
 interface CreateClientFormProps {
     onFormSubmit: (data: CreateClientValues) => Promise<{success: boolean, error?: any}>;

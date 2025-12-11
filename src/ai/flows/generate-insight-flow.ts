@@ -1,79 +1,72 @@
-
 'use server';
 /**
- * @fileOverview This file defines a Genkit flow for generating personalized wellness insights.
- *
- * - generateInsight - A function that takes a history of user data and returns an AI-powered insight.
- * - GenerateInsightInput - The input type for the generateInsight function.
- * - GenerateInsightOutput - The return type for the generateInsight function.
+ * @fileOverview Defines a Genkit flow for generating daily wellness insights.
+ * THIS IS THE FINAL, CORRECT SYNTAX, using the project's custom configuredGenkit instance.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { z } from 'zod';
 import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
+import { getAllDataForPeriod } from '@/services/firestore';
 
-const GenerateInsightInputSchema = z.object({
-  history: z.string().describe('A JSON string representing the user\'s logged data for a specific period.'),
-  periodInDays: z.number().describe('The number of days the history covers (e.g., 3, 7, 21).'),
+// THE KEY: Import the project-specific configured instance of Genkit.
+import { configuredGenkit } from '../genkit.config';
+
+const InsightInputSchema = z.object({
+  clientId: z.string(),
+  days: z.number().positive(),
 });
-export type GenerateInsightInput = z.infer<typeof GenerateInsightInputSchema>;
 
-const GenerateInsightOutputSchema = z.object({
-    title: z.string().describe("A catchy, positive title for the insight (e.g., 'Sleep is Your Superpower!')."),
-    pattern: z.string().describe('The single most important positive or negative pattern, trend, or correlation discovered in the data.'),
-    explanation: z.string().describe('The biological "why" behind the pattern, explaining the mechanism in simple, encouraging terms (e.g., how sleep affects ghrelin/leptin).'),
-    suggestion: z.string().describe('A simple, actionable suggestion or a celebratory affirmation based on the insight.'),
+const InsightOutputSchema = z.object({
+  calories: z.string().describe('A summary of daily calorie intake and expenditure.'),
+  macros: z.string().describe('An analysis of macronutrient distribution (protein, carbs, fat).'),
+  hydration: z.string().describe('An evaluation of daily water intake.'),
+  recommendation: z.string().describe('A key recommendation for the client based on the analysis.'),
 });
-export type GenerateInsightOutput = z.infer<typeof GenerateInsightOutputSchema>;
 
-export async function generateInsight(input: GenerateInsightInput): Promise<GenerateInsightOutput> {
-  return generateInsightFlow(input);
-}
+// SURGICAL ADDITION: Export the inferred Zod type for use on the client.
+export type GenerateInsightOutput = z.infer<typeof InsightOutputSchema>;
 
-const generateInsightFlow = ai.defineFlow(
+
+// THE FIX: Call defineFlow as a method on our custom genkit instance.
+export const generateInsightFlow = configuredGenkit.defineFlow(
   {
     name: 'generateInsightFlow',
-    inputSchema: GenerateInsightInputSchema,
-    outputSchema: GenerateInsightOutputSchema,
+    inputSchema: InsightInputSchema,
+    outputSchema: InsightOutputSchema,
   },
-  async input => {
-    const settings = await getSiteSettingsAction();
-    // Force the app to use the model set in the coach's settings.
-    // If it's not set, it should fail clearly.
-    const modelName = settings.data?.aiModelSettings?.flash;
+  async ({ clientId, days }) => {
+    const [settings, journalEntries] = await Promise.all([
+      getSiteSettingsAction(),
+      getAllDataForPeriod(days, clientId),
+    ]);
 
+    const modelName = settings.data?.aiModelSettings?.pro;
     if (!modelName) {
-      throw new Error("The 'Flash' AI model has not been configured in the site settings. Please ask the coach to set it.");
+      throw new Error("The 'Pro' AI model is not configured in settings.");
     }
-    
-    console.log(`Using AI model for generateInsightFlow: ${modelName}`);
-    
-    const { output } = await ai.generate({
-      model: modelName,
-      prompt: `You are an AI wellness coach for the "Hunger Free and Happy" app. Your goal is to analyze a user's data for the last ${input.periodInDays} days to find the single most impactful pattern and explain it in a way that is educational, motivational, and free of judgment, based on the book's philosophy.
-  
-Core Philosophy: Focus on celebrating progress and framing challenges as learning opportunities. Explain the biological "why" behind habits (e.g., hormone balance, metabolism, gut health). Connect actions to the feeling of being "hunger-free and happy." Avoid language of restriction, failure, or guilt.
 
-Your Task:
-1. Analyze the provided JSON data of the user's logs.
-2. Identify the single most important pattern. This could be a positive synergy (e.g., good sleep + hydration led to fewer cravings) or a learning opportunity (e.g., high stress correlated with eating more ultra-processed food).
-3. Create a response in the required JSON format with the following fields:
-- title: A short, encouraging, and positive title for the insight.
-- pattern: A one-sentence description of the pattern you found.
-- explanation: Simply and clearly explain the biological reason ("the why") for this pattern. Connect it to hormones (ghrelin, leptin, cortisol), energy levels, or mood.
-- suggestion: Offer a simple, actionable tip if it's a learning opportunity, or a powerful affirmation if it's a positive pattern.
-`,
-      context: [
-        { role: 'user', content: `Here is the user's data to analyze:\n\n${input.history}` }
-      ],
+    if (!journalEntries || !journalEntries.data || journalEntries.data.length === 0) {
+      throw new Error("No journal entries found.");
+    }
+
+    const dataString = JSON.stringify(journalEntries.data, null, 2);
+
+    // THE FIX: Call generate as a method on our custom genkit instance.
+    const response = await configuredGenkit.generate({
+      model: modelName,
+      prompt: `Analyze the user's journal data and provide a concise summary. Format as JSON matching the schema.`,
       output: {
         format: 'json',
-        schema: GenerateInsightOutputSchema,
+        schema: InsightOutputSchema,
       },
+      context: [
+        { role: 'user', content: `Journal Data (past ${days} days):\n\n${dataString}` }
+      ],
     });
 
+    const output = response.output;
     if (!output) {
-      throw new Error('The AI failed to generate a valid insight.');
+      throw new Error("The AI model did not return a valid insight.");
     }
 
     return output;

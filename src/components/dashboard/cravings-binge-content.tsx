@@ -45,8 +45,9 @@ const HungerScaleDropdown = ({ value, onValueChange, label = "Hunger Level (0-10
 };
 
 
-export const CravingsBingeContent = (props: Omit<ContentProps, 'pillar' | 'entryDate' | 'clientProfile'>) => {
+export const CravingsBingeContent = (props: ContentProps) => {
     const { formState, onFormStateChange } = props;
+    
     const { 
         activeTab = "craving",
         severity = 3,

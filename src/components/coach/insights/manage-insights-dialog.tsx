@@ -1,9 +1,6 @@
-
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { generateHolisticInsight, GenerateHolisticInsightOutput } from '@/ai/flows/generate-holistic-insight';
-import { getStressAndHungerSpotlight } from '@/services/firestore';
 import { Loader2, Lightbulb, Sparkles, CheckCircle, BrainCircuit, X, TrendingUp, Heart, HeartCrack, ShieldAlert, Apple, Zap, Scale } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {

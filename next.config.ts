@@ -1,9 +1,7 @@
-// next.config.js (Ensure this is exactly what you have)
 
-import type {NextConfig} from 'next';
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // ... (rest of your config)
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -26,33 +24,50 @@ const nextConfig: NextConfig = {
       }
     ],
   },
+  async headers() {
+      return [
+          {
+              source: '/:path*',
+              headers: [
+                  {
+                      key: 'Permissions-Policy',
+                      value: 'payment=*',
+                  },
+                  {
+                      key: 'Cross-Origin-Opener-Policy',
+                      value: 'same-origin-allow-popups',
+                  }
+              ],
+          },
+      ];
+  },
   experimental: {
-    instrumentationHook: true, // This line is added
     serverActions: {
       bodySizeLimit: '4.5mb',
     },
   },
-
   webpack: (config, { isServer }) => {
-    // 1. Client-Side Fix: Stub out Node.js modules for the browser
+    config.experiments = { ...config.experiments, asyncWebAssembly: true };
+
     if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        crypto: false, 
-        fs: false, 
-        os: false,
-        path: false,
-      };
+      config.externals = [...(config.externals || []), 'async_hooks', 'child_process', 'diagnostics_channel', 'fs'];
     }
 
-    // 2. Server/Edge Fix: Use Webpack externals (as a backup)
     if (isServer) {
-        config.externals = config.externals || [];
-        config.externals.push('crypto', 'fs', 'os', 'path'); 
+        config.externals = [...(config.externals || []), 'net', 'tls'];
     }
+
+    config.module.rules.push({
+      test: /\.wasm$/,
+      type: 'webassembly/async',
+    });
 
     return config;
-  }
+  },
+  allowedDevOrigins: [
+      'https://*.cloudworkstations.dev',
+      'https://3000-firebase-103125-1761919991969.cluster-zsqzu5kebnaemxbyqrvoim2lxo.cloudworkstations.dev'
+  ],
 };
 
 export default nextConfig;

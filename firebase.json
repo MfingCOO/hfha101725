@@ -1,36 +1,26 @@
+
 {
-  "hosting": {
-    "public": "public",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "**",
-        "destination": "/_apphosting/studio"
-      }
-    ]
-  },
   "firestore": {
     "database": "(default)",
     "location": "nam5",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "functions": {
+    "source": "functions"
+  },
   "storage": {
     "rules": "storage.rules"
   },
-  "apphosting": {
-    "backendId": "studio",
-    "rootDir": "/",
+  "hosting": {
+    "source": ".",
     "ignore": [
-      "node_modules",
-      ".git",
-      "firebase-debug.log",
-      "firebase-debug.*.log",
-      "functions"
-    ]
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "frameworksBackend": {
+      "region": "us-central1"
+    }
   }
 }

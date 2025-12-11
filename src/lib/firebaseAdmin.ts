@@ -1,20 +1,35 @@
+import { initializeApp, getApps, App } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
+import { getMessaging } from 'firebase-admin/messaging';
+import { getStorage } from 'firebase-admin/storage';
 
-import admin from 'firebase-admin';
-// The import path is relative to the `out` directory, so we need to go up two levels.
-import serviceAccount from '../../firebase-service-account-key.json';
-
-if (!admin.apps.length) {
-  try {
-    admin.initializeApp({
-      // Use the cert method to create a credential object
-      credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
-    });
-  } catch (error: any) {
-    console.error('Firebase admin initialization error', error.stack);
-  }
+// This is the new, correct way to initialize.
+let app: App;
+if (!getApps().length) {
+  console.log('[Firebase Admin] Initializing with Application Default Credentials...');
+  app = initializeApp({
+    projectId: 'hunger-free-and-happy-app',
+  });
+  console.log('[Firebase Admin] Initialization successful.');
+} else {
+  app = getApps()[0];
 }
 
-const db = admin.firestore();
-const auth = admin.auth();
+// Export only the specific services you need.
+const db = getFirestore(app);
+const auth = getAuth(app);
+const messaging = getMessaging(app);
+const storage = getStorage(app);
+
+// For compatibility, we can re-export the modular services
+// under the 'admin' namespace if other parts of your code expect it.
+const admin = {
+  firestore: () => db,
+  auth: () => auth,
+  messaging: () => messaging,
+  storage: () => storage,
+  // Add other admin services here if you use them
+};
 
 export { db, auth, admin };

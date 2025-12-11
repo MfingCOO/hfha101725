@@ -1,17 +1,16 @@
-
 'use client';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription
 } from '@/components/ui/dialog';
-import { CreateClientForm } from '@/components/coach/clients/create-client-form';
+import { CreateClientForm, type CreateClientValues } from '@/components/coach/clients/create-client-form';
 import { useToast } from '@/hooks/use-toast';
 import { createClientByCoachAction } from '@/app/coach/clients/actions';
-import type { CreateClientInput } from '@/ai/flows/create-client-flow';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useAuth } from '@/components/auth/auth-provider';
+import type { CreateClientInput } from '@/types';
 
 interface CreateClientDialogProps {
   open: boolean;
@@ -21,10 +20,26 @@ interface CreateClientDialogProps {
 
 export function CreateClientDialog({ open, onOpenChange, onClientCreated }: CreateClientDialogProps) {
     const { toast } = useToast();
+    const { user } = useAuth(); 
 
-    const handleCreateClient = async (data: CreateClientInput) => {
+    const handleCreateClient = async (data: CreateClientValues) => {
+        if (!user) {
+            toast({
+                variant: 'destructive',
+                title: 'Authentication Error',
+                description: 'You must be logged in to create a client.',
+            });
+            return { success: false, error: { message: "User not authenticated" } };
+        }
+
+        // SURGICAL FIX: Assert the type to CreateClientInput, trusting form validation.
+        const clientData = {
+            ...data,
+            coachId: user.uid,
+        } as CreateClientInput;
+
         try {
-            const result = await createClientByCoachAction(data);
+            const result = await createClientByCoachAction(clientData);
             if (result.success) {
                 toast({
                     title: 'Client Created Successfully!',
@@ -33,7 +48,7 @@ export function CreateClientDialog({ open, onOpenChange, onClientCreated }: Crea
                 onClientCreated();
                 return { success: true };
             } else {
-                throw new Error(result.error || "An unknown error occurred.");
+                throw new Error(result.error?.message || "An unknown error occurred.");
             }
         } catch (error: any) {
             console.error("Client creation failed:", error);

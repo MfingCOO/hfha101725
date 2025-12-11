@@ -2,7 +2,7 @@
 import { UtensilsCrossed, Droplet, Flame, Star, CloudSun, UserCheck, Salad, Apple, Lightbulb, Scale, HeartCrack, Moon, Trophy, Users } from 'lucide-react';
 
 export const pillarsAndTools = [
-  { id: 'nutrition', label: 'Nutrition', icon: UtensilsCrossed, color: 'text-amber-500', bgColor: 'bg-amber-100/50', borderColor: 'border-amber-300', quote: "Whole foods satisfy soulfully—protein for lasting fullness. ~Alan Roberts" },
+  { id: 'nutrition', label: 'Nutrition', icon: UtensilsCrossed, color: 'text-amber-500', bgColor: 'bg-amber-100/50', borderColor: 'border-amber-300', quote: "Whole foods satisfy soulfully—protein for lasting fullness. ~Alan Roberts", tool: 'nutrition' },
   { id: 'activity', label: 'Activity', icon: Flame, color: 'text-orange-500', bgColor: 'bg-orange-100/50', borderColor: 'border-orange-300', quote: "Joyful movement ignites energy—walk to natural joy. ~Alan Roberts" },
   { id: 'sleep', label: 'Sleep', icon: Moon, color: 'text-indigo-500', bgColor: 'bg-indigo-100/50', borderColor: 'border-indigo-300', quote: "Sleep restores your body's wisdom—rest for effortless control. ~Alan Roberts" },
   { id

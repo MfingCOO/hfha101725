@@ -1,11 +1,13 @@
-
 'use client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ClientStatsDashboard } from './client-stats-dashboard';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { ClientProfile } from '@/types';
-import { getCoachingChatIdForClient, deleteClientAction, getClientByIdAction, generateClientInsightAction, calculateDailySummariesAction } from '@/app/coach/clients/actions';
+import { getCoachingChatIdForClient, deleteClientAction, getClientByIdAction } from '@/app/coach/clients/actions';
+import { calculateDailySummaries } from '@/ai/flows/calculate-daily-summaries';
+import { generateInsightFlow, type GenerateInsightOutput } from '@/ai/flows/generate-insight-flow';
+
 import { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -24,7 +26,6 @@ import { ClientCalendarView } from './ClientCalendarView';
 import { CoachNotes } from './CoachNotes';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { GenerateInsightOutput } from '@/ai/flows/generate-insight-flow';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { EmbeddedChatDialog } from '../chats/embedded-chat-dialog';
 
@@ -44,11 +45,13 @@ const AiInsightSection = ({ client }: { client: ClientProfile }) => {
         setIsGenerating(true);
         setInsight(null);
         try {
-            const result = await generateClientInsightAction(client.uid, insightPeriod);
-            if (result.success && result.data) {
-                setInsight(result.data);
+            const result = await generateInsightFlow({ clientId: client.uid, days: insightPeriod });
+            // This now correctly accesses the 'recommendation' field on the returned object.
+            if (result && result.recommendation) { 
+                // This correctly uses the entire result object, which matches the GenerateInsightOutput type.
+                setInsight(result); 
             } else {
-                throw new Error(result.error || 'Failed to generate insight.');
+                throw new Error('The AI model did not return a valid insight.');
             }
         } catch (error: any) {
             toast({
@@ -89,18 +92,23 @@ const AiInsightSection = ({ client }: { client: ClientProfile }) => {
             
             {insight && (
                 <div className="rounded-lg bg-background/80 p-4 space-y-3 animate-in fade-in-50">
-                    <h3 className="text-lg font-bold text-primary flex items-center gap-2"><Sparkles className="h-5 w-5" /> {insight.title}</h3>
+                    {/* This structure now accesses the fields within the 'insight' object */}
+                    <h3 className="text-lg font-bold text-primary flex items-center gap-2"><Sparkles className="h-5 w-5" /> AI Summary</h3>
                     <div>
-                        <h4 className="font-semibold text-sm">Pattern Identified:</h4>
-                        <p className="text-sm text-muted-foreground">{insight.pattern}</p>
+                        <h4 className="font-semibold text-sm">Calories:</h4>
+                        <p className="text-sm text-muted-foreground">{insight.calories}</p>
                     </div>
-                        <div>
-                        <h4 className="font-semibold text-sm">The "Why":</h4>
-                        <p className="text-sm text-muted-foreground">{insight.explanation}</p>
+                    <div>
+                        <h4 className="font-semibold text-sm">Macros:</h4>
+                        <p className="text-sm text-muted-foreground">{insight.macros}</p>
                     </div>
-                        <div className="bg-primary/10 border-l-4 border-primary text-primary-foreground p-3 rounded-r-lg">
-                        <h4 className="font-semibold flex items-center gap-2 text-sm text-primary"><CheckCircle className="h-5 w-5" /> Suggestion:</h4>
-                        <p className="text-foreground/90 text-sm">{insight.suggestion}</p>
+                    <div>
+                        <h4 className="font-semibold text-sm">Hydration:</h4>
+                        <p className="text-sm text-muted-foreground">{insight.hydration}</p>
+                    </div>
+                    <div className="bg-primary/10 border-l-4 border-primary text-primary-foreground p-3 rounded-r-lg">
+                        <h4 className="font-semibold flex items-center gap-2 text-sm text-primary"><CheckCircle className="h-5 w-5" /> Key Recommendation:</h4>
+                        <p className="text-foreground/90 text-sm">{insight.recommendation}</p>
                     </div>
                 </div>
             )}
@@ -122,7 +130,8 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
     if (!initialClient.uid) return;
     setIsRefreshing(true);
     try {
-        await calculateDailySummariesAction(initialClient.uid);
+        // This now correctly passes the arguments as an object.
+        await calculateDailySummaries({ clientId: initialClient.uid });
         const result = await getClientByIdAction(initialClient.uid);
         if (result.success && result.data) {
             setClient(result.data);

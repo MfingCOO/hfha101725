@@ -2,7 +2,7 @@
 'use server';
 
 import { db as adminDb, admin } from '@/lib/firebaseAdmin';
-
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 export interface LibraryDocument {
     id: string;
     name: string;
@@ -59,7 +59,7 @@ export async function uploadDocumentAction(base64: string, name: string, type: s
                 text,
                 url: uploadResult.url,
                 storagePath: uploadResult.storagePath,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: FieldValue.serverTimestamp(),
                 coachId,
                 coachName
             };
@@ -86,7 +86,7 @@ export async function getLibraryDocumentsAction(): Promise<{ success: boolean; d
                 url: data.url,
                 type: data.type,
                 storagePath: data.storagePath,
-                createdAt: (data.createdAt as admin.firestore.Timestamp).toDate().toISOString(),
+                createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
                 coachId: data.coachId,
                 coachName: data.coachName,
                 text: data.text,

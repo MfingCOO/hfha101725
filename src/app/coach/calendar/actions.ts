@@ -1,7 +1,8 @@
 
 'use server';
 
-import { db as adminDb, admin } from '@/lib/firebaseAdmin';
+import { db as adminDb } from '@/lib/firebaseAdmin';
+import { Timestamp } from 'firebase-admin/firestore';
 import { z }from 'zod';
 import { endOfDay } from 'date-fns';
 import type { AvailabilitySettings, SiteSettings } from '@/types';
@@ -26,7 +27,7 @@ function serializeTimestamps(docData: any): any {
     if (!docData) return docData;
     const newObject: { [key: string]: any } = { ...docData };
     for (const key in newObject) {
-      if (newObject[key] instanceof admin.firestore.Timestamp) {
+        if (newObject[key] instanceof Timestamp) {
         newObject[key] = newObject[key].toDate().toISOString();
       } else if (typeof newObject[key] === 'object' && newObject[key] !== null && !Array.isArray(newObject[key])) {
           newObject[key] = serializeTimestamps(newObject[key]);
@@ -37,8 +38,8 @@ function serializeTimestamps(docData: any): any {
 
 export async function getCoachEvents(startDate: Date, endDate: Date) {
     try {
-        const startTimestamp = admin.firestore.Timestamp.fromDate(startDate);
-        const endTimestamp = admin.firestore.Timestamp.fromDate(endOfDay(endDate));
+        const startTimestamp = Timestamp.fromDate(startDate);
+        const endTimestamp = Timestamp.fromDate(endOfDay(endDate));
 
         // This query is now corrected to use inequalities on a single field ('start'),
         // which is a valid Firestore query. This resolves the server error.
@@ -75,8 +76,8 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         
         let finalEventData: any = {
             ...dataToSave,
-            start: admin.firestore.Timestamp.fromDate(dataToSave.start),
-            end: admin.firestore.Timestamp.fromDate(dataToSave.end),
+            start: Timestamp.fromDate(dataToSave.start),
+            end: Timestamp.fromDate(dataToSave.end),
             videoCallLink: null, // Ensure link is cleared by default
         };
 
@@ -155,8 +156,8 @@ export async function getCoachAvailabilityAndEvents(startDate: Date, endDate: Da
                 ...siteSettings.availability,
                 vacationBlocks: siteSettings.availability.vacationBlocks?.map(block => ({
                     ...block,
-                    start: (block.start as unknown as admin.firestore.Timestamp).toDate().toISOString(),
-                    end: (block.end as unknown as admin.firestore.Timestamp).toDate().toISOString(),
+                    start: (block.start as unknown as Timestamp).toDate().toISOString(),
+                    end: (block.end as unknown as Timestamp).toDate().toISOString(),
                 })) || []
             }
             : null;

@@ -1,7 +1,8 @@
 
 'use client';
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { onIdTokenChanged, User } from 'firebase/auth';
+// CORRECTED: Added 'signOut' to the import to match modern Firebase v9+ API
+import { onIdTokenChanged, User, signOut } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, db, messaging } from '@/lib/firebase';
 import { Loader2 } from 'lucide-react';
@@ -40,24 +41,19 @@ function AuthRedirector({ children }: { children: ReactNode }) {
         const isClientRoute = pathname.startsWith('/client');
         const isCoachRoute = pathname.startsWith('/coach');
 
-        // The user is logged in and all their data is loaded
         if (user && userProfile) {
             if (isPublicPage) {
-                // If on a public page, redirect to the correct dashboard
                 router.replace(isCoach ? '/coach/dashboard' : '/client/dashboard');
             } else if (isCoach && !isCoachRoute) {
-                // If a coach is on a non-coach page, redirect to their dashboard
                  if (!pathname.startsWith('/chats') && !pathname.startsWith('/settings')) {
                     router.replace('/coach/dashboard');
                  }
             } else if (!isCoach && !isClientRoute) {
-                // If a client is on a non-client page, redirect to their dashboard
                  if (!pathname.startsWith('/chats') && !pathname.startsWith('/settings')) {
                     router.replace('/client/dashboard');
                  }
             }
         } else if (!user) {
-             // The user is not logged in
             if (!isPublicPage) {
                 router.replace('/login');
             }
@@ -78,7 +74,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let unsubscribeUserProfile: (() => void) | undefined;
     let unsubscribeClientProfile: (() => void) | undefined;
     
-    // --- New Push Notification Logic ---
     const requestNotificationPermission = async (currentUser: User) => {
       if (typeof window !== 'undefined' && 'serviceWorker' in navigator && messaging) {
         try {
@@ -89,7 +84,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.error("VAPID key not found in environment variables.");
               return;
             }
-            // This is now wrapped in a try...catch to handle the push service error gracefully.
             try {
               const currentToken = await getToken(messaging, { vapidKey: vapidKey });
               if (currentToken) {
@@ -118,13 +112,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (authUser) {
         setUser(authUser);
-        requestNotificationPermission(authUser); // Request permission on login
+        requestNotificationPermission(authUser);
         const userIsCoach = COACH_UIDS.includes(authUser.uid);
         setIsCoach(userIsCoach);
 
         let tempUserProfile: Partial<UserProfile> = {};
         let tempClientProfile: Partial<ClientProfile> = {};
-        
         let hasInitialized = false;
 
         const combinedProfileUpdater = () => {
@@ -143,11 +136,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             combinedProfileUpdater();
           } else {
              console.error(`Auth Error: User profile not found for UID: ${authUser.uid}. Forcing logout.`);
-             auth.signOut();
+             // CORRECTED: Updated to the modern Firebase v9+ modular syntax
+             signOut(auth);
           }
         }, (error) => {
              console.error("Auth Error: userProfiles snapshot listener failed.", error);
-             auth.signOut();
+             // CORRECTED: Updated to the modern Firebase v9+ modular syntax
+             signOut(auth);
         });
         
         if (!userIsCoach) {

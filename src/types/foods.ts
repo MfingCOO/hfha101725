@@ -1,91 +1,74 @@
-/**
- * @fileOverview This file contains the Zod schemas and TypeScript types
- * for the USDA FoodData Central search tool. Separating these into a
- * dedicated file prevents "use server" module boundary errors.
- *
- * This contract ensures the full, clean data is passed from the
- * backend tool to the frontend component, preventing data loss and
-  * calculation discrepancies.
- */
 
 import { z } from 'zod';
 
-// A standardized representation of a single nutrient.
-const NutrientSchema = z.object({
-  value: z.number(),
-  unit: z.string(),
+// Schema for individual nutrients
+export const NutrientSchema = z.object({
+  name: z.string(),
+  amount: z.number(),
+  unitName: z.string(),
 });
+export type Nutrient = z.infer<typeof NutrientSchema>;
 
-// A standardized representation of a single serving size option.
-const ServingOptionSchema = z.object({
-    // User-friendly label, e.g., "1 Donut (57g)" or "100g"
-    label: z.string(),
-    // The equivalent weight in grams for this serving option.
-    grams: z.number(),
+// Schema for serving size options
+export const ServingOptionSchema = z.object({
+  description: z.string(),
+  gramWeight: z.number(),
 });
+export type ServingOption = z.infer<typeof ServingOptionSchema>;
 
-// Defines optional attributes that a food can have.
-const FoodAttributesSchema = z.object({
+// Schema for additional food attributes, like gluten-free status
+export const FoodAttributesSchema = z.object({
   isGlutenFree: z.boolean().optional(),
 });
 export type FoodAttributes = z.infer<typeof FoodAttributesSchema>;
 
-
-// The new, comprehensive schema for a food item.
-// This is the "single source of truth" for all food data in the app.
+// The most detailed and comprehensive schema for a food item.
+// This is used for validation when data is sanitized.
 export const FoodSchema = z.object({
   fdcId: z.number(),
   description: z.string(),
   brandOwner: z.string().optional(),
   ingredients: z.string().optional(),
-
-  // The food's category from the USDA database, passed through for UPF analysis.
-  foodCategory: z.string().optional(),
-  
-  dataType: z.string().optional(),
-
-  // An array of all possible serving sizes for the UI to use.
+  foodCategory: z.string(),
+  dataType: z.string(),
   servingOptions: z.array(ServingOptionSchema),
-
-  // A complete key-value map of all nutrients, normalized to a per-100g basis.
-  // This allows the UI to reliably calculate nutrition for any selected serving size.
-  nutrients: z.record(z.string(), NutrientSchema),
-  
-  // A score calculated based on the completeness of the data from the USDA API.
-  completenessScore: z.number().optional(),
-
-  // A new object to hold boolean flags for various food attributes.
+  nutrients: z.record(NutrientSchema), // Nutrients are a map with the nutrient name as the key
   attributes: FoodAttributesSchema.optional(),
+  completenessScore: z.number().optional(),
 });
 
+// The TypeScript type derived from the FoodSchema
 export type Food = z.infer<typeof FoodSchema>;
 
-// The output of the food search tool is a structured object to categorize results.
+// Schema for the output of the USDA search tool
 export const FoodSearchOutputSchema = z.object({
-    brandedFoods: z.array(FoodSchema),
-    foundationFoods: z.array(FoodSchema),
-    otherFoods: z.array(FoodSchema),
+  brandedFoods: z.array(FoodSchema),
+  foundationFoods: z.array(FoodSchema),
+  otherFoods: z.array(FoodSchema),
 });
+
+// The TypeScript type derived from the FoodSearchOutputSchema
 export type FoodSearchOutput = z.infer<typeof FoodSearchOutputSchema>;
 
-
-// --- MOVED HERE TO BREAK CIRCULAR DEPENDENCY ---
-// This schema now lives in the central types file.
-export const DetectUpfOutputSchema = z.object({
-	score: z.number().describe("A score from 0 (whole food) to 100 (highly ultra-processed)."),
-	classification: z.enum(['green', 'yellow', 'red']).describe("A color-coded classification: green for whole/minimally processed, yellow for processed, red for ultra-processed."),
-	reasoning: z.string().describe("A concise, one-sentence explanation for the classification.")
+// Schema for UPF analysis data, used within EnrichedFoodItem
+export const UpfSchema = z.object({
+  score: z.number(),
+  classification: z.string(),
+  reasoning: z.string(),
 });
-export type DetectUpfOutput = z.infer<typeof DetectUpfOutputSchema>;
+export type Upf = z.infer<typeof UpfSchema>;
 
-
-// The final, enriched item returned to the UI is a combination of the food and its UPF analysis.
+// Schema for an enriched food item, which combines the base food data with UPF analysis
 export const EnrichedFoodItemSchema = z.object({
-    food: FoodSchema,
-    upf: DetectUpfOutputSchema,
+  food: FoodSchema,
+  upf: UpfSchema,
 });
 export type EnrichedFoodItem = z.infer<typeof EnrichedFoodItemSchema>;
 
-// The final output from the flow to the UI is a simple, flat array of these enriched items.
-export const EnrichedFoodSearchOutputSchema = z.array(EnrichedFoodItemSchema);
-export type EnrichedFoodSearchOutput = EnrichedFoodItem[];
+// Schema for a meal saved by a user, consisting of multiple food items
+export const SavedMealSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    items: z.array(EnrichedFoodItemSchema),
+});
+export type SavedMeal = z.infer<typeof SavedMealSchema>;

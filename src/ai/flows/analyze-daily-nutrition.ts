@@ -8,8 +8,7 @@
  * - AnalyzeDailyNutritionOutput - The return type for the function.
  */
 
-import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { z } from 'zod';
 import { rda } from '@/lib/rda';
 
 const AnalyzeDailyNutritionInputSchema = z.object({
@@ -62,8 +61,6 @@ export async function analyzeDailyNutrition(input: AnalyzeDailyNutritionInput): 
     
     // Algorithm to find the biggest nutrient gap
     for (const key in rda) {
-        if (key === 'Energy' || key.includes('Omega') || key === 'Sugars, added' || key === 'Protein') continue; // Skip complex or non-essential for this insight
-
         const rdaValue = rda[key].value;
         const userValue = userNutrients[key]?.value || 0;
         

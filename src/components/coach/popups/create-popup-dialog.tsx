@@ -21,10 +21,11 @@ import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { savePopupAction } from '@/app/coach/popups/actions';
-import { TIER_ACCESS, ClientProfile } from '@/types';
+import { TIER_ACCESS, ClientProfile, UserProfile } from '@/types';
 import { getClientsForCoach } from '@/app/coach/dashboard/actions';
 import { Combobox } from '@/components/ui/combobox';
 import { BaseModal } from '@/components/ui/base-modal';
+import { useAuth } from '@/components/auth/auth-provider';
 
 
 const popupSchema = z.object({
@@ -35,7 +36,6 @@ const popupSchema = z.object({
     imageUrl: z.string().optional(),
     ctaText: z.string().min(2, "Button text is required."),
     ctaUrl: z.string().url("Please enter a valid URL.").optional().or(z.literal('')),
-    // This will be sent to the server as a single Date object
     scheduledAt: z.date(),
     targetType: z.enum(['all', 'tier', 'user']),
     targetValue: z.string().optional(),
@@ -56,13 +56,14 @@ interface CreatePopupDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPopupSaved?: () => void;
-  initialData?: PopupFormValues | any | null; // Allow flexible initial data
+  initialData?: PopupFormValues | any | null;
 }
 
 export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialData }: CreatePopupDialogProps) {
     const { toast } = useToast();
+    const { user } = useAuth();
     const [imagePreview, setImagePreview] = useState<string | null>(null);
-    const [clients, setClients] = useState<ClientProfile[]>([]);
+    const [clients, setClients] = useState<UserProfile[]>([]);
     
     const isEditing = !!initialData;
 
@@ -83,13 +84,18 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
     });
 
     useEffect(() => {
+        const fetchClients = async () => {
+            if (!user) return;
+            const result = await getClientsForCoach();
+            if (result.success && result.data) {
+                setClients(result.data);
+            } else {
+                setClients([]);
+                toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch client list.' });
+            }
+        };
+
         if (open) {
-            const fetchClients = async () => {
-                const result = await getClientsForCoach();
-                if (result.success && result.data) {
-                    setClients(result.data as ClientProfile[]);
-                }
-            };
             fetchClients();
 
             const defaultValues = {
@@ -107,7 +113,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
             form.reset(defaultValues);
             setImagePreview(initialData?.imageUrl || null);
         }
-    }, [open, initialData, form]);
+    }, [open, initialData, form, user, toast]);
 
     const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -248,7 +254,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
                                 <Select 
                                     onValueChange={(value) => {
                                     field.onChange(value);
-                                    form.setValue('targetValue', ''); // Reset target value on type change
+                                    form.setValue('targetValue', '');
                                     }} 
                                     value={field.value}
                                 >

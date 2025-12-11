@@ -7,6 +7,10 @@ import {glob} from 'glob';
  * This is used by the Genkit CLI.
  */
 export async function lazyLoad() {
+  // Intentionally disabled to allow for manual, sequential migration of flows.
+  // This function was attempting to load all flows, including broken ones,
+  // which prevented the server from starting.
+  /*
   const flowFiles = await glob('src/ai/flows/*.ts', {
     cwd: process.cwd(),
   });
@@ -26,4 +30,5 @@ export async function lazyLoad() {
     const modulePath = file.replace(/^src/, '@');
     await import(modulePath.substring(0, modulePath.length - 3));
   }
+  */
 }

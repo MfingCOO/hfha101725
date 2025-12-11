@@ -21,7 +21,7 @@ import {
 
 interface ComboboxProps {
     options: { value: string; label: string; }[];
-    value?: string | null; // Allow null or undefined
+    value?: string | null; 
     onChange: (value: string) => void;
     placeholder?: string;
     searchPlaceholder?: string;
@@ -31,8 +31,13 @@ interface ComboboxProps {
 export function Combobox({ options, value, onChange, placeholder, searchPlaceholder, modal = false }: ComboboxProps) {
   const [open, setOpen] = React.useState(false)
 
-  // This safety check prevents a crash if the value is null or undefined.
   const currentValue = value || "";
+
+  const handleFilter = (value: string, search: string) => {
+    // The underlying value from CommandItem is the `label`
+    if (value.toLowerCase().includes(search.toLowerCase())) return 1;
+    return 0;
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={modal}>
@@ -50,7 +55,7 @@ export function Combobox({ options, value, onChange, placeholder, searchPlacehol
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width)] p-0">
-        <Command>
+        <Command filter={handleFilter}>
           <CommandInput placeholder={searchPlaceholder || "Search..."} />
            <CommandList>
             <CommandEmpty>No option found.</CommandEmpty>
@@ -58,7 +63,7 @@ export function Combobox({ options, value, onChange, placeholder, searchPlacehol
               {options.map((option) => (
                 <CommandItem
                   key={option.value}
-                  value={option.label} // Search by label
+                  value={option.label} // This value is used by the filter function
                   onSelect={() => {
                     onChange(option.value)
                     setOpen(false)

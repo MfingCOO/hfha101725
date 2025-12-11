@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/components/auth/auth-provider';
-import { AIPlaygroundDialog } from '@/components/coach/library/ai-playground-dialog';
 
 export default function LibraryPage() {
     const { toast } = useToast();
@@ -29,7 +28,6 @@ export default function LibraryPage() {
     const [isUploading, setIsUploading] = useState(false);
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
     const [deleteAlertState, setDeleteAlertState] = useState<{ open: boolean; doc: LibraryDocument | null }>({ open: false, doc: null });
-    const [isPlaygroundOpen, setIsPlaygroundOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchDocuments = useCallback(async () => {
@@ -121,7 +119,6 @@ export default function LibraryPage() {
                         <p className="text-muted-foreground">Upload and manage documents to power the AI's knowledge base.</p>
                     </div>
                      <div className="flex gap-2">
-                        <Button onClick={() => setIsPlaygroundOpen(true)} variant="outline">AI Playground</Button>
                         <input
                             type="file"
                             ref={fileInputRef}
@@ -216,10 +213,6 @@ export default function LibraryPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-            <AIPlaygroundDialog
-                isOpen={isPlaygroundOpen}
-                onClose={() => setIsPlaygroundOpen(false)}
-            />
         </>
     );
 }

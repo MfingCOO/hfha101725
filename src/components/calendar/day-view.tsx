@@ -1,10 +1,9 @@
-
 'use client';
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { format, startOfDay, addMinutes, addHours, differenceInMinutes, subDays } from 'date-fns';
+import { format, addMinutes, addHours, differenceInMinutes, addDays } from 'date-fns';
 import { pillarDetails } from '@/lib/pillars';
 import type { ClientProfile } from '@/types';
 import { cn } from '@/lib/utils';
@@ -13,6 +12,7 @@ import { deleteData } from '@/services/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { pillarsAndTools } from '@/lib/pillars';
 import { AppointmentDetailDialog } from './AppointmentDetailDialog';
+import { triggerSummaryRecalculation } from '@/app/calendar/actions';
 
 const pillarColors: Record<string, string> = {
     nutrition: 'bg-amber-500 border-amber-700',
@@ -41,41 +41,57 @@ interface PositionedEntry {
     originalData: any;
 }
 
-const processEntriesForLayout = (entries: any[], selectedDate: Date): PositionedEntry[] => {
-    if (!entries || entries.length === 0) return [];
+const safeParseDate = (dateSource: any): Date | null => {
+    if (!dateSource) return null;
+    if (typeof dateSource.toDate === 'function') {
+        return dateSource.toDate();
+    }
+    if (dateSource instanceof Date) {
+        return dateSource;
+    }
+    const parsed = new Date(dateSource);
+    return isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezone: string): PositionedEntry[] => {
+    if (!entries || entries.length === 0 || !userTimezone) return [];
     
-    const dayStart = startOfDay(selectedDate);
+    const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0, 0);
     const totalMinutesInDay = 24 * 60;
 
-    // 1. Pre-process entries to calculate their start and end times in minutes.
     const timedEntries = entries.map(entry => {
         let start: Date | null = null;
         let end: Date | null = null;
-        
-        const entryDate = entry.entryDate ? new Date(entry.entryDate) : null;
-        
+
+        // CORRECT, FINAL LOGIC: 
+        // Simply parse the date from the database. The JS Date object handles the timezone correctly by default.
+        // No manual offset calculation is needed.
+        const entryDate = safeParseDate(entry.entryDate);
+        const indulgenceDate = safeParseDate(entry.indulgenceDate);
+        const appointmentStart = safeParseDate(entry.start);
+        const appointmentEnd = safeParseDate(entry.end);
+
         if (entry.pillar === 'sleep' && entryDate) {
             start = entryDate;
             end = addHours(start, entry.duration || 0);
         } else if (entry.pillar === 'activity' && entryDate) {
             start = entryDate;
             end = addMinutes(start, entry.duration || 15);
-        } else if (entry.pillar === 'appointment') {
-             start = entry.start ? new Date(entry.start) : null;
-             end = entry.end ? new Date(entry.end) : null;
-        } else {
-            // Default all other "point-in-time" entries to a 15-minute duration.
-            const baseDate = entry.indulgenceDate ? new Date(entry.indulgenceDate) : entryDate;
-            if (baseDate) {
-                start = baseDate;
-                end = addMinutes(start, 15);
-            }
+        } else if (entry.pillar === 'appointment' && appointmentStart && appointmentEnd) {
+            start = appointmentStart;
+            end = appointmentEnd;
+        } else if (entry.pillar === 'planner' && indulgenceDate) {
+            start = indulgenceDate;
+            end = addMinutes(start, 15);
+        } else if (entryDate) {
+            start = entryDate;
+            end = addMinutes(start, 30);
         }
 
         if (!start || !end) return null;
         
         return {
-            ...entry, // This is the fix: carry over all original properties
+            ...entry,
             id: entry.id,
             startMinutes: Math.max(0, differenceInMinutes(start, dayStart)),
             endMinutes: Math.min(totalMinutesInDay, differenceInMinutes(end, dayStart)),
@@ -85,15 +101,13 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date): Positioned
     .filter((e): e is { id: string; startMinutes: number; endMinutes: number; originalData: any; } => e !== null && e.endMinutes > e.startMinutes)
     .sort((a, b) => a!.startMinutes - b!.startMinutes || b!.endMinutes - a!.endMinutes);
 
-
     const positionedEntries: PositionedEntry[] = [];
     const eventClusters: any[][] = [];
 
-    // Step 1: Cluster overlapping events
     for (const entry of timedEntries) {
         let placed = false;
         for (const cluster of eventClusters) {
-            if (cluster.some(e => entry!.startMinutes < e.endMinutes && entry!.endMinutes > e.startMinutes)) {
+            if (cluster.some(e => entry!.startMinutes <= e.endMinutes && entry!.endMinutes >= e.startMinutes)) {
                 cluster.push(entry);
                 placed = true;
                 break;
@@ -104,7 +118,6 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date): Positioned
         }
     }
 
-    // Step 2: Position events within each cluster
     for (const cluster of eventClusters) {
         cluster.sort((a, b) => a.startMinutes - b.startMinutes);
         
@@ -112,7 +125,7 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date): Positioned
         for (const entry of cluster) {
             let placedInCol = false;
             for (let i = 0; i < cols.length; i++) {
-                if (cols[i].every(e => entry.startMinutes >= e.endMinutes)) {
+                if (cols[i].every(e => entry.startMinutes > e.endMinutes)) {
                     cols[i].push(entry);
                     placedInCol = true;
                     break;
@@ -131,7 +144,7 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date): Positioned
                 positionedEntries.push({
                     id: entry.id,
                     top: (entry.startMinutes / totalMinutesInDay) * 100,
-                    height: Math.max(height, 2.0833), // Min height for a 15-min block
+                    height: Math.max(height, 2.0833),
                     left: i * clusterWidth,
                     width: clusterWidth,
                     originalData: entry.originalData,
@@ -140,11 +153,10 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date): Positioned
         }
     }
 
-
     return positionedEntries;
 };
 
-const TimelineEntry = ({ entry, onSelect }: { entry: PositionedEntry, onSelect: (entry: any) => void }) => {
+const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEntry, onSelect: (entry: any) => void, isHighlighted: boolean }) => {
     const pillarKey = entry.originalData.displayPillar || entry.originalData.pillar || 'default';
     const details = pillarDetails[pillarKey] || pillarDetails.default;
     const Icon = details.icon;
@@ -152,6 +164,7 @@ const TimelineEntry = ({ entry, onSelect }: { entry: PositionedEntry, onSelect: 
 
     return (
         <div 
+            id={`timeline-entry-${entry.id}`}
             style={{ 
                 top: `${entry.top}%`, 
                 height: `${entry.height}%`,
@@ -160,8 +173,9 @@ const TimelineEntry = ({ entry, onSelect }: { entry: PositionedEntry, onSelect: 
                 padding: '1px',
             }} 
             className={cn(
-                "absolute rounded-lg overflow-hidden cursor-pointer", 
-                colorClass
+                "absolute rounded-lg overflow-hidden cursor-pointer transition-all duration-300", 
+                colorClass,
+                isHighlighted && 'ring-2 ring-offset-2 ring-offset-background ring-white'
             )}
             onClick={() => onSelect(entry.originalData)}
         >
@@ -180,41 +194,68 @@ interface DayViewProps {
     isLoading: boolean;
     onDateChange: (date: Date) => void;
     onEntryChange: () => void;
+    highlightedEntryId?: string;
 }
 
-
-export function DayView({ client, selectedDate, entries, isLoading, onDateChange, onEntryChange }: DayViewProps) {
+export function DayView({ client, selectedDate, entries, isLoading, onDateChange, onEntryChange, highlightedEntryId }: DayViewProps) {
     const { toast } = useToast();
     const [selectedEntry, setSelectedEntry] = useState<any | null>(null);
     const [activePillar, setActivePillar] = useState<any | null>(null);
     const [selectedAppointment, setSelectedAppointment] = useState<any | null>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
+    const [isInitialScrollDone, setIsInitialScrollDone] = useState(false);
+    const [userTimezone, setUserTimezone] = useState<string>('');
 
     useEffect(() => {
-        if (isLoading || !entries || !client) return;
+        setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    }, []);
+
+    const processedEntries = useMemo(() => {
+        if (!userTimezone) return [];
+        return processEntriesForLayout(entries, selectedDate, userTimezone);
+    }, [entries, selectedDate, userTimezone]);
+
+    useEffect(() => {
+        if (isLoading || isInitialScrollDone || !viewportRef.current) return;
+
         const HOURLY_HEIGHT = 60;
-        let targetTime: string | undefined;
-        const sleepEntry = entries.find(e => e.pillar === 'sleep' && !e.isNap);
-        if (sleepEntry && sleepEntry.wakeUpTime) {
-            targetTime = sleepEntry.wakeUpTime;
-        } else if (client.onboarding?.wakeTime) {
-            targetTime = client.onboarding.wakeTime;
+        let scrollTop: number | undefined;
+
+        if (highlightedEntryId) {
+            const highlightedEntry = processedEntries.find(e => e.id === highlightedEntryId);
+            if (highlightedEntry) {
+                const viewportHeight = viewportRef.current.clientHeight;
+                const entryTop = (highlightedEntry.top / 100) * (24 * HOURLY_HEIGHT);
+                scrollTop = entryTop - (viewportHeight / 2) + ((highlightedEntry.height / 100) * (24 * HOURLY_HEIGHT) / 2);
+            }
+        } else {
+            let targetTime: string | undefined;
+            const sleepEntry = entries.find(e => e.pillar === 'sleep' && !e.isNap);
+            if (sleepEntry && sleepEntry.wakeUpTime) {
+                targetTime = sleepEntry.wakeUpTime;
+            } else if (client.onboarding?.wakeTime) {
+                targetTime = client.onboarding.wakeTime;
+            }
+            if (targetTime) {
+                const [hours, minutes] = targetTime.split(':').map(Number);
+                const targetTotalMinutes = hours * 60 + minutes - 30;
+                scrollTop = (targetTotalMinutes / 60) * HOURLY_HEIGHT;
+            }
         }
-        if (targetTime && viewportRef.current) {
-            const [hours, minutes] = targetTime.split(':').map(Number);
-            const targetTotalMinutes = hours * 60 + minutes - 30;
-            const scrollTop = (targetTotalMinutes / 60) * HOURLY_HEIGHT;
-            
-            setTimeout(() => {
+        
+        if (scrollTop !== undefined) {
+             setTimeout(() => {
                 if (viewportRef.current) {
                     viewportRef.current.scrollTo({
-                        top: scrollTop,
+                        top: Math.max(0, scrollTop),
                         behavior: 'smooth',
                     });
+                    setIsInitialScrollDone(true);
                 }
-            }, 0);
+            }, 150);
         }
-    }, [isLoading, entries, client]);
+
+    }, [isLoading, client, highlightedEntryId, processedEntries, isInitialScrollDone, entries]);
     
     const handleSelectEntry = (entryData: any) => {
         if (entryData.pillar === 'appointment') {
@@ -228,107 +269,112 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
             setActivePillar(pillarConfig);
             setSelectedEntry(entryData);
         } else {
-             toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Could not identify the type of this entry.',
-            });
-        }
-    };
-    
-    const handleDialogClose = (wasSaved: boolean) => {
-        setSelectedEntry(null);
-        setActivePillar(null);
-        if (wasSaved) {
-            onEntryChange();
-        }
-    };
-    
-    const handleAppointmentDialogClose = (wasDeleted: boolean) => {
-        setSelectedAppointment(null);
-        if (wasDeleted) {
-            onEntryChange();
-        }
-    };
+                 toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: 'Could not identify the type of this entry.',
+                });
+            }
+        };
+        
+        const handleDialogClose = (wasSaved: boolean) => {
+            setSelectedEntry(null);
+            setActivePillar(null);
+            if (wasSaved) {
+                onEntryChange(); 
+            }
+        };
+        
+        const handleAppointmentDialogClose = (wasDeleted: boolean) => {
+            setSelectedAppointment(null);
+            if (wasDeleted) {
+                onEntryChange();
+            }
+        };
 
-    const handleDelete = async () => {
-        if (!selectedEntry) return;
-        const { pillar, id } = selectedEntry;
-        const result = await deleteData(pillar, id, client.uid);
-        if (result.success) {
-            toast({ title: 'Entry Deleted' });
-            handleDialogClose(true);
-        } else {
-            toast({ variant: 'destructive', title: 'Error', description: result.error, });
-        }
-    };
+        const handleDelete = async () => {
+            if (!selectedEntry) return;
+            const { pillar, id } = selectedEntry;
+            const result = await deleteData(pillar, id, client.uid);
+            if (result.success) {
+                toast({ title: 'Entry Deleted' });
+                const dateString = selectedDate.toISOString().split('T')[0];
+                const timezoneOffset = selectedDate.getTimezoneOffset();
+                await triggerSummaryRecalculation(client.uid, dateString, userTimezone, timezoneOffset);
+                handleDialogClose(true);
+            } else {
+                toast({ variant: 'destructive', title: 'Error', description: result.error, });
+            }
+        };
 
-    const changeDay = (days: number) => {
-        const newDate = new Date(selectedDate);
-        newDate.setDate(newDate.getDate() + days);
-        onDateChange(newDate);
-    };
+        const changeDay = (days: number) => {
+            setIsInitialScrollDone(false);
+            onDateChange(addDays(selectedDate, days));
+        };
+        
+        const hours = Array.from({ length: 24 }, (_, i) => i);
 
-    const processedEntries = useMemo(() => processEntriesForLayout(entries, selectedDate), [entries, selectedDate]);
-    
-    const hours = Array.from({ length: 24 }, (_, i) => i);
-
-    return (
-        <div className="flex flex-col h-full">
-             <div className="flex-shrink-0 p-2 flex justify-between items-center border-b">
-                <Button variant="ghost" size="icon" onClick={() => changeDay(-1)}>
-                    <ChevronLeft className="h-5 w-5" />
-                </Button>
-                <h3 className="text-lg font-semibold">{format(selectedDate, 'PPP')}</h3>
-                <Button variant="ghost" size="icon" onClick={() => changeDay(1)}>
-                    <ChevronRight className="h-5 w-5" />
-                </Button>
-            </div>
-            
-            <div className="flex-1 min-h-0 relative flex">
-                {isLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-20">
-                        <Loader2 className="h-8 w-8 animate-spin" />
-                    </div>
+        return (
+            <div className="flex flex-col h-full">
+                 <div className="flex-shrink-0 p-2 flex justify-between items-center border-b">
+                    <Button variant="ghost" size="icon" onClick={() => changeDay(-1)}>
+                        <ChevronLeft className="h-5 w-5" />
+                    </Button>
+                    <h3 className="text-lg font-semibold">{format(selectedDate, 'PPP')}</h3>
+                    <Button variant="ghost" size="icon" onClick={() => changeDay(1)}>
+                        <ChevronRight className="h-5 w-5" />
+                    </Button>
+                </div>
+                
+                <div className="flex-1 min-h-0 relative flex">
+                    {isLoading && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-20">
+                            <Loader2 className="h-8 w-8 animate-spin" />
+                        </div>
+                    )}
+                     <ScrollArea className="h-full w-full" viewportRef={viewportRef}>
+                        <div className="flex">
+                            <div className="w-12 flex-shrink-0 pr-1 border-r">
+                                {hours.map(hour => (
+                                    <div key={hour} className="h-[60px] text-right relative -top-2.5">
+                                        <span className="text-[10px] text-muted-foreground pr-1">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="relative flex-1">
+                                 {hours.map(hour => (
+                                    <div key={hour} className="h-[60px] border-b" />
+                                ))}
+                               
+                               {processedEntries.map(entry => (
+                                   <TimelineEntry 
+                                     key={entry.id} 
+                                     entry={entry} 
+                                     onSelect={handleSelectEntry} 
+                                     isHighlighted={entry.id === highlightedEntryId}
+                                    />
+                               ))}
+                            </div>
+                        </div>
+                    </ScrollArea>
+                </div>
+                
+                {selectedEntry && activePillar && (
+                    <DataEntryDialog
+                        open={!!selectedEntry}
+                        onOpenChange={handleDialogClose}
+                        pillar={activePillar}
+                        initialData={selectedEntry}
+                        onDelete={handleDelete}
+                        userId={client.uid}
+                    />
                 )}
-                 <ScrollArea className="h-full w-full" viewportRef={viewportRef}>
-                    <div className="flex">
-                        <div className="w-12 flex-shrink-0 pr-1 border-r">
-                            {hours.map(hour => (
-                                <div key={hour} className="h-[60px] text-right relative -top-2.5">
-                                    <span className="text-[10px] text-muted-foreground pr-1">{format(new Date(0, 0, 0, hour), 'ha')}</span>
-                                </div>
-                            ))}
-                        </div>
-                        <div className="relative flex-1">
-                             {hours.map(hour => (
-                                <div key={hour} className="h-[60px] border-b" />
-                            ))}
-                           
-                           {processedEntries.map(entry => (
-                               <TimelineEntry key={entry.id} entry={entry} onSelect={handleSelectEntry} />
-                           ))}
-                        </div>
-                    </div>
-                </ScrollArea>
-            </div>
-            
-            {selectedEntry && activePillar && (
-                <DataEntryDialog
-                    open={!!selectedEntry}
-                    onOpenChange={handleDialogClose}
-                    pillar={activePillar}
-                    initialData={selectedEntry}
-                    onDelete={handleDelete}
-                    userId={client.uid}
+                
+                 <AppointmentDetailDialog 
+                    isOpen={!!selectedAppointment}
+                    onClose={handleAppointmentDialogClose}
+                    event={selectedAppointment}
                 />
-            )}
-            
-             <AppointmentDetailDialog 
-                isOpen={!!selectedAppointment}
-                onClose={handleAppointmentDialogClose}
-                event={selectedAppointment}
-            />
-        </div>
-    );
-}
+            </div>
+        );
+    }  

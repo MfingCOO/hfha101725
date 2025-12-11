@@ -17,11 +17,11 @@ export const MeasurementsContent = ({ onFormStateChange, formState, clientProfil
         weight = '',
         waist = '',
         notes = ''
-    } = formState?.log || {};
+    } = formState || {};    
 
     const handleFieldChange = (field: string, value: any) => {
-        onFormStateChange({ ...formState, log: { ...formState.log, [field]: value } });
-    };
+        onFormStateChange({ [field]: value });
+    };    
 
     const units = clientProfile?.onboarding?.units === 'metric' 
         ? { weight: 'kg', waist: 'cm' } 
