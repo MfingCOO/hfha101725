@@ -1,36 +1,50 @@
-# Settings to manage and configure a Firebase App Hosting backend.
-# https://firebase.google.com/docs/app-hosting/configure
-
-runConfig:
-  # Increase this value if you'd like to automatically spin up
-  # more instances in response to increased traffic.
-  maxInstances: 1
-# Allow public access to webhook endpoints.
-ingressControls:
-  - rule:
-      pattern: /api/zoom-webhook
-      allow: public
-  - rule:
-      pattern: /api/stripe-webhook
-      allow: public
-
-# This schedule now processes all scheduled events, including indulgence plans and pop-ups.
-schedule:
-  - job:
-      name: process-scheduled-events
-      schedule: "every 5 minutes"
-      httpTarget:
-        uri: /api/process
-        method: POST
-        body:
-          json:
-            flowId: processScheduledEventsFlow
-  - job:
-      name: automated-client-nudge
-      schedule: "every 1 hours"
-      httpTarget:
-        uri: /api/process
-        method: POST
-        body:
-          json:
-            flowId: automatedClientNudgeFlow
+run:
+  command: npm start
+  runtime: nodejs20
+build:
+  command: npm run build
+env:
+  - variable: GEMINI_API_KEY
+    secret: GEMINI_API_KEY
+  - variable: USDA_API_KEY
+    secret: USDA_API_KEY
+  - variable: FIREBASE_SERVICE_ACCOUNT
+    secret: FIREBASE_SERVICE_ACCOUNT_KEY
+  - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    secret: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  - variable: STRIPE_API_KEY
+    secret: STRIPE_API_KEY
+  - variable: STRIPE_FREE_MONTHLY_PRICE_ID
+    secret: STRIPE_FREE_MONTHLY_PRICE_ID
+  - variable: STRIPE_AD_FREE_MONTHLY_PRICE_ID
+    secret: STRIPE_AD_FREE_MONTHLY_PRICE_ID
+  - variable: STRIPE_AD_FREE_YEARLY_PRICE_ID
+    secret: STRIPE_AD_FREE_YEARLY_PRICE_ID
+  - variable: STRIPE_BASIC_MONTHLY_PRICE_ID
+    secret: STRIPE_BASIC_MONTHLY_PRICE_ID
+  - variable: STRIPE_BASIC_YEARLY_PRICE_ID
+    secret: STRIPE_BASIC_YEARLY_PRICE_ID
+  - variable: STRIPE_WEBHOOK_SECRET
+    secret: STRIPE_WEBHOOK_SECRET
+  - variable: STRIPE_PREMIUM_YEARLY_PRICE_ID
+    secret: STRIPE_PREMIUM_YEARLY_PRICE_ID
+  - variable: STRIPE_PREMIUM_MONTHLY_PRICE_ID
+    secret: STRIPE_PREMIUM_MONTHLY_PRICE_ID
+  - variable: STRIPE_COACHING_YEARLY_PRICE_ID
+    secret: STRIPE_COACHING_YEARLY_PRICE_ID
+  - variable: STRIPE_COACHING_MONTHLY_PRICE_ID
+    secret: STRIPE_COACHING_MONTHLY_PRICE_ID
+  - variable: STRIPE_PORTAL_CONFIG_ID
+    secret: STRIPE_PORTAL_CONFIG_ID
+  - variable: NEXT_PUBLIC_GOOGLE_ADSENSE_ID
+    secret: NEXT_PUBLIC_GOOGLE_ADSENSE_ID
+  - variable: NEXT_PUBLIC_AD_SLOT_ID_1
+    secret: NEXT_PUBLIC_AD_SLOT_ID_1
+  - variable: NEXT_PUBLIC_AD_SLOT_ID_2
+    secret: NEXT_PUBLIC_AD_SLOT_ID_2
+  - variable: NEXT_PUBLIC_FIREBASE_VAPID_KEY
+    secret: NEXT_PUBLIC_FIREBASE_VAPID_KEY
+  - variable: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+    secret: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+  - variable: NEXT_PUBLIC_APP_URL
+    secret: NEXT_PUBLIC_APP_URL
