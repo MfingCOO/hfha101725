@@ -7,7 +7,7 @@ env:
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY
   - variable: USDA_API_KEY
-    value: 'fLHxvMzM9T0pd9fLmxJqDFmu5KWF6fBwemIscKKS'
+    value: USDA_API_KEY
   - variable: FIREBASE_SERVICE_ACCOUNT_KEY
     secret: FIREBASE_SERVICE_ACCOUNT_KEY
   - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
