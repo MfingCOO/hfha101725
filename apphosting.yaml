@@ -5,7 +5,7 @@ build:
   command: npm run build
 env:
   - variable: GEMINI_API_KEY
-    secret: GEMINI_API_KEY
+    value: 'AIzaSyCP207Jx7gdKU_IgZVR1H4giv_3VZ2Nym8'
   - variable: USDA_API_KEY
     secret: USDA_API_KEY
   - variable: FIREBASE_SERVICE_ACCOUNT
