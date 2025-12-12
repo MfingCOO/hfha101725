@@ -5,46 +5,46 @@ build:
   command: npm run build
 env:
   - variable: GEMINI_API_KEY
-    value: 'AIzaSyCP207Jx7gdKU_IgZVR1H4giv_3VZ2Nym8'
+    secret: GEMINI_API_KEY
   - variable: USDA_API_KEY
     value: 'fLHxvMzM9T0pd9fLmxJqDFmu5KWF6fBwemIscKKS'
   - variable: FIREBASE_SERVICE_ACCOUNT_KEY
-    value: '{"type": "service_account", "project_id": "hunger-free-and-happy-app", "private_key_id": "d793b182ef3a802bf17e99e407c5eccfe9f461bd", "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCabX9qhHyqiv0v\neBNSfk/d+bW4Nzf02OnOoGWY7HwC8KGcbdAlNOiS6dcLeOzFdvG00pCwZq/4avDj\nGSG+dacLYtTjfENwtE0lmG7BQSLe0a3QgWgJraQISJMmevWV3ARJzriwI6cMMYpi\nEyyydT1YNt8NVSms7+ACtDVbvGQ4a0Dujhm9UyGCDqgK1Bc3yrsMfotrjpgfkQ/K\n0eneQq4GQyZnigBXCfKCBfe/U1ySCENYKd2ObynHWna/l/t8eKpCbdJjDfgCn5L6\nDi0rg/KdSVXbrmdQevSc4boGsEVYj/8pHgZ+VXdxqpEeS6tsRWIgnOo7L3PWea5s\n11FSspOjAgMBAAECggEASwwVlMVH9HVRL4VyFm/uDljxF9I17laP4WuPlC6w4Zjh\nYSz4r2wz7lmXuSqOHjR8qDyANknhEJ+f6y1mebGheWYRQXA9MgNdTnzyrhYihRhv\nGNoankF1atUiNdwhhy+CIgBFPsxEvSdCMgFRgnR5WGpqIYeWlkWInqfHGorGRagQ\nIAbYsVL3yC6z7xLQ2DJo5v1OD5sHiIyEkL0BiM9vQ/IqxeX7uhoLkyBir90gmrP0\nGW4ssGFXUB4EctZ2JNmFqmCYV9jdEEUUig8Q3ghTOK6wUSolDY2OzoF5SNLNjngU\nKlNCfQq3DhjuOYSnTy5QmnjrM9qpE4KmV0Nd2/os+QKBgQDUJuVQus78A0JicVIL\n7fho8onq4atsImYL5Kn1oVtgeCFnMk8yXhgD3ox/1CudULs4JmsLgYSZaEiM1JQy\n/4nE1mSMtFYm2D72pfv4C9sOZKQKVF9CdGcZCMTiyXM4vvN5v3KPfyvzTazbX9dC\n+/F1ydIxCN+EOXgDhIVgVdWt1QKBgQC6WF/Z7aT49sa1bNPAE838yqjksWShLWMc\na7OggA+IPLAkHZWGDnC3j7GGxUpCGQzxXYio9MMViDSXxYTAetBZEIOm48ApQIt6\nfNOb1N+QPa2bM6FvPr8L8TjGNmXCHlAAxILTmWqbRndBxOTiU8e2F78H5dD+WG/o\ntCwfNgtflwKBgQCA1NXwvmCvnXMUwOgoImz1nkOuhThKRGFf245ygXgyDwGJ331E\ngutmfiEoBzotIDdxE7Nxm0dguXlFPFp61b9d7yvEXkbq8+rYcVef++MczHTpaO8o\nNfPdufuGFPuJfDvytRXmmj2gVI0h8wOPw9uPwe2IpXDGpPeCe1lbdQR7uQKBgQCI\nanPZDSDtZXL4k++8OINeoVnc+YRKffiFcM7yG23DdXIZLlMs7VtU9eunVrzTAJW6\nCJgn3+8Ez055IQ7a/c2StgU64pXlXSv+gm1DMiZr6MszyCtRTiT78B549I+v+RLm\nTPXdQ/2IKKDbU/GfQmf8hQvDE1nZKRLbzzJRsvXGhwKBgFeCg990hUOwfdtXL3Mm\nlclLLBBoTTM7ZowARCTGSotkNud0kSsHOhBHi/BjEV93FfZ5lG/Tgdo+XI0HFkum\ncXNKmTnDwp8RxsbgAXxhbtVXcuQ8q5iznFa7KGvMrw6QkSZhOqy/KENpwcWSroEX\nW1ZzQr67SnE+6q02q9zOJ2fH\n-----END PRIVATE KEY-----\n", "client_email": "firebase-adminsdk-fbsvc@hunger-free-and-happy-app.iam.gserviceaccount.com", "client_id": "116255999258594886638", "auth_uri": "https://accounts.google.com/o/oauth2/auth", "token_uri": "https://oauth2.googleapis.com/token", "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs", "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40hunger-free-and-happy-app.iam.gserviceaccount.com", "universe_domain": "googleapis.com"}'
+    secret: FIREBASE_SERVICE_ACCOUNT_KEY
   - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-    value: 'pk_test_51RuKW6EOYAdr0rOoF8CAgx3KYrG9dBwEVBXzK7A4VROLFtN4Zsoev7ig9pSt9ScZooKlvwXS6LoPEFwbZXEsmgoE00e4UhOmVi'
+    secret: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   - variable: STRIPE_API_KEY
-    value: 'sk_test_51RuKW6EOYAdr0rOotKgRDjIbVNYUuPbOta3POjBT0yBorwRoOhbLFeIBM4skvvIh7MfYV03V4lYs3skJzecE9c1l00oTBnL65A'
+    secret: STRIPE_API_KEY
   - variable: STRIPE_FREE_MONTHLY_PRICE_ID
-    value: 'price_1SamPtEOYAdr0rOoAOKCMRlK'
+    secret: STRIPE_FREE_MONTHLY_PRICE_ID
   - variable: STRIPE_AD_FREE_MONTHLY_PRICE_ID
-    value: 'price_1SAG5HEOYAdr0rOokdqh3eBB'
+    secret: STRIPE_AD_FREE_MONTHLY_PRICE_ID
   - variable: STRIPE_AD_FREE_YEARLY_PRICE_ID
-    value: 'price_1SAG5HEOYAdr0rOotQq1Qyuk'
+    secret: STRIPE_AD_FREE_YEARLY_PRICE_ID
   - variable: STRIPE_BASIC_MONTHLY_PRICE_ID
-    value: 'price_1SahdJEOYAdr0rOodHONXOI8'
+    secret: STRIPE_BASIC_MONTHLY_PRICE_ID
   - variable: STRIPE_BASIC_YEARLY_PRICE_ID
-    value: 'price_1SAG7rEOYAdr0rOolKohtNfE'
+    secret: STRIPE_BASIC_YEARLY_PRICE_ID
   - variable: STRIPE_WEBHOOK_SECRET
-    value: 'whsec_vtxXgJlz5gDdql8y4uTh2cWoWK9zL2kW'
+    secret: STRIPE_WEBHOOK_SECRET
   - variable: STRIPE_PREMIUM_YEARLY_PRICE_ID
-    value: 'price_1SAGACEOYAdr0rOoxK4u4WtU'
+    secret: STRIPE_PREMIUM_YEARLY_PRICE_ID
   - variable: STRIPE_PREMIUM_MONTHLY_PRICE_ID
-    value: 'price_1SAGACEOYAdr0rOotfyLZAeU'
+    secret: STRIPE_PREMIUM_MONTHLY_PRICE_ID
   - variable: STRIPE_COACHING_YEARLY_PRICE_ID
-    value: 'price_1SAGCFEOYAdr0rOo25C0pDi6'
+    secret: STRIPE_COACHING_YEARLY_PRICE_ID
   - variable: STRIPE_COACHING_MONTHLY_PRICE_ID
-    value: 'price_1SAGCFEOYAdr0rOoJUyoA5CB'
+    secret: STRIPE_COACHING_MONTHLY_PRICE_ID
   - variable: STRIPE_PORTAL_CONFIG_ID
-    value: 'bpc_1SFHHrEOYAdr0rOoH5hXztXS'
+    secret: STRIPE_PORTAL_CONFIG_ID
   - variable: NEXT_PUBLIC_GOOGLE_ADSENSE_ID
-    value: 'pub-6658282343757105'
+    secret: NEXT_PUBLIC_GOOGLE_ADSENSE_ID
   - variable: NEXT_PUBLIC_AD_SLOT_ID_1
-    value: '13167805261'
+    secret: NEXT_PUBLIC_AD_SLOT_ID_1
   - variable: NEXT_PUBLIC_AD_SLOT_ID_2
-    value: '28863765324'
+    secret: NEXT_PUBLIC_AD_SLOT_ID_2
   - variable: NEXT_PUBLIC_FIREBASE_VAPID_KEY
-    value: 'BGNeYzhRRkl_ou3bZbjkSKTJ3SkrmfuOyRWS2wrJl92Huaz70DJZEplDQ4rhVdWl73UxaREQCw7b7Jj_sWs7PUU'
+    secret: NEXT_PUBLIC_FIREBASE_VAPID_KEY
   - variable: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
-    value: '6LfykwgsAAAAAM4UncizpjlBLQNRJeWUxrIC4oeL'
+    secret: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
   - variable: NEXT_PUBLIC_APP_URL
     value: 'http://localhost:3000'
