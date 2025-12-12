@@ -141,9 +141,6 @@ export async function unifiedSignupAction(
         const successUrl = `${returnUrl}/login?signup=success`;
         const cancelUrl = `${returnUrl}/signup`;
 
-        // SURGICAL FIX: 'Omit' is a type, not a value. Create a new object without the password.
-        const { password, ...metaData } = data;
-
         const checkoutSession = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: [{ price: priceId, quantity: 1 }],
@@ -151,7 +148,9 @@ export async function unifiedSignupAction(
             success_url: successUrl,
             cancel_url: cancelUrl,
             metadata: {
-                userData: JSON.stringify(metaData)
+                // BUG FIX: The webhook needs the complete user data, including the password,
+                // to create the Firebase Auth user after successful payment.
+                userData: JSON.stringify(data)
             }
         });
 
