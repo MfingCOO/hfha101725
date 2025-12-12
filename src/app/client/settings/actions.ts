@@ -9,7 +9,7 @@ import { calculateNutritionalGoals } from '@/services/goals';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
-    apiVersion: '2024-06-20',
+    apiVersion: '2024-04-10',
 });
 
 
@@ -54,7 +54,7 @@ export async function createStripeCheckoutSession(
 
         if (!priceId) throw new Error(`Price ID for tier "${tier}" with billing cycle "${billingCycle}" is not configured in environment variables.`);
         
-        const returnUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000/client/dashboard';
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
         
         const checkoutSession = await stripe.checkout.sessions.create({
             customer: stripeCustomerId,
@@ -63,8 +63,8 @@ export async function createStripeCheckoutSession(
                 quantity: 1,
             }],
             mode: 'subscription',
-            success_url: `${returnUrl}?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: returnUrl,
+            success_url: `${baseUrl}/client/dashboard?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${baseUrl}/client/dashboard`,
         });
 
         if (!checkoutSession.url) throw new Error("Could not create Stripe checkout session.");
@@ -107,12 +107,11 @@ export async function createStripePortalSession(clientId: string): Promise<{ url
             await clientRef.update({ stripeCustomerId });
         }
 
-        // Get the return URL from environment variables or default to localhost
-        const returnUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000/client/dashboard';
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
         const portalSession = await stripe.billingPortal.sessions.create({
             customer: stripeCustomerId,
-            return_url: returnUrl,
+            return_url: `${baseUrl}/client/dashboard`,
             configuration: process.env.STRIPE_PORTAL_CONFIG_ID,
         });
 
