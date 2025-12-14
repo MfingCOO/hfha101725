@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, User, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getCoachAvailabilityAndEvents, saveCalendarEvent } from '@/app/coach/calendar/actions';
 import type { AvailabilitySettings } from '@/types';
-import { addMinutes, format, startOfDay, getDay, areIntervalsOverlapping, isPast, addDays, eachDayOfInterval, isSameDay, startOfWeek, endOfWeek } from 'date-fns';
+import { addMinutes, format, startOfDay, getDay, areIntervalsOverlapping, isPast, addDays, eachDayOfInterval, isSameDay, startOfWeek, endOfWeek, endOfDay } from 'date-fns';
 import { COACH_UIDS } from '@/lib/coaches';
 import { useAuth } from '@/components/auth/auth-provider';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -71,6 +71,18 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
 
   const availableSlots = useMemo(() => {
     if (!availability || !selectedDate) return [];
+
+    // FIX: Check if the selected date falls within a vacation block.
+    const isBlockedForVacation = availability.vacationBlocks?.some(block => 
+      areIntervalsOverlapping(
+        { start: startOfDay(selectedDate), end: endOfDay(selectedDate) },
+        { start: new Date(block.start), end: new Date(block.end) }
+      )
+    );
+
+    if (isBlockedForVacation) {
+      return []; // Return no slots if the day is part of a vacation.
+    }
 
     const dayOfWeek = getDay(selectedDate);
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

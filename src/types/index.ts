@@ -114,7 +114,7 @@ export type CreateClientInput = {
     sex: 'male' | 'female' | 'unspecified';
     units: 'imperial' | 'metric';
     height: number;
-    weight: number;
+    weight: number
     waist: number;
     zipCode: string;
     activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
