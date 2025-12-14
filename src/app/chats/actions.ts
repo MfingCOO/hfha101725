@@ -1,4 +1,3 @@
-
 'use server';
 
 import { db as adminDb, admin } from '@/lib/firebaseAdmin';
@@ -27,10 +26,6 @@ function serializeTimestamps(docData: any) {
   }
 
 
-/**
- * Fetches all chats and all clients for a coach using the Admin SDK.
- * This is now combined to get all necessary data for filtering chats by client status.
- */
 export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; data?: { chats: Chat[], clients: ClientProfile[] }; error?: any; }> {
     try {
         const chatsQuery = adminDb.collection('chats').orderBy('createdAt', 'desc');
@@ -56,19 +51,13 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
 }
 
 
-/**
- * For a client, fetches the chats they are a part of and all available 'open' chats.
- * This is a secure server action that uses admin privileges.
- */
 export async function getChatsForClient(userId: string): Promise<{ success: boolean; data?: Chat[]; error?: any; }> {
     try {
-        // 1. Fetch all 'open' chats that anyone can potentially join.
         const openChatsQuery = adminDb.collection('chats').where('type', '==', 'open');
         const openChatsPromise = openChatsQuery.get().then(snapshot => 
             snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat))
         );
         
-        // 2. Fetch the user's specific chats via their profile.
         const userProfileRef = adminDb.collection('userProfiles').doc(userId);
         const userProfileSnap = await userProfileRef.get();
         
@@ -80,8 +69,6 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
 
         let userChats: Chat[] = [];
         if (userChatIds.length > 0) {
-            // Firestore 'in' queries are limited to 30 items per query.
-            // We chunk the array to handle users who might be in many chats.
             const MAX_IDS_PER_QUERY = 30; 
             for (let i = 0; i < userChatIds.length; i += MAX_IDS_PER_QUERY) {
                 const chunk = userChatIds.slice(i, i + MAX_IDS_PER_QUERY);
@@ -95,7 +82,6 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
             }
         }
         
-        // 3. Combine the lists and remove duplicates.
         const [openChats] = await Promise.all([openChatsPromise]);
         const combinedChats = [...userChats, ...openChats];
         const uniqueChats = Array.from(new Map(combinedChats.map(chat => [chat.id, chat])).values());
@@ -116,9 +102,6 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
 }
 
 
-/**
- * Fetches details for a single chat using the Admin SDK.
- */
 export async function getChatDetailsForCoach(chatId: string): Promise<{ success: boolean; data?: Chat; error?: any; }> {
     try {
         const docRef = adminDb.collection('chats').doc(chatId);
@@ -136,9 +119,6 @@ export async function getChatDetailsForCoach(chatId: string): Promise<{ success:
 }
 
 
-/**
- * Securely fetches all messages for a given chat, now also including participant profiles.
- */
 export async function getChatMessagesAction(chatId: string): Promise<{ success: boolean; data?: { messages: ChatMessage[], participants: Record<string, UserProfile> }; error?: string }> {
     try {
         const chatRef = adminDb.collection('chats').doc(chatId);
@@ -154,11 +134,7 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
 
         const messages = messagesSnap.docs.map(doc => {
             const data = doc.data();
-            return {
-                id: doc.id,
-                ...data,
-                timestamp: data.timestamp.toDate().toISOString(),
-            };
+            return serializeTimestamps({ id: doc.id, ...data });
         });
 
         const participants: Record<string, UserProfile> = {};
@@ -167,7 +143,9 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
             const profileSnapshots = await Promise.all(profilePromises);
             profileSnapshots.forEach(snap => {
                 if (snap.exists) {
-                    participants[snap.id] = snap.data() as UserProfile;
+                    // *** THIS IS THE FIX ***
+                    // We must serialize the user profile data to convert Timestamps.
+                    participants[snap.id] = serializeTimestamps(snap.data()) as UserProfile;
                 }
             });
         }
@@ -181,17 +159,12 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
 }
 
 
-/**
- * Server action to generate a signed URL for a client-side file upload.
- * This is the new, correct way to handle file uploads.
- */
 export async function getSignedUrlAction(fileName: string, path: string, contentType: string): Promise<{ success: boolean, signedUrl?: string, publicUrl?: string, error?: string }> {
   try {
     const bucket = admin.storage().bucket('gs://hunger-free-and-happy-app.firebasestorage.app');
     const uniqueFileName = `${path}/${Date.now()}-${fileName.replace(/\s+/g, '_')}`;
     const file = bucket.file(uniqueFileName);
 
-    // Generate a signed URL for PUT request.
     const [signedUrl] = await file.getSignedUrl({
       version: 'v4',
       action: 'write',
@@ -216,15 +189,10 @@ const PostMessageInputSchema = z.object({
   userName: z.string(),
   isCoach: z.boolean(),
   isAutomated: z.boolean().optional(),
-  // The file is no longer sent to this action. Instead, we just pass the final URL.
   fileUrl: z.string().optional(),
   fileName: z.string().optional(),
 });
 
-/**
- * Posts a message to a chat. This action now simply writes the message data,
- * including an optional fileUrl, to Firestore.
- */
 export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>) {
     
     const { chatId, text, userId, userName, isCoach, isAutomated, fileUrl, fileName } = PostMessageInputSchema.parse(input);
@@ -256,16 +224,11 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
 
             transaction.set(messagesCollectionRef.doc(), messageData);
 
-            // --- UNIVERSAL UPDATE LOGIC ---
-            // The logic is now simplified to always update the same two fields.
             const updateData: { [key: string]: any } = {
               lastMessage: FieldValue.serverTimestamp(),
               lastMessageSenderId: userId,
             };
             
-                       // For coaching chats, robustly update the correct timestamp.
-            // This logic now uses the definitive COACH_UIDS list on the server
-            // instead of relying on a flag from the client.
             if (chatData?.type === 'coaching') {
                 const senderIsCoach = COACH_UIDS.includes(userId);
                 if (isAutomated) {
@@ -281,7 +244,6 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             transaction.update(chatDocRef, updateData);
         });
 
-        // --- NEW: Send Push Notifications after transaction succeeds ---
         if (chatData) {
             const recipients = chatData.participants.filter(pId => pId !== userId);
             if (recipients.length > 0) {
@@ -295,7 +257,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                     }
                 });
                 
-                tokens = [...new Set(tokens)]; // Remove duplicates
+                tokens = [...new Set(tokens)];
 
                 if (tokens.length > 0) {
                     const notificationPayload = {
@@ -329,10 +291,6 @@ const DeleteMessageInputSchema = z.object({
   requesterId: z.string(),
 });
 
-/**
- * Deletes a message from a chat, checking for permissions first.
- * Only the message author or a coach can delete a message.
- */
 export async function deleteMessageAction(input: z.infer<typeof DeleteMessageInputSchema>) {
     const { chatId, messageId, requesterId } = DeleteMessageInputSchema.parse(input);
 
@@ -364,9 +322,6 @@ export async function deleteMessageAction(input: z.infer<typeof DeleteMessageInp
     }
 }
 
-/**
- * Deletes an entire chat and removes it from all participants' profiles.
- */
 export async function deleteChatAction(chatId: string, requesterId: string) {
     if (!COACH_UIDS.includes(requesterId)) {
         return { success: false, error: "You don't have permission to perform this action." };
@@ -383,7 +338,6 @@ export async function deleteChatAction(chatId: string, requesterId: string) {
 
         const batch = adminDb.batch();
 
-        // Remove chat from all participants' profiles
         if (chatData.participants && chatData.participants.length > 0) {
             for (const uid of chatData.participants) {
                 const userProfileRef = adminDb.collection('userProfiles').doc(uid);
@@ -391,10 +345,7 @@ export async function deleteChatAction(chatId: string, requesterId: string) {
             }
         }
         
-        // Delete the chat document itself
         batch.delete(chatRef);
-        // Note: Deleting subcollections (messages) is best done via a Cloud Function extension.
-        // For this scope, we just delete the main document.
 
         await batch.commit();
         return { success: true };
@@ -416,8 +367,6 @@ const CreateChatInputSchema = z.object({
 export async function createChatAction(input: z.infer<typeof CreateChatInputSchema>) {
     const { name, description, type, rules, participantIds = [] } = CreateChatInputSchema.parse(input);
 
-    // Hardcoding the owner for simplicity as per the new strategy.
-    // In a real app, this would come from the authenticated user session.
     const ownerId = COACH_UIDS[0]; 
 
     try {
@@ -463,10 +412,6 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
     }
 }
 
-/**
- * Finds the specific one-on-one coaching chat ID for a given client.
- * This is a new function created to restore dashboard functionality.
- */
 export async function getCoachingChatIdForClient(clientId: string): Promise<{ success: boolean; chatId?: string; error?: string }> {
     try {
         const chatsQuery = adminDb.collection('chats')

@@ -40,7 +40,8 @@ export interface NutritionalGoals {
     carbs?: number;
     fiber?: number;
     calorieGoal?: number;
-    calorieGoalRange?: [number, number];
+    calorieGoalRange?: { min: number; max: number; };
+    tdee?: number; // ADDED
 }
 
 // This is the single source of truth for all user data.
@@ -93,10 +94,12 @@ export interface UserProfile {
     trackingSettings?: TrackingSettings;
     tdee?: number;
     calorieGoal?: number;
-    calorieGoalRange?: [number, number];
+    calorieGoalRange?: { min: number; max: number; };
     averageWakeUpTime?: string;
     fcmTokens?: string[];
     dismissedPopupIds?: string[];
+    idealBodyWeight?: number; // ADDED
+    hasLoggedInBefore?: boolean; // STEP 1: ADDED 'FIRST-LOGIN' FLAG
 }
 
 export type ClientProfile = UserProfile;
@@ -269,3 +272,16 @@ export interface AvailabilityBlock {
     availability?: AvailabilitySettings;
   }
   
+export interface Popups {
+    id?: string;
+    coachId: string;
+    message: string;
+    targetType: 'all' | 'tier' | 'multiple' | 'single';
+    targetValue: string | string[] | null;
+    scheduledAt: string;
+    createdAt: string;
+
+    imageUrl?: string;
+    hyperlink?: string;
+    status: 'scheduled' | 'sent' | 'cancelled';
+}

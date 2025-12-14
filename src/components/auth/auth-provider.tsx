@@ -1,7 +1,5 @@
-
 'use client';
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-// CORRECTED: Added 'signOut' to the import to match modern Firebase v9+ API
 import { onIdTokenChanged, User, signOut } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, db, messaging } from '@/lib/firebase';
@@ -10,6 +8,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import type { UserProfile, ClientProfile } from '@/types';
 import { COACH_UIDS } from '@/lib/coaches';
 import { getToken } from 'firebase/messaging';
+import { createCoachingChatOnFirstLogin } from '@/app/chat/actions'; // STEP 2: IMPORT THE ACTION
 
 interface AuthContextType {
   user: User | null;
@@ -69,6 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isCoach, setIsCoach] = useState(false);
+
+  // STEP 2: TRIGGER THE 'FIRST-LOGIN' ACTION WHEN THE USER PROFILE IS LOADED
+  useEffect(() => {
+    if (userProfile) {
+        createCoachingChatOnFirstLogin(userProfile as ClientProfile).catch(console.error);
+    }
+  }, [userProfile]);
 
   useEffect(() => {
     let unsubscribeUserProfile: (() => void) | undefined;
@@ -136,12 +142,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             combinedProfileUpdater();
           } else {
              console.error(`Auth Error: User profile not found for UID: ${authUser.uid}. Forcing logout.`);
-             // CORRECTED: Updated to the modern Firebase v9+ modular syntax
              signOut(auth);
           }
         }, (error) => {
              console.error("Auth Error: userProfiles snapshot listener failed.", error);
-             // CORRECTED: Updated to the modern Firebase v9+ modular syntax
              signOut(auth);
         });
         

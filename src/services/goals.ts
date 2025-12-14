@@ -3,6 +3,20 @@ import type { ClientProfile, NutritionalGoals } from '@/types';
 import { differenceInYears } from 'date-fns';
 
 /**
+ * Calculates the ideal body weight for a client based on the app-specific formula.
+ * @param height - The client's height.
+ * @param units - The unit system for the height ('imperial' or 'metric').
+ * @returns The ideal body weight in pounds.
+ */
+export function calculateIdealBodyWeight(height: number, units: 'imperial' | 'metric'): number {
+    const heightInInches = units === 'metric' ? height / 2.54 : height;
+    // Formula: [25 * (height in inches)^2] / 703
+    const idealWeightLbs = (25 * (heightInInches ** 2)) / 703;
+    return Math.round(idealWeightLbs);
+}
+
+
+/**
  * @fileoverview This file contains the single, authoritative service for calculating
  * personalized nutritional goals. It now calculates all three goal types (Ideal, Actual, Custom)
  * and returns them in a structured object for the UI to consume.
@@ -32,7 +46,7 @@ export interface AllGoalSets {
  * @returns An object containing `idealGoals`, `actualGoals`, and `customGoals`.
  */
 export function calculateNutritionalGoals(clientProfile: ClientProfile): AllGoalSets {
-    const { onboarding, customGoals = {}, idealBodyWeight } = clientProfile;
+    const { onboarding, customGoals = {} as Partial<NutritionalGoals>, idealBodyWeight } = clientProfile;
     
     // Safeguard for missing onboarding data
     if (!onboarding) {
@@ -44,8 +58,8 @@ export function calculateNutritionalGoals(clientProfile: ClientProfile): AllGoal
         return { idealGoals: defaultGoals, actualGoals: defaultGoals, customGoals: defaultGoals };
     }
     
-    const { birthdate, height, units, weight: actualWeight } = onboarding;
-    const sex = onboarding.sex === 'unspecified' ? 'male' : onboarding.sex;
+    const { birthdate, height, units, weight: actualWeight, sex: rawSex } = onboarding;
+    const sex = rawSex === 'unspecified' ? 'male' : rawSex;
     const age = differenceInYears(new Date(), new Date(birthdate));
     
     const heightInCm = units === 'imperial' ? height * 2.54 : height;
@@ -59,7 +73,7 @@ export function calculateNutritionalGoals(clientProfile: ClientProfile): AllGoal
     const actualBmr = (10 * actualWeightKg) + (6.25 * heightInCm) - (5 * age) + (sex === 'male' ? 5 : -161);
     const tdee = actualBmr * activityMultiplier;
 
-    const finalIdealWeightLbs = idealBodyWeight || (units === 'metric' ? actualWeight * 2.20462 : actualWeight);
+    const finalIdealWeightLbs = idealBodyWeight || calculateIdealBodyWeight(height, units);
     const idealWeightKg = finalIdealWeightLbs * 0.453592;
     const idealBmr = (10 * idealWeightKg) + (6.25 * heightInCm) - (5 * age) + (sex === 'male' ? 5 : -161);
     
@@ -73,7 +87,7 @@ export function calculateNutritionalGoals(clientProfile: ClientProfile): AllGoal
         calculationMode: 'ideal',
         calorieModifier: 0,
         activityLevel,
-        tdee: Math.round(tdee),
+        tdee: Math.round(idealCalorieGoal), // UI BUG FIX
         calorieGoal: Math.round(idealCalorieGoal),
         calorieGoalRange: { min: Math.round(idealCalorieGoal * 0.9), max: Math.round(idealCalorieGoal * 1.1) },
         protein: idealProtein,

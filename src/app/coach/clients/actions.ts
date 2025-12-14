@@ -4,6 +4,8 @@ import { db as adminDb, auth } from '@/lib/firebaseAdmin';
 import type { ClientProfile, CoachNote, CreateClientInput, UserTier } from '@/types';
 import Stripe from 'stripe';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
+import { calculateIdealBodyWeight, calculateNutritionalGoals } from '@/services/goals';
+
 const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
     apiVersion: '2024-04-10',
 });
@@ -55,11 +57,11 @@ export async function updateClientWthr(clientId: string, waist: number): Promise
     }
 }
 
-/**
- * Server action for a COACH to create a new client. 
- * CORRECTED: This now writes to the 'clients' collection as originally intended.
- */
+
 export async function createClientByCoachAction(data: CreateClientInput): Promise<{ success: boolean; uid?: string; error?: any; }> {
+    const batch = adminDb.batch();
+    let uid = '';
+
     try {
         const stripeCustomer = await stripe.customers.create({ email: data.email, name: data.fullName });
 
@@ -69,37 +71,59 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
             displayName: data.fullName,
             emailVerified: true,
         });
+        uid = userRecord.uid;
 
-        const clientProfile: Omit<ClientProfile, 'uid'> = {
+        const idealBodyWeight = calculateIdealBodyWeight(data.height, data.units);
+        
+        const tempProfileForCalc: Partial<ClientProfile> = {
+            onboarding: { ...data, birthdate: new Date(data.birthdate) },
+            idealBodyWeight: idealBodyWeight,
+        };
+
+        const { idealGoals, actualGoals } = calculateNutritionalGoals(tempProfileForCalc as ClientProfile);
+        
+        const userProfileRef = adminDb.collection('userProfiles').doc(uid);
+        batch.set(userProfileRef, {
+            uid: uid,
             email: data.email,
             fullName: data.fullName,
-            tier: data.tier as UserTier,
+            tier: data.tier,
+            role: 'client',
+            stripeCustomerId: stripeCustomer.id,
+            chatIds: [],
+            challengeIds: [],
+            createdAt: FieldValue.serverTimestamp(),
+            hasLoggedInBefore: false, // STEP 2: SET 'FIRST-LOGIN' FLAG
+        });
+
+        const { password, ...onboardingData } = data;
+        const clientRef = adminDb.collection('clients').doc(uid);
+        batch.set(clientRef, {
+            uid: uid,
+            email: data.email,
+            fullName: data.fullName,
+            tier: data.tier,
             coachId: data.coachId,
             stripeCustomerId: stripeCustomer.id,
+            onboarding: onboardingData,
             createdAt: FieldValue.serverTimestamp(),
-            height: { value: data.height, unit: data.units === 'imperial' ? 'in' : 'cm' },
-            onboarding: { ...data },
-        };
-        
-        // SURGICAL FIX: Writing to the 'clients' collection.
-        await adminDb.collection('clients').doc(userRecord.uid).set(clientProfile);
+            height: { value: data.height, unit: data.units },
+            idealBodyWeight: idealBodyWeight,
+            suggestedGoals: idealGoals, 
+            customGoals: actualGoals, 
+        });
 
-        if (data.tier === 'coaching') {
-            const chatRef = adminDb.collection('chats').doc();
-            await chatRef.set({
-                name: `${data.fullName} & Coach`,
-                type: 'coaching',
-                participants: [userRecord.uid, data.coachId],
-                participantCount: 2,
-                ownerId: data.coachId,
-                createdAt: FieldValue.serverTimestamp(),
-            });
-        }
+        // NOTE: Chat creation is now handled by a separate first-login action.
 
-        return { success: true, uid: userRecord.uid };
+        await batch.commit();
+
+        return { success: true, uid: uid };
     
     } catch (error: any) {
         console.error("Error in createClientByCoachAction:", error);
+        if (uid) {
+            await auth.deleteUser(uid).catch(delError => console.error(`Failed to clean up auth user ${uid}`, delError));
+        }
         return { success: false, error: { message: error.message || 'An unknown error occurred' } };
     }
 }
@@ -148,8 +172,6 @@ export async function unifiedSignupAction(
             success_url: successUrl,
             cancel_url: cancelUrl,
             metadata: {
-                // BUG FIX: The webhook needs the complete user data, including the password,
-                // to create the Firebase Auth user after successful payment.
                 userData: JSON.stringify(data)
             }
         });
@@ -168,7 +190,6 @@ export async function deleteClientAction(clientId: string): Promise<{ success: b
     try {
         if (!clientId) throw new Error("Client ID is required for deletion.");
         const batch = adminDb.batch();
-        // SURGICAL FIX: Deleting from 'clients' collection
         const clientRef = adminDb.collection('clients').doc(clientId);
         batch.delete(clientRef);
         await auth.deleteUser(clientId);
@@ -183,7 +204,6 @@ export async function deleteClientAction(clientId: string): Promise<{ success: b
 
 export async function getCoachNotesAction(clientId: string): Promise<{ success: boolean; data?: CoachNote[]; error?: string }> {
     try {
-        // SURGICAL FIX: Reading from 'clients' collection
         const notesRef = adminDb.collection(`clients/${clientId}/coachNotes`).orderBy('createdAt', 'desc');
         const snapshot = await notesRef.get();
         const notes = snapshot.docs.map(doc => {
@@ -213,7 +233,6 @@ export async function addCoachNoteAction(clientId: string, text: string, coachId
             coachName,
             createdAt: FieldValue.serverTimestamp(),
         };
-        // SURGICAL FIX: Writing to 'clients' collection
         const notesRef = adminDb.collection(`clients/${clientId}/coachNotes`);
         await notesRef.add(noteData);
         return { success: true };
@@ -226,7 +245,6 @@ export async function addCoachNoteAction(clientId: string, text: string, coachId
 export async function getClientByIdAction(clientId: string): Promise<{ success: boolean; data?: ClientProfile; error?: string }> {
     try {
         if (!clientId) throw new Error("Client ID is required.");
-        // SURGICAL FIX: Reading from 'clients' collection
         const clientRef = adminDb.collection('clients').doc(clientId);
         const clientSnap = await clientRef.get();
 
@@ -242,7 +260,6 @@ export async function getClientByIdAction(clientId: string): Promise<{ success: 
     }
 }
 
-// SURGICAL ADDITION: Restoring the mistakenly deleted function.
 export async function getCoachingChatIdForClient(clientId: string): Promise<{ success: boolean; chatId?: string; error?: any; }> {
     try {
         const chatsRef = adminDb.collection('chats');
