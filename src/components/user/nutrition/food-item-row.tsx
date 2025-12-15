@@ -5,9 +5,9 @@ import { cn } from '@/lib/utils';
 
 // A more generic type that is compatible with both EnrichedFood and FoodSearchResult
 interface FoodDisplayItem {
-    fdcId: number;
-    description: string;
-    brandOwner?: string; // Optional because it may not be present on search results
+    fdcId?: number; // FIX: fdcId is optional to match the incoming data type
+    description?: string;
+    brandOwner?: string;
 }
 
 interface FoodItemRowProps {
@@ -19,7 +19,13 @@ interface FoodItemRowProps {
 }
 
 export const FoodItemRow = ({ food, subDescription, onClick, actions, children }: FoodItemRowProps) => {
+    // FIX: Add a guard to prevent rendering if the essential data is missing.
+    if (!food || !food.fdcId) {
+        return null;
+    }
+
     const hasClickListener = !!onClick;
+    const description = food.description || 'Description not available';
 
     return (
         <div 
@@ -30,7 +36,7 @@ export const FoodItemRow = ({ food, subDescription, onClick, actions, children }
             onClick={onClick}
         >
             <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm truncate">{food.description}</p>
+                <p className="font-semibold text-sm truncate">{description}</p>
                 {subDescription ? (
                     <div className="text-xs text-muted-foreground truncate">{subDescription}</div>
                 ) : (

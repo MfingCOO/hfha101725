@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -11,7 +10,7 @@ import { FavoritesView } from './favorites-view';
 import { SavedMealsView } from './saved-meals-view';
 import { CurrentMealView } from './current-meal-view';
 import { FoodDetailView } from './food-detail-view';
-import { type EnrichedFood, type MealItem, NovaGroup } from '@/types';
+import { type EnrichedFood, type MealItem, NovaGroup, type Portion } from '@/types';
 import { Button } from '@/components/ui/button';
 import { FoodItemRow } from './food-item-row';
 import { toggleFavoriteFood, getFavoriteFoods } from '@/app/actions/nutrition-actions';
@@ -84,6 +83,12 @@ export interface NutritionModalProps {
   userId: string;
 }
 
+interface UIMealItem {
+    food: EnrichedFood;
+    quantity: number;
+    portion: Portion;
+}
+
 const IconTab = ({ value, icon: Icon, label }: { value: string; icon: React.ElementType; label: string }) => (
   <TabsTrigger value={value} className="flex-1 flex flex-col items-center gap-1 p-2 h-auto">
     <Icon className="h-5 w-5" />
@@ -145,22 +150,43 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
 
   const handleAddItemToMeal = (item: MealItem) => {
     setCurrentMealItems(prev => [...prev, item]);
-    // CORRECTED: The 'item' is a complete MealItem which now includes all EnrichedFood
-    // properties, so it can be passed directly to addRecentFood. The old, hacky
-    // logic of relying on 'selectedFood' is no longer needed.
     addRecentFood(item);
     setSelectedFood(null);
   };
   
-  const handleAddMultipleItemsToMeal = (items: MealItem[]) => {
-      setCurrentMealItems(prev => [...prev, ...items]);
-      // CORRECTED: Since MealItem now correctly contains all EnrichedFood data,
-      // we can pass each item directly to addRecentFood. The complex and unsafe
-      // reconstruction of the object is no longer necessary.
-      items.forEach(item => {
-        addRecentFood(item);
-      });
-  }
+  const handleAddMultipleItemsToMeal = (items: UIMealItem[]) => {
+    const newMealItems: MealItem[] = items.map(uiItem => {
+        const { food, quantity, portion } = uiItem;
+
+        // Helper to find a nutrient from the 'nutrients' array by its name.
+        // The base nutrient values in EnrichedFood are per 100g.
+        const getNutrientAmount = (nutrientName: string): number => {
+            // Standard names: 'Energy', 'Protein', 'Total lipid (fat)', 'Carbohydrate, by difference'
+            const nutrient = food.nutrients?.find(n => n.name === nutrientName);
+            return nutrient?.amount ?? 0;
+        };
+
+        // Calculate final calories based on the selected portion and quantity
+        const baseCalories = getNutrientAmount('Energy');
+        const calories = (baseCalories / 100) * portion.gramWeight * quantity;
+
+        // The MealItem type expects the full EnrichedFood details, plus the specific
+        // quantity, unit, and calculated calories for this instance of the food.
+        const mealItem: MealItem = {
+            ...food,
+            quantity,
+            unit: portion.description,
+            calories,
+        };
+        
+        // Add the original, unmodified food to the user's recents list.
+        addRecentFood(food);
+        return mealItem;
+    });
+
+    setCurrentMealItems(prev => [...prev, ...newMealItems]);
+};
+
 
   const handleRemoveItem = (indexToRemove: number) => {
     setCurrentMealItems(prev => prev.filter((_, i) => i !== indexToRemove));

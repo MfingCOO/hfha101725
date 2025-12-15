@@ -5,7 +5,7 @@ import { EnrichedFood } from '@/types';
 import { getFavoriteFoods, toggleFavoriteFood } from '@/app/actions/nutrition-actions';
 import { FoodItemRow } from './food-item-row';
 import { Button } from '@/components/ui/button';
-import { Loader2, Plus, Star } from 'lucide-react';
+import { Loader2, Star } from 'lucide-react';
 
 interface FavoritesViewProps {
   userId: string;
@@ -19,8 +19,14 @@ export function FavoritesView({ userId, onFoodSelected }: FavoritesViewProps) {
   useEffect(() => {
     async function fetchFavorites() {
       setIsLoading(true);
-      const favs = await getFavoriteFoods(userId);
-      setFavorites(favs);
+      try {
+        const favs = await getFavoriteFoods(userId);
+        // FIX: Add a filter to ensure no undefined items are in the list, making the client resilient.
+        setFavorites(favs.filter(Boolean)); 
+      } catch (error) {
+        console.error("[FavoritesView]", error);
+        setFavorites([]); // Set to empty array on error
+      }
       setIsLoading(false);
     }
 
@@ -29,14 +35,20 @@ export function FavoritesView({ userId, onFoodSelected }: FavoritesViewProps) {
     }
   }, [userId]);
 
-  const handleRemoveFavorite = async (fdcId: number) => {
+  const handleRemoveFavorite = async (e: React.MouseEvent, fdcId: number) => {
+    e.stopPropagation(); // Prevent the row's onClick from firing
+    
+    // Optimistically update the UI
+    setFavorites((prev) => prev.filter((food) => food.fdcId !== fdcId));
+
     const result = await toggleFavoriteFood(userId, fdcId, false);
-    if (result.success) {
-      // Remove the item from the local state for instant UI feedback
-      setFavorites((prev) => prev.filter((food) => food.fdcId !== fdcId));
-      // Optionally, show a success toast
-    } else {
-      // Optionally, show an error toast
+    if (!result.success) {
+      // Revert the change if the server call fails
+      // This requires fetching the favorites again or temporarily storing the removed item.
+      // For now, we can just refetch.
+      const favs = await getFavoriteFoods(userId);
+      setFavorites(favs.filter(Boolean));
+      // Optionally, show an error toast to the user
     }
   };
 
@@ -49,29 +61,21 @@ export function FavoritesView({ userId, onFoodSelected }: FavoritesViewProps) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1">
       {favorites.map((food) => (
         <FoodItemRow
           key={food.fdcId}
-          description={food.description}
+          food={food} // FIX: Pass the entire food object as a single prop
+          onClick={() => onFoodSelected(food)}
           actions={
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onFoodSelected(food)}
-              >
-                Select
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => handleRemoveFavorite(food.fdcId)}
-                aria-label="Remove from favorites"
-              >
-                <Star className="h-4 w-4 text-yellow-500 fill-current" />
-              </Button>
-            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => handleRemoveFavorite(e, food.fdcId)}
+              aria-label="Remove from favorites"
+            >
+              <Star className="h-4 w-4 text-yellow-500 fill-current" />
+            </Button>
           }
         />
       ))}
