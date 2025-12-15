@@ -2,12 +2,12 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useEffect, useState, useMemo, useCallback } from "react";
-import type { ClientProfile, UserTier } from "@/types";
+import type { ClientProfile, UserTier, UserProfile } from "@/types";
 import { TIER_ACCESS } from "@/types";
 import { Loader2, PlusCircle, User, Check, AlertTriangle, Trophy, Megaphone, Lightbulb, MessageSquare, Image as ImageIcon, Library, Calendar, Database } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { getClientsForCoach } from "@/app/coach/dashboard/actions";
+import { getAllAppUsers } from "@/app/coach/dashboard/actions"; // FIX: Import the new authoritative function
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ClientDetailModal } from "@/components/coach/clients/client-detail-modal";
@@ -26,23 +26,21 @@ import { CoachCalendarDialog } from "@/app/coach/calendar/CoachCalendarDialog";
 import { useAuth } from '@/components/auth/auth-provider';
 import { ManageFoodCacheDialog } from '@/components/coach/food-cache/manage-food-cache-dialog';
 
-// SURGICAL FIX: Helper to get the most recent daily summary object from the dailySummaries map.
 const getMostRecentSummary = (summaries: ClientProfile['dailySummaries']) => {
     if (!summaries) return null;
     const sortedDates = Object.keys(summaries).sort((a, b) => b.localeCompare(a));
     return sortedDates.length > 0 ? summaries[sortedDates[0]] : null;
 };
 
-export function CoachDashboardClient({ initialClients }: { initialClients: ClientProfile[] }) {
+export function CoachDashboardClient({ initialClients }: { initialClients: UserProfile[] }) {
     const { toast } = useToast();
-    const [allClients, setAllClients] = useState<ClientProfile[]>(initialClients);
+    const [allClients, setAllClients] = useState<UserProfile[]>(initialClients);
     const [isLoading, setIsLoading] = useState(false); 
-    const [selectedClient, setSelectedClient] = useState<ClientProfile | null>(null);
+    const [selectedClient, setSelectedClient] = useState<UserProfile | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [tierFilter, setTierFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('at-risk');
 
-    // State for managing modals
     const [isCreateClientOpen, setIsCreateClientOpen] = useState(false);
     const [isChallengesOpen, setIsChallengesOpen] = useState(false);
     const [isPopupsOpen, setIsPopupsOpen] = useState(false);
@@ -57,11 +55,12 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
     const fetchClients = useCallback(async () => {
         setIsLoading(true);
         try {
-            const clientsResult = await getClientsForCoach();
-            if (clientsResult.success && clientsResult.data) {
-                setAllClients(clientsResult.data);
+            // FIX: Call the new authoritative function to get ALL users
+            const result = await getAllAppUsers();
+            if (result.success && result.users) {
+                setAllClients(result.users);
             } else {
-                toast({ variant: 'destructive', title: 'Error', description: 'Could not refresh clients list.' });
+                toast({ variant: 'destructive', title: 'Error', description: result.error || 'Could not refresh user list.' });
             }
         } catch(e: any) {
              toast({ variant: 'destructive', title: 'Error', description: e.message });
@@ -71,9 +70,10 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
     }, [toast]);
     
     useEffect(() => {
+        fetchClients();
     }, [fetchClients]);
 
-    const handleQuickChatClick = async (client: ClientProfile) => {
+    const handleQuickChatClick = async (client: UserProfile) => {
         if(client.tier !== 'coaching') {
             toast({
                 variant: 'destructive',
@@ -94,7 +94,7 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
     }
 
     const filteredAndSortedClients = useMemo(() => {
-        let clientsToShow: ClientProfile[] = allClients;
+        let clientsToShow: UserProfile[] = allClients;
 
         if (searchTerm) {
              clientsToShow = allClients.filter(client => 
@@ -107,9 +107,8 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
             }
 
             if (statusFilter === 'at-risk') {
-                 const atRiskClients: (ClientProfile & { reason: string; atRiskScore: number })[] = [];
+                 const atRiskClients: (UserProfile & { reason: string; atRiskScore: number })[] = [];
                  clientsToShow.forEach(client => {
-                    // SURGICAL FIX: Look for dailySummaries (the map) and get the most recent entry.
                     const summary = getMostRecentSummary(client.dailySummaries);
                     if (!summary) return;
 
@@ -139,7 +138,6 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
         
         if (statusFilter !== 'at-risk') {
             clientsToShow.sort((a, b) => {
-                // SURGICAL FIX: Sort by the lastUpdated field from the most recent summary.
                 const summaryA = getMostRecentSummary(a.dailySummaries);
                 const summaryB = getMostRecentSummary(b.dailySummaries);
                 const dateA = summaryA?.lastUpdated ? new Date(summaryA.lastUpdated as string).getTime() : 0;
@@ -151,7 +149,7 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
         return clientsToShow;
     }, [allClients, tierFilter, statusFilter, searchTerm]);
     
-    const ClientListItem = ({ client }: { client: ClientProfile & { reason?: string }}) => (
+    const ClientListItem = ({ client }: { client: UserProfile & { reason?: string }}) => (
         <div 
             className="w-full text-left p-1.5 pr-3 rounded-md border bg-card hover:bg-muted transition-colors flex items-center gap-2 text-sm"
         >
@@ -268,7 +266,7 @@ export function CoachDashboardClient({ initialClients }: { initialClients: Clien
             </div>
              {selectedClient && (
                 <ClientDetailModal
-                    client={selectedClient}
+                    client={selectedClient as ClientProfile}
                     isOpen={!!selectedClient}
                     onClose={() => {
                         setSelectedClient(null);

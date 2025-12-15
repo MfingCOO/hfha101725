@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -21,11 +22,10 @@ import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { savePopupAction } from '@/app/coach/popups/actions';
-import { TIER_ACCESS, ClientProfile, UserProfile } from '@/types';
-import { getClientsForCoach } from '@/app/coach/dashboard/actions';
+import { TIER_ACCESS, UserProfile } from '@/types';
+import { getAllAppUsers } from '@/app/coach/dashboard/actions'; // FIX: Import the new authoritative function
 import { Combobox } from '@/components/ui/combobox';
 import { BaseModal } from '@/components/ui/base-modal';
-import { useAuth } from '@/components/auth/auth-provider';
 
 
 const popupSchema = z.object({
@@ -61,7 +61,6 @@ interface CreatePopupDialogProps {
 
 export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialData }: CreatePopupDialogProps) {
     const { toast } = useToast();
-    const { user } = useAuth();
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [clients, setClients] = useState<UserProfile[]>([]);
     
@@ -84,19 +83,19 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
     });
 
     useEffect(() => {
-        const fetchClients = async () => {
-            if (!user) return;
-            const result = await getClientsForCoach();
-            if (result.success && result.data) {
-                setClients(result.data);
+        const fetchAllUsers = async () => {
+            // FIX: Call the new authoritative function to get ALL users
+            const result = await getAllAppUsers();
+            if (result.success && result.users) {
+                setClients(result.users);
             } else {
                 setClients([]);
-                toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch client list.' });
+                toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch user list.' });
             }
         };
 
         if (open) {
-            fetchClients();
+            fetchAllUsers();
 
             const defaultValues = {
                 id: initialData?.id || undefined,
@@ -113,7 +112,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
             form.reset(defaultValues);
             setImagePreview(initialData?.imageUrl || null);
         }
-    }, [open, initialData, form, user, toast]);
+    }, [open, initialData, form, toast]);
 
     const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -129,6 +128,13 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
     
     const onSubmit = async (data: PopupFormValues) => {
         try {
+            // FIX: Round minutes to the nearest 15-min interval and clear seconds/ms
+            const roundedDate = new Date(data.scheduledAt);
+            const minutes = roundedDate.getMinutes();
+            const roundedMinutes = Math.floor(minutes / 15) * 15;
+            roundedDate.setMinutes(roundedMinutes, 0, 0);
+            data.scheduledAt = roundedDate;
+
             const result = await savePopupAction(data);
 
             if(result.success) {
@@ -230,13 +236,14 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
                                     </PopoverContent>
                                 </Popover>
                                 <FormControl>
-                                    <Input
+                                     <Input
                                         type="time"
+                                        step="900"
                                         value={field.value instanceof Date && !isNaN(field.value.getTime()) ? format(field.value, 'HH:mm') : ''}
                                         onChange={e => {
                                             const [hours, minutes] = e.target.value.split(':').map(Number);
                                             const newDate = new Date(field.value);
-                                            newDate.setHours(hours, minutes);
+                                            newDate.setHours(hours, minutes, 0, 0); 
                                             field.onChange(newDate);
                                         }}
                                     />
@@ -280,7 +287,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
                                     name="targetValue"
                                     render={({ field }) => (
                                     <FormItem><FormLabel>Select Tier</FormLabel>
-                                        <Select onValueChange={field.onChange} value={field.value}>
+                                        <Select onValuechange={field.onChange} value={field.value}>
                                             <FormControl><SelectTrigger><SelectValue placeholder="Select a tier" /></SelectTrigger></FormControl>
                                             <SelectContent>
                                                 {TIER_ACCESS.map(tier => <SelectItem key={tier} value={tier}>{tier.charAt(0).toUpperCase() + tier.slice(1)}</SelectItem>)}

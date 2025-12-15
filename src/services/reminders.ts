@@ -1,7 +1,7 @@
 'use server';
 
-import { db } from '@/lib/firebaseAdmin';
-import { UserProfile, UserTier, ClientProfile } from '@/types';
+import { admin, db } from '@/lib/firebaseAdmin'; // FIX: Import the full admin SDK
+import { UserProfile, UserTier } from '@/types';
 import { startOfDay, format, subDays, addDays, addHours, isAfter } from 'date-fns';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 
@@ -32,12 +32,9 @@ export interface Reminder {
     pillarId: string;
     requiredTier?: UserTier;
     data?: any;
-    deliverAt: Timestamp; // All reminders will now have a delivery time
+    deliverAt: Timestamp; 
 }
 
-/**
- * Recursively converts Firestore Timestamps to ISO strings for client-side compatibility.
- */
 function serializeTimestamps(obj: any): any {
     if (!obj) return obj;
     if (obj instanceof Timestamp) {
@@ -58,16 +55,53 @@ function serializeTimestamps(obj: any): any {
     return obj;
 }
 
-// This function remains but now includes the deliverAt field.
+// ENHANCED: This function now also sends a push notification.
 async function createUserNotification(userId: string, reminder: Omit<Reminder, 'id'>) {
     if (!userId) return;
-    const notificationRef = db.collection(`clients/${userId}/notifications`).doc();
-    await notificationRef.set({
-        ...reminder,
-        createdAt: FieldValue.serverTimestamp(),
-        seen: false,
-    });
-    return { id: notificationRef.id, ...reminder };
+
+    try {
+        // 1. Send the Push Notification first
+        const userProfileRef = db.collection('userProfiles').doc(userId);
+        const userProfileDoc = await userProfileRef.get();
+
+        if (userProfileDoc.exists) {
+            const userProfile = userProfileDoc.data() as UserProfile;
+            const token = userProfile.pushToken;
+
+            if (token) {
+                const payload = {
+                    notification: {
+                        title: reminder.title,
+                        body: reminder.message,
+                    },
+                    data: {
+                         // You can add extra data here if the app needs to handle the notification differently
+                         type: reminder.type,
+                         pillarId: reminder.pillarId,
+                    }
+                };
+                await admin.messaging().sendToDevice(token, payload);
+                console.log(`Push notification sent to user ${userId} for reminder type ${reminder.type}`);
+            } else {
+                console.log(`User ${userId} does not have a push token. Skipping push notification.`);
+            }
+        }
+
+        // 2. Save the notification to the database for the sticky pop-up
+        const notificationRef = db.collection(`clients/${userId}/notifications`).doc();
+        await notificationRef.set({
+            ...reminder,
+            createdAt: FieldValue.serverTimestamp(),
+            seen: false,
+        });
+        
+        return { id: notificationRef.id, ...reminder };
+
+    } catch (error) {
+        console.error(`Failed to create user notification for user ${userId}:`, error);
+        // We don't re-throw, as failing to send a push shouldn't block saving the DB notification
+        return null;
+    }
 }
 
 export async function dismissReminderAction(userId: string, notificationId: string): Promise<{ success: boolean; error?: string; }> {
@@ -75,7 +109,6 @@ export async function dismissReminderAction(userId: string, notificationId: stri
         if (!userId || !notificationId) {
             throw new Error("User ID and Notification ID are required.");
         }
-        // Instead of deleting, we mark it as seen to prevent it from being shown again.
         await db.collection(`clients/${userId}/notifications`).doc(notificationId).update({ seen: true });
         return { success: true };
     } catch (error: any) {
@@ -84,7 +117,6 @@ export async function dismissReminderAction(userId: string, notificationId: stri
     }
 }
 
-// Modified to include a delivery time.
 export async function sendScheduledPopupNotification(popupData: any) {
   try {
     const { targetType, targetValue, title, message, id, deliveryTime, ...restData } = popupData;
@@ -130,8 +162,6 @@ export async function sendScheduledPopupNotification(popupData: any) {
   }
 }
 
-
-// NEW, EFFICIENT ACTION: Gets the next notification that is due to be shown.
 export async function getNextDueNotificationAction(userId: string): Promise<{ success: boolean; reminder?: Reminder | null; error?: string }> {
     try {
         const now = Timestamp.now();
@@ -158,7 +188,6 @@ export async function getNextDueNotificationAction(userId: string): Promise<{ su
     }
 }
 
-// NEW, EFFICIENT ACTION: Gets the time of the soonest-scheduled future notification.
 export async function getNextNotificationTimeAction(userId: string): Promise<{ success: boolean; nextNotificationTime?: string | null; error?: string }> {
     try {
         const now = Timestamp.now();
@@ -184,5 +213,3 @@ export async function getNextNotificationTimeAction(userId: string): Promise<{ s
         return { success: false, error: error.message };
     }
 }
-
-// The old getReminderAction is now DELETED, as its logic is inefficient and has been replaced.

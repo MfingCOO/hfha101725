@@ -29,8 +29,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { Loader2, Trash2, Calendar as CalendarIcon, Link as LinkIcon } from 'lucide-react';
 import { saveCalendarEvent, deleteCalendarEvent } from '@/app/coach/calendar/actions';
-import { getClientsForCoach } from '@/app/coach/dashboard/actions';
-import type { ClientProfile } from '@/types';
+import { getAllAppUsers } from '@/app/coach/dashboard/actions'; // FIX: Import the new authoritative function
+import type { UserProfile } from '@/types';
 import { Combobox } from '@/components/ui/combobox';
 import { format, addDays } from 'date-fns';
 import { Switch } from '@/components/ui/switch';
@@ -39,7 +39,6 @@ import { Calendar } from '@/components/ui/calendar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/components/auth/auth-provider';
 
-// Simplified schema, removing recurring event fields
 const eventSchema = z.object({
     id: z.string().optional(),
     title: z.string().min(1, "Title is required."),
@@ -66,7 +65,7 @@ interface EventDialogProps {
 export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [clients, setClients] = useState<ClientProfile[]>([]);
+  const [clients, setClients] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<EventFormValues>({
@@ -87,10 +86,10 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
 
   useEffect(() => {
     if (isOpen) {
-      getClientsForCoach().then(result => {
-        if (result.success && result.data) {
-          const eligibleClients = result.data.filter(c => c.tier === 'premium' || c.tier === 'coaching');
-          setClients(eligibleClients as ClientProfile[]);
+      // FIX: Call the new authoritative function to get ALL users
+      getAllAppUsers().then(result => {
+        if (result.success && result.users) {
+          setClients(result.users);
         }
       });
       

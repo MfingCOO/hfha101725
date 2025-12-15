@@ -1,7 +1,7 @@
 'use server';
 
 import { auth, db as adminDb } from '@/lib/firebaseAdmin';
-import type { ClientProfile, Chat } from '@/types';
+import type { ClientProfile, Chat, UserProfile } from '@/types';
 import { Timestamp } from 'firebase-admin/firestore';
 
 // Helper function to serialize Firestore Timestamps
@@ -21,8 +21,7 @@ function serializeTimestamps(data: any): any {
     return data;
 }
 
-// RESTORED AND REPAIRED FUNCTION
-// This function was deleted, breaking multiple components. It is now restored.
+// This function correctly fetches only the clients assigned to a specific coach.
 export async function getClientsForCoach(coachId: string): Promise<{ success: boolean; clients?: ClientProfile[]; error?: string }> {
     if (!coachId) {
         return { success: false, error: 'Coach ID is required.' };
@@ -34,6 +33,19 @@ export async function getClientsForCoach(coachId: string): Promise<{ success: bo
         return { success: true, clients: clients };
     } catch (error: any) {
         console.error("Error fetching clients for coach:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// NEW: This is the single, authoritative function for fetching ALL users for the coach UI.
+export async function getAllAppUsers(): Promise<{ success: boolean; users?: UserProfile[]; error?: string }> {
+    try {
+        const usersRef = adminDb.collection('userProfiles');
+        const usersSnapshot = await usersRef.get();
+        const users = usersSnapshot.docs.map(doc => serializeTimestamps({ uid: doc.id, ...doc.data() })) as UserProfile[];
+        return { success: true, users: users };
+    } catch (error: any) {
+        console.error("Error fetching all app users:", error);
         return { success: false, error: error.message };
     }
 }
