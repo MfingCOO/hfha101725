@@ -98,8 +98,8 @@ export function CoachDashboardClient({ initialClients }: { initialClients: UserP
 
         if (searchTerm) {
              clientsToShow = allClients.filter(client => 
-                client.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                client.email.toLowerCase().includes(searchTerm.toLowerCase())
+                (client.fullName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (client.email || '').toLowerCase().includes(searchTerm.toLowerCase())
             );
         } else {
             if (tierFilter !== 'all') {
