@@ -3,8 +3,34 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-interface UsdaFoodItem { fdcId: number; description: string; brandOwner?: string; ingredients?: string; dataType?: string; }
+// SURGICAL CHANGE: Added 'brandName' to the interface for more accurate sorting.
+interface UsdaFoodItem { fdcId: number; description: string; brandOwner?: string; brandName?: string; ingredients?: string; dataType?: string; }
 interface UsdaApiResponse { foods: UsdaFoodItem[]; }
+
+// SURGICAL CHANGE: Injected the relevance scoring function.
+function calculateRelevance(food: UsdaFoodItem, queryLower: string): number {
+    const descriptionLower = food.description.toLowerCase();
+    const brandOwnerLower = (food.brandOwner || '').toLowerCase();
+    const brandNameLower = (food.brandName || '').toLowerCase();
+    let relevanceScore = 0;
+
+    // Primary bonus for brand match
+    if (brandOwnerLower.includes(queryLower) || brandNameLower.includes(queryLower)) {
+        relevanceScore += 10000;
+    }
+
+    // Secondary bonus for description match
+    if (descriptionLower.startsWith(queryLower)) {
+        relevanceScore += 1000;
+    } else if (descriptionLower.includes(queryLower)) {
+        relevanceScore += 500;
+    }
+
+    // Penalty for long descriptions
+    relevanceScore -= descriptionLower.length * 0.1;
+
+    return relevanceScore;
+}
 
 async function searchUSDA(query: string) {
   const apiKey = process.env.USDA_API_KEY;
@@ -15,45 +41,40 @@ async function searchUSDA(query: string) {
 
   const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}`;
 
-  let response;
   try {
-    response = await fetch(url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, pageSize: 50, dataType: ['Branded', 'Foundation', 'SR Legacy'] }),
     });
+
+    if (!response.ok) {
+      console.error(`[API Search Route] USDA API returned a non-OK status: ${response.status}.`);
+      return { results: [] };
+    }
+
+    const data: UsdaApiResponse = await response.json();
+
+    if (!data.foods || !Array.isArray(data.foods)) {
+      return { results: [] };
+    }
+
+    const queryLower = query.toLowerCase();
+    
+    const sortedFoods = data.foods
+      .map(food => ({
+        ...food,
+        relevanceScore: calculateRelevance(food, queryLower),
+      }))
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .map(f => ({ fdcId: f.fdcId, description: f.description, brandOwner: f.brandOwner, ingredients: f.ingredients }));
+
+    return { results: sortedFoods };
+
   } catch (error) {
-    console.error('[API Search Route] Fetch to USDA failed completely.', error);
-    return { foundationFoods: [], brandedFoods: [], otherFoods: [] };
+    console.error('[API Search Route] An error occurred during the USDA search operation:', error);
+    return { results: [] };
   }
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    console.error(`[API Search Route] USDA API returned a non-OK status: ${response.status}. Body: ${errorBody}`);
-    return { foundationFoods: [], brandedFoods: [], otherFoods: [] };
-  }
-
-  let data: UsdaApiResponse;
-  try {
-    // FINAL, DEFINITIVE FIX: The server was crashing here if the USDA API returned a 200 OK status
-    // but with a non-JSON body (e.g., an HTML error page or an empty string). This try/catch block
-    // now handles that specific failure case, making the server resilient.
-    data = await response.json();
-  } catch (error) {
-    console.error('[API Search Route] Failed to parse JSON from USDA response even though status was OK.', error);
-    // By returning empty results here, we prevent the server from crashing.
-    return { foundationFoods: [], brandedFoods: [], otherFoods: [] };
-  }
-
-  if (!data.foods || !Array.isArray(data.foods)) {
-    return { foundationFoods: [], brandedFoods: [], otherFoods: [] };
-  }
-
-  const foundationFoods = data.foods.filter(f => f.dataType === 'Foundation').map(f => ({ fdcId: f.fdcId, description: f.description, ingredients: f.ingredients }));
-  const brandedFoods = data.foods.filter(f => f.dataType === 'Branded').map(f => ({ fdcId: f.fdcId, description: f.description, brandOwner: f.brandOwner, ingredients: f.ingredients }));
-  const otherFoods = data.foods.filter(f => f.dataType !== 'Foundation' && f.dataType !== 'Branded').map(f => ({ fdcId: f.fdcId, description: f.description, ingredients: f.ingredients }));
-
-  return { foundationFoods, brandedFoods, otherFoods };
 }
 
 export async function POST(request: Request) {
