@@ -3,7 +3,7 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { differenceInCalendarDays, startOfDay, endOfDay as fnsEndOfDay, subDays, subHours, format } from 'date-fns';
 import type { UserTier, ClientProfile, UserProfile, SavedMeal, MealItem, RecentFood } from '@/types';
-import { calculateDailySummaryForUser } from './summary-calculator';
+import { calculateDailySummary } from './summary-calculator';
 import { FieldValue, Timestamp, FieldPath, Query } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
 /**
@@ -14,38 +14,31 @@ function triggerSummaryCalculation(userId: string, dateSource: Timestamp | Date)
     // This is a "fire-and-forget" task that runs in the background.
     (async () => {
         try {
-            // 1. Fetch the user's client profile to get their timezone information.
-            const clientSnap = await adminDb.collection('clients').doc(userId).get();
-            
-            let userTimezone = 'UTC';
-            let timezoneOffset = 0;
-
-            if (clientSnap.exists) {
-                // Use 'any' to bypass potential TypeScript errors if the 'types.ts' file is not perfectly in sync.
-                const clientData: any = clientSnap.data();
-                // Safely access timezone properties and provide safe fallbacks if they don't exist.
-                userTimezone = clientData?.timezone || 'UTC';
-                timezoneOffset = clientData?.timezoneOffset || 0;
-            } else {
-                console.warn(`[triggerSummaryCalculation] Client profile ${userId} not found. Defaulting to UTC for calculation.`);
-            }
-
-            // 2. Introduce a delay to prevent a race condition, allowing the primary save/delete to complete in Firestore.
+            // Introduce a delay to prevent a race condition.
             await new Promise(resolve => setTimeout(resolve, 2000));
 
             const dateToRecalculate = dateSource instanceof Date ? dateSource : dateSource.toDate();
             const dateString = format(dateToRecalculate, 'yyyy-MM-dd');
             
-            console.log(`[DEBOUNCED] Triggering summary calculation for user ${userId}, date: ${dateString} with timezone: ${userTimezone}`);
+            console.log(`[DEBOUNCED] Triggering summary calculation for user ${userId}, date: ${dateString}`);
             
-            // 3. Call the calculator function with the correct timezone info.
-            await calculateDailySummaryForUser(userId, dateString, userTimezone, timezoneOffset);
+            // 1. Fetch the data for the specific day, as the new calculator requires it.
+            const dayDataResult = await getDataForDay(dateString, userId);
+
+            if (!dayDataResult.success || !dayDataResult.data) {
+                console.error(`[triggerSummaryCalculation] Could not fetch data for day ${dateString} for user ${userId}. Aborting summary calculation.`);
+                return; // Exit if data fetching fails
+            }
+
+            // 2. Call the new summary calculator with the fetched data.
+            await calculateDailySummary(userId, dateString, dayDataResult.data);
 
         } catch (error) {
             console.error(`[triggerSummaryCalculation] CRITICAL background error for user ${userId}:`, error);
         }
     })();
 }
+
 
 
 /**
@@ -286,13 +279,6 @@ export async function saveDataAction(collectionName: string, data: any, userId: 
       // THE IGNITION: THIS IS THE FINAL, CRITICAL FIX
       // After any successful save, this code runs the summary calculator.
       // =======================================================================
-      if (data) {
-        const dateSource = data.entryDate || data.wakeUpDay;
-        if (dateSource) {
-            triggerSummaryCalculation(userId, dateSource);
-        }
-    }
-
 
       // Revalidate the cache to ensure the UI updates.
       revalidatePath('/calendar');
@@ -443,7 +429,7 @@ export async function getDataForDay(date: string, userId: string) {
             const newEntry = { ...entry };
             for(const key in newEntry) {
                 if (newEntry[key] instanceof Timestamp) {
-                    newEntry[key] = newEntry[key].toDate();
+                    newEntry[key] = newEntry[key].toDate().toISOString();
                 }
             }
             return newEntry;

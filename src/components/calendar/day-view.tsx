@@ -12,6 +12,7 @@ import { deleteData } from '@/services/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { pillarsAndTools } from '@/lib/pillars';
 import { AppointmentDetailDialog } from './AppointmentDetailDialog';
+import { LiveEventDetailDialog } from './LiveEventDetailDialog';
 import { triggerSummaryRecalculation } from '@/app/calendar/actions';
 
 const pillarColors: Record<string, string> = {
@@ -29,6 +30,7 @@ const pillarColors: Record<string, string> = {
     binge: 'bg-red-600 border-red-800',
     habit: 'bg-yellow-500 border-yellow-700',
     appointment: 'bg-purple-500 border-purple-700',
+    'live-event': 'bg-rose-500 border-rose-700',
     default: 'bg-gray-500 border-gray-700',
 };
 
@@ -63,13 +65,10 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
         let start: Date | null = null;
         let end: Date | null = null;
 
-        // CORRECT, FINAL LOGIC: 
-        // Simply parse the date from the database. The JS Date object handles the timezone correctly by default.
-        // No manual offset calculation is needed.
         const entryDate = safeParseDate(entry.entryDate);
         const indulgenceDate = safeParseDate(entry.indulgenceDate);
-        const appointmentStart = safeParseDate(entry.start);
-        const appointmentEnd = safeParseDate(entry.end);
+        const eventStart = safeParseDate(entry.start);
+        const eventEnd = safeParseDate(entry.end);
 
         if (entry.pillar === 'sleep' && entryDate) {
             start = entryDate;
@@ -77,9 +76,9 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
         } else if (entry.pillar === 'activity' && entryDate) {
             start = entryDate;
             end = addMinutes(start, entry.duration || 15);
-        } else if (entry.pillar === 'appointment' && appointmentStart && appointmentEnd) {
-            start = appointmentStart;
-            end = appointmentEnd;
+        } else if ((entry.pillar === 'appointment' || entry.pillar === 'live-event') && eventStart && eventEnd) { // Use pillar here
+            start = eventStart;
+            end = eventEnd;
         } else if (entry.pillar === 'planner' && indulgenceDate) {
             start = indulgenceDate;
             end = addMinutes(start, 15);
@@ -157,7 +156,7 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
 };
 
 const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEntry, onSelect: (entry: any) => void, isHighlighted: boolean }) => {
-    const pillarKey = entry.originalData.displayPillar || entry.originalData.pillar || 'default';
+    const pillarKey = entry.originalData.pillar || 'default';
     const details = pillarDetails[pillarKey] || pillarDetails.default;
     const Icon = details.icon;
     const colorClass = pillarColors[pillarKey] || pillarColors.default;
@@ -202,6 +201,7 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     const [selectedEntry, setSelectedEntry] = useState<any | null>(null);
     const [activePillar, setActivePillar] = useState<any | null>(null);
     const [selectedAppointment, setSelectedAppointment] = useState<any | null>(null);
+    const [selectedLiveEvent, setSelectedLiveEvent] = useState<any | null>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
     const [isInitialScrollDone, setIsInitialScrollDone] = useState(false);
     const [userTimezone, setUserTimezone] = useState<string>('');
@@ -260,6 +260,11 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     const handleSelectEntry = (entryData: any) => {
         if (entryData.pillar === 'appointment') {
             setSelectedAppointment(entryData);
+            return;
+        }
+
+        if (entryData.pillar === 'live-event') { // CORRECTED CHECK
+            setSelectedLiveEvent(entryData);
             return;
         }
 
@@ -374,6 +379,12 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                     isOpen={!!selectedAppointment}
                     onClose={handleAppointmentDialogClose}
                     event={selectedAppointment}
+                />
+
+                 <LiveEventDetailDialog
+                    isOpen={!!selectedLiveEvent}
+                    onClose={() => setSelectedLiveEvent(null)}
+                    event={selectedLiveEvent}
                 />
             </div>
         );

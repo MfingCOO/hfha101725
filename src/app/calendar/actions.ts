@@ -3,12 +3,10 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp, DocumentSnapshot } from 'firebase-admin/firestore';
 import { subDays, addDays, isWithinInterval } from 'date-fns';
-// CORRECT IMPORT: Point to the real summary calculator
 import { calculateDailySummaryForUser } from '@/services/summary-calculator'; 
 
 const ALL_DATA_COLLECTIONS = ['nutrition', 'hydration', 'activity', 'sleep', 'stress', 'measurements', 'protocol', 'planner', 'cravings'];
 
-// CORRECTED TRIGGER: This now calls the real calculator with all required parameters.
 export async function triggerSummaryRecalculation(userId: string, date: string, userTimezone: string, timezoneOffset: number) {
     if (!userId || !date) {
         console.error("[Action] Missing userId or date for summary recalculation");
@@ -21,8 +19,6 @@ export async function triggerSummaryRecalculation(userId: string, date: string, 
         return { success: false, error: error.message };
     }
 }
-
-// --- The rest of the file remains unchanged. --- 
 
 function serializeTimestamps(data: any): any {
     if (!data) return data;
@@ -118,13 +114,28 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
                 return [];
             });
 
-        const [summarySnap, personalLogsNested, coachAppointments] = await Promise.all([
+        const clientCalendarEventsPromise = adminDb.collection('clientCalendar')
+            .where('userId', '==', userId)
+            .where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC))
+            .where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC))
+            .get().then(snapshot =>
+                snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return { ...data, id: doc.id, pillar: data.type || 'live-event', entryDate: data.start };
+                })
+            ).catch(err => {
+                console.error(`Failed to fetch client calendar events:`, err);
+                return [];
+            });
+
+        const [summarySnap, personalLogsNested, coachAppointments, clientCalendarEvents] = await Promise.all([
             summaryPromise,
             Promise.all(personalLogPromises),
             coachAppointmentsPromise,
+            clientCalendarEventsPromise
         ]);
 
-        const allEntriesRaw = (personalLogsNested as any).flat().concat(coachAppointments as any).filter(Boolean);
+        const allEntriesRaw = (personalLogsNested as any).flat().concat(coachAppointments as any).concat(clientCalendarEvents as any).filter(Boolean);
 
         const finalEntries = allEntriesRaw.filter(entry => {
             const getJSDate = (d: any) => {
@@ -149,14 +160,14 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
                 const indulgenceDate = getJSDate(entry.indulgenceDate);
                 return indulgenceDate && isWithinInterval(indulgenceDate, { start: filterRangeStartUTC, end: filterRangeEndUTC });
             }
-            const entryDate = getJSDate(entry.entryDate);
+            const entryDate = getJSDate(entry.entryDate || entry.start);
             return entryDate && isWithinInterval(entryDate, { start: filterRangeStartUTC, end: filterRangeEndUTC });
         });
 
         finalEntries.sort((a: any, b: any) => {
             const getJSDate = (d: any) => d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
-            const dateA = getJSDate(a.indulgenceDate || a.entryDate || a.wakeUpDay);
-            const dateB = getJSDate(b.indulgenceDate || b.entryDate || b.wakeUpDay);
+            const dateA = getJSDate(a.indulgenceDate || a.entryDate || a.wakeUpDay || a.start);
+            const dateB = getJSDate(b.indulgenceDate || b.entryDate || b.wakeUpDay || b.start);
             return dateA.getTime() - dateB.getTime();
         });
 

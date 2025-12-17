@@ -1,14 +1,35 @@
 'use client';
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onIdTokenChanged, User, signOut } from 'firebase/auth';
-import { doc, onSnapshot, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore'; // Import Timestamp
 import { auth, db, messaging } from '@/lib/firebase';
 import { Loader2 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { UserProfile, ClientProfile } from '@/types';
 import { COACH_UIDS } from '@/lib/coaches';
 import { getToken } from 'firebase/messaging';
-import { createCoachingChatOnFirstLogin } from '@/app/chat/actions'; // STEP 2: IMPORT THE ACTION
+import { createCoachingChatOnFirstLogin } from '@/app/chats/actions';
+
+// ========================================================================================
+// THE FIX: This helper function recursively finds and converts all Timestamps to strings.
+// ========================================================================================
+function serializeTimestamps(obj: any): any {
+  if (!obj) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(serializeTimestamps);
+  }
+  if (typeof obj === 'object') {
+    if (obj instanceof Timestamp) {
+      return obj.toDate().toISOString();
+    }
+    const newObj: { [key: string]: any } = {};
+    for (const key in obj) {
+      newObj[key] = serializeTimestamps(obj[key]);
+    }
+    return newObj;
+  }
+  return obj;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -62,14 +83,12 @@ function AuthRedirector({ children }: { children: ReactNode }) {
     return <>{children}</>;
 }
 
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isCoach, setIsCoach] = useState(false);
 
-  // STEP 2: TRIGGER THE 'FIRST-LOGIN' ACTION WHEN THE USER PROFILE IS LOADED
   useEffect(() => {
     if (userProfile) {
         createCoachingChatOnFirstLogin(userProfile as ClientProfile).catch(console.error);
@@ -128,7 +147,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const combinedProfileUpdater = () => {
              const combined = { ...tempUserProfile, ...tempClientProfile } as UserProfile;
-             setUserProfile(combined);
+             // By serializing here, we ensure the entire userProfile object is plain.
+             setUserProfile(serializeTimestamps(combined));
              if(!hasInitialized) {
                 setLoading(false);
                 hasInitialized = true;
@@ -138,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userProfileDocRef = doc(db, 'userProfiles', authUser.uid);
         unsubscribeUserProfile = onSnapshot(userProfileDocRef, (snap) => {
           if (snap.exists()) {
+            // The raw data from Firestore is stored temporarily.
             tempUserProfile = snap.data();
             combinedProfileUpdater();
           } else {
@@ -153,14 +174,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const clientProfileDocRef = doc(db, 'clients', authUser.uid);
             unsubscribeClientProfile = onSnapshot(clientProfileDocRef, (snap) => {
               if (snap.exists()) {
-                const data = snap.data();
-                if (data.bingeFreeSince && typeof data.bingeFreeSince.toDate === 'function') {
-                    data.bingeFreeSince = data.bingeFreeSince.toMillis();
-                }
-                if (data.lastInteraction && typeof data.lastInteraction.toDate === 'function') {
-                    data.lastInteraction = data.lastInteraction.toMillis();
-                }
-                tempClientProfile = data;
+                // The raw data from Firestore is stored temporarily.
+                tempClientProfile = snap.data();
               }
               combinedProfileUpdater();
             }, (error) => {
@@ -168,10 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                  combinedProfileUpdater();
             });
         } else {
-             if (unsubscribeUserProfile) {
-             } else {
-                setLoading(false);
-             }
+            setLoading(false);
         }
 
       } else {

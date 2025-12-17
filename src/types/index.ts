@@ -285,3 +285,17 @@ export interface Popups {
     hyperlink?: string;
     status: 'scheduled' | 'sent' | 'cancelled';
 }
+
+export interface LiveEvent {
+    id: string;
+    title: string;
+    description: string;
+    coachId: string;
+    eventTimestamp: any;
+    durationMinutes: number;
+    videoConferenceLink?: string;
+    signUpDeadline: any;
+    attendees: string[];
+    createdAt: any;
+  }
+  

@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
+import { getSiteSettingsAction } from '@/app/actions/site-settings-actions';
 import { getAllDataForPeriod } from '@/services/firestore';
 
 // THE KEY: Import the project-specific configured instance of Genkit.

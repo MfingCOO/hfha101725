@@ -38,6 +38,8 @@ import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialo
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ManageCustomHabitsDialog } from './manage-custom-habits-dialog';
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
+import { LiveEventsTab } from '@/app/coach/events/LiveEventsTab';
+import { UpsertEventDialog } from '@/app/coach/events/UpsertEventDialog';
 
 type SerializableChallenge = Omit<Challenge, 'dates' | 'createdAt'> & {
     dates: { from: string, to: string };
@@ -56,6 +58,8 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
     const [challenges, setChallenges] = useState<SerializableChallenge[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [createDialogState, setCreateDialogState] = useState<{ open: boolean, challenge: SerializableChallenge | null }>({ open: false, challenge: null });
+    const [createEventDialogState, setCreateEventDialogState] = useState(false);
+    const [eventTabKey, setEventTabKey] = useState(0);
     const [habitsDialogState, setHabitsDialogState] = useState(false);
     const [detailDialogState, setDetailDialogState] = useState<{ open: boolean, chatInfo: {id: string, name: string} | null }>({ open: false, chatInfo: null });
     const [deleteAlertState, setDeleteAlertState] = useState<{ open: boolean, challenge: SerializableChallenge | null }>({ open: false, challenge: null });
@@ -65,7 +69,7 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
         setIsLoading(true);
         const result = await getChallengesForCoach();
         if (result.success && result.data) {
-            setChallenges(result.data as SerializableChallenge[]);
+            setChallenges(result.data as unknown as SerializableChallenge[]);
         } else {
             toast({
                 variant: 'destructive',
@@ -188,16 +192,21 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
         <CoachPageModal
             open={open}
             onOpenChange={onOpenChange}
-            title="Manage Challenges"
-            description="Create, edit, and view community challenges."
+            title="Manage Community"
+            description="Manage community challenges and live events."
             footer={
                  <div className="flex justify-between w-full">
                     <Button onClick={() => setHabitsDialogState(true)} size="sm" variant="outline">
                         Custom Habits
                     </Button>
-                    <Button onClick={() => setCreateDialogState({ open: true, challenge: null })} size="sm" className="gap-1">
-                        <PlusCircle className="h-4 w-4" /> New Challenge
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button onClick={() => setCreateEventDialogState(true)} size="sm" variant="outline" className="gap-1">
+                            <PlusCircle className="h-4 w-4" /> New Event
+                        </Button>
+                        <Button onClick={() => setCreateDialogState({ open: true, challenge: null })} size="sm" className="gap-1">
+                            <PlusCircle className="h-4 w-4" /> New Challenge
+                        </Button>
+                    </div>
                 </div>
             }
         >
@@ -207,15 +216,17 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
                 </div>
             ) : (
                 <Tabs defaultValue="active" className="w-full h-full flex flex-col">
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="active">Active</TabsTrigger>
                     <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
                     <TabsTrigger value="past">Past</TabsTrigger>
+                    <TabsTrigger value="events">Events</TabsTrigger>
                 </TabsList>
                 <div className="flex-1 min-h-0 mt-2">
                     <TabsContent value="active" className="h-full m-0"><ChallengeList list={active} /></TabsContent>
                     <TabsContent value="upcoming" className="h-full m-0"><ChallengeList list={upcoming} /></TabsContent>
                     <TabsContent value="past" className="h-full m-0"><ChallengeList list={past} /></TabsContent>
+                    <TabsContent value="events" className="h-full m-0"><LiveEventsTab key={eventTabKey} /></TabsContent>
                 </div>
                 </Tabs>
             )}
@@ -227,6 +238,11 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
             onOpenChange={(isOpen) => setCreateDialogState({ open: isOpen, challenge: null })} 
             onChallengeUpserted={fetchChallenges}
             initialData={createDialogState.challenge} 
+        />
+        <UpsertEventDialog 
+            open={createEventDialogState} 
+            onOpenChange={setCreateEventDialogState} 
+            onEventUpserted={() => setEventTabKey(k => k + 1)} 
         />
          {detailDialogState.chatInfo && (
             <EmbeddedChatDialog

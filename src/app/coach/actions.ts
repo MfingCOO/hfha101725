@@ -334,32 +334,3 @@ export async function updateCoachPasswordAction(uid: string, newPassword: string
         return { success: false, error: error.message || 'An unknown error occurred.' };
     }
 }
-
-/**
- * Fetches the global site settings, including AI model configuration.
- * This is the missing function required by the askLibraryFlow.
- * Uses the Admin SDK to bypass security rules.
- */
-export async function getSiteSettingsAction(): Promise<{ success: boolean; data?: any; error?: any; }> {
-    try {
-        // Fetch from the expected path: collections/siteSettings/documents/v1
-        const docRef = adminDb.collection('siteSettings').doc('v1');
-        const docSnap = await docRef.get();
-
-        if (docSnap.exists) {
-            const data = docSnap.data();
-            // Return the full document data
-            return { success: true, data: data };
-        }
-        
-        // Return a success status with empty data if the settings document hasn't been created yet.
-        // The AI flow is designed to handle this by falling back to the default model.
-        return { success: true, data: {} }; 
-        
-    } catch (error: any) {
-        console.error("Error fetching site settings (admin): ", error);
-        return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
-    }
-}
-
-  

@@ -41,8 +41,6 @@ export async function getCoachEvents(startDate: Date, endDate: Date) {
         const startTimestamp = Timestamp.fromDate(startDate);
         const endTimestamp = Timestamp.fromDate(endOfDay(endDate));
 
-        // This query is now corrected to use inequalities on a single field ('start'),
-        // which is a valid Firestore query. This resolves the server error.
         const q = adminDb.collection('coachCalendar')
             .where('start', '>=', startTimestamp)
             .where('start', '<=', endTimestamp);
@@ -77,11 +75,11 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         let finalEventData: any = {
             ...dataToSave,
             start: Timestamp.fromDate(dataToSave.start),
+            entryDate: Timestamp.fromDate(dataToSave.start),
             end: Timestamp.fromDate(dataToSave.end),
-            videoCallLink: null, // Ensure link is cleared by default
+            videoCallLink: null, 
         };
 
-        // If the coach explicitly wants to attach the video link.
         if (dataToSave.attachVideoLink) {
             const settingsDocRef = adminDb.collection('siteSettings').doc('v1');
             const settingsSnap = await settingsDocRef.get();
@@ -121,7 +119,6 @@ export async function deleteCalendarEvent(eventId: string) {
 export async function saveCoachAvailability(settings: AvailabilitySettings): Promise<{ success: boolean; error?: string }> {
     try {
         const docRef = adminDb.collection('siteSettings').doc('v1');
-        // The dates in `vacationBlocks` will be ISO strings from the client
         const availabilityData = {
             ...settings,
             vacationBlocks: settings.vacationBlocks.map(block => ({
@@ -139,18 +136,12 @@ export async function saveCoachAvailability(settings: AvailabilitySettings): Pro
 }
 
 
-/**
- * Fetches both the coach availability rules and existing events for a given date range.
- * This is used by the client booking dialog to calculate available time slots.
- */
 export async function getCoachAvailabilityAndEvents(startDate: Date, endDate: Date) {
     try {
-        // Fetch general availability settings
         const settingsDocRef = adminDb.collection('siteSettings').doc('v1');
         const settingsSnap = await settingsDocRef.get();
         const siteSettings = settingsSnap.data() as SiteSettings | undefined;
 
-        // The availability object needs to be serialized for the client
         const availability = siteSettings?.availability 
             ? {
                 ...siteSettings.availability,
@@ -162,7 +153,6 @@ export async function getCoachAvailabilityAndEvents(startDate: Date, endDate: Da
             }
             : null;
 
-        // Fetch existing events in the date range
         const eventsResult = await getCoachEvents(startDate, endDate);
         if (!eventsResult.success) {
             throw new Error(eventsResult.error || 'Failed to fetch existing events.');

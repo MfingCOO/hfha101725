@@ -73,6 +73,10 @@ export const pillarDetails: Record<string, { icon: React.ElementType, getTitle: 
         icon: Users,
         getTitle: (entry) => entry.title || 'Appointment',
     },
+    'live-event': {
+        icon: Users,
+        getTitle: (entry) => entry.title || 'Live Event',
+    },
     default: {
         icon: Star,
         getTitle: (entry) => entry.pillar ? entry.pillar.charAt(0).toUpperCase() + entry.pillar.slice(1) : 'Log',

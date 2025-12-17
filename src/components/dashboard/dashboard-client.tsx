@@ -34,6 +34,7 @@ import { db } from '@/lib/firebase';
 import { FirstUseEducationalModal } from '../modals/FirstUseEducationalModal';
 import { educationalContentLibrary, EducationalContent } from '@/lib/educational-content';
 import { UpgradeModal } from '../modals/upgrade-modal';
+import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
 import quotes from '@/lib/quotes.json';
 
 // FIX: Define Pillar type locally to resolve import error
@@ -94,7 +95,8 @@ export function DashboardClient() {
   const [isResetStreakAlertOpen, setIsResetStreakAlertOpen] = useState(false);
   
   const [liveBingeFreeSince, setLiveBingeFreeSince] = useState<any>(null);
-  
+  const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
+
   const [educationalModalContent, setEducationalModalContent] = useState<EducationalContent | null>(null);
   const [isEducationalModalOpen, setIsEducationalModalOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
@@ -197,6 +199,7 @@ export function DashboardClient() {
       const unsubscribe = onSnapshot(docRef, (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data() as ClientProfile;
+          setClientProfile(data);
           if (data.bingeFreeSince) {
             setLiveBingeFreeSince(data.bingeFreeSince);
           }
@@ -407,7 +410,7 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
             &ldquo;{quoteOfTheDay}&rdquo; ~Alan Roberts
             </p>
         </div>
-      
+
       <div className="flex justify-around">
         {topRowButtons.map(renderPillarButton)}
       </div>
@@ -423,6 +426,12 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
       )}
       
       {renderChallengeSection()}
+
+      <UpcomingEventWidget 
+          userProfile={userProfile}
+          clientProfile={clientProfile}
+          onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
+      />
       
       {isLoadingIndulgences ? (
           <Skeleton className="h-24 w-full" />

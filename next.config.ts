@@ -5,9 +5,6 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   images: {
     remotePatterns: [
       {
@@ -46,24 +43,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '4.5mb',
     },
   },
-  webpack: (config, { isServer }) => {
-    config.experiments = { ...config.experiments, asyncWebAssembly: true };
-
-    if (!isServer) {
-      config.externals = [...(config.externals || []), 'async_hooks', 'child_process', 'diagnostics_channel', 'fs'];
-    }
-
-    if (isServer) {
-        config.externals = [...(config.externals || []), 'net', 'tls'];
-    }
-
-    config.module.rules.push({
-      test: /\.wasm$/,
-      type: 'webassembly/async',
-    });
-
-    return config;
-  },
+  serverExternalPackages: ['@opentelemetry/instrumentation', '@genkit-ai/core'],
   allowedDevOrigins: [
       'https://*.cloudworkstations.dev',
       'https://3000-firebase-103125-1761919991969.cluster-zsqzu5kebnaemxbyqrvoim2lxo.cloudworkstations.dev'
