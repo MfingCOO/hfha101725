@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input";
 import { useAuth } from '@/components/auth/auth-provider';
-import { getExercisesForCoach, deleteExerciseAction } from '@/app/coach/actions/workout-actions';
+import { getAllExercises, deleteExerciseAction } from '@/app/coach/actions/workout-actions';
 import { CreateExerciseDialog } from '@/app/coach/components/create-exercise-dialog';
 import { Exercise } from '@/types/workout-program';
 import { Loader2, PlusCircle, MoreVertical, Edit, Trash2, Search } from 'lucide-react';
@@ -28,7 +28,8 @@ export function ExerciseLibrary() {
         if (!user) return;
         setIsLoading(true);
         try {
-            const result = await getExercisesForCoach(user.uid);
+            // FIX: Call the new function to get all exercises for all coaches
+            const result = await getAllExercises();
             if (!result.success) {
                 // Forcefully casting the type to make TypeScript understand
                 toast.error((result as ErrorResponse).error);
@@ -94,7 +95,7 @@ export function ExerciseLibrary() {
     return (
         <div className="p-4 border rounded-lg mt-4">
             <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold">Your Exercises</h3>
+                <h3 className="text-lg font-semibold">Exercise Library</h3>
                 <Button size="sm" onClick={handleOpenDialogForCreate}>
                     <PlusCircle className="h-4 w-4 mr-2" />
                     New Exercise

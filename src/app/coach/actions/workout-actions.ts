@@ -59,9 +59,9 @@ export async function createExerciseAction(params: { coachId: string, exerciseDa
     }
 }
 
-export async function getExercisesForCoach(coachId: string): Promise<ActionResponse<Exercise[]>> {
+export async function getAllExercises(): Promise<ActionResponse<Exercise[]>> {
     try {
-        const snapshot = await firestore.collection('exercises').where('coachId', '==', coachId).get();
+        const snapshot = await firestore.collection('exercises').get();
         const exercises = snapshot.docs.map(doc => doc.data() as Exercise);
         return { success: true, data: exercises };
     } catch (error: any) {
