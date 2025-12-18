@@ -40,13 +40,13 @@ import { ManageCustomHabitsDialog } from './manage-custom-habits-dialog';
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
 import { LiveEventsTab } from '@/app/coach/events/LiveEventsTab';
 import { UpsertEventDialog } from '@/app/coach/events/UpsertEventDialog';
+import { ExerciseLibrary } from '@/components/coach/exercise-library/exercise-library';
 
 type SerializableChallenge = Omit<Challenge, 'dates' | 'createdAt'> & {
     dates: { from: string, to: string };
     createdAt?: string;
     [key: string]: any; // Allow other properties
 };
-
 
 interface ManageChallengesDialogProps {
   open: boolean;
@@ -57,6 +57,7 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
     const { toast } = useToast();
     const [challenges, setChallenges] = useState<SerializableChallenge[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [activeMainTab, setActiveMainTab] = useState("community");
     const [createDialogState, setCreateDialogState] = useState<{ open: boolean, challenge: SerializableChallenge | null }>({ open: false, challenge: null });
     const [createEventDialogState, setCreateEventDialogState] = useState(false);
     const [eventTabKey, setEventTabKey] = useState(0);
@@ -90,8 +91,6 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
         const upcoming: SerializableChallenge[] = [];
         const active: SerializableChallenge[] = [];
         const past: SerializableChallenge[] = [];
-        const now = new Date();
-
         challenges.forEach(challenge => {
             const from = new Date(challenge.dates.from);
             const to = new Date(challenge.dates.to);
@@ -106,11 +105,10 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
         return { upcoming, active, past };
     }, [challenges]);
 
-
     const handleEditClick = (challenge: SerializableChallenge) => {
         const initialDataForForm = {
             ...challenge,
-            startDate: new Date(challenge.dates.from), // Convert string to Date
+            startDate: new Date(challenge.dates.from),
             durationDays: formatDistanceToNowStrict(new Date(challenge.dates.to), { unit: 'day', addSuffix: false }).split(' ')[0],
         };
         setCreateDialogState({ open: true, challenge: initialDataForForm as any });
@@ -193,8 +191,9 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
             open={open}
             onOpenChange={onOpenChange}
             title="Manage Community"
-            description="Manage community challenges and live events."
+            description="Manage community engagement and your program library."
             footer={
+                activeMainTab === 'community' ? (
                  <div className="flex justify-between w-full">
                     <Button onClick={() => setHabitsDialogState(true)} size="sm" variant="outline">
                         Custom Habits
@@ -208,30 +207,43 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
                         </Button>
                     </div>
                 </div>
+                ) : null
             }
         >
-            {isLoading ? (
-                <div className="flex items-center justify-center h-full">
-                    <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                </div>
-            ) : (
-                <Tabs defaultValue="active" className="w-full h-full flex flex-col">
-                <TabsList className="grid w-full grid-cols-4">
-                    <TabsTrigger value="active">Active</TabsTrigger>
-                    <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
-                    <TabsTrigger value="past">Past</TabsTrigger>
-                    <TabsTrigger value="events">Events</TabsTrigger>
+           <Tabs defaultValue="community" onValueChange={setActiveMainTab} className="w-full h-full flex flex-col">
+                <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="community">Community</TabsTrigger>
+                    <TabsTrigger value="program">Program Builder</TabsTrigger>
                 </TabsList>
-                <div className="flex-1 min-h-0 mt-2">
-                    <TabsContent value="active" className="h-full m-0"><ChallengeList list={active} /></TabsContent>
-                    <TabsContent value="upcoming" className="h-full m-0"><ChallengeList list={upcoming} /></TabsContent>
-                    <TabsContent value="past" className="h-full m-0"><ChallengeList list={past} /></TabsContent>
-                    <TabsContent value="events" className="h-full m-0"><LiveEventsTab key={eventTabKey} /></TabsContent>
-                </div>
-                </Tabs>
-            )}
+                <TabsContent value="community" className="flex-1 flex flex-col min-h-0">
+                    {isLoading ? (
+                        <div className="flex items-center justify-center h-full">
+                            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                        </div>
+                    ) : (
+                        <Tabs defaultValue="active" className="w-full h-full flex flex-col mt-2">
+                            <TabsList className="grid w-full grid-cols-4">
+                                <TabsTrigger value="active">Active</TabsTrigger>
+                                <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
+                                <TabsTrigger value="past">Past</TabsTrigger>
+                                <TabsTrigger value="events">Events</TabsTrigger>
+                            </TabsList>
+                            <div className="flex-1 min-h-0 mt-2">
+                                <TabsContent value="active" className="h-full m-0"><ChallengeList list={active} /></TabsContent>
+                                <TabsContent value="upcoming" className="h-full m-0"><ChallengeList list={upcoming} /></TabsContent>
+                                <TabsContent value="past" className="h-full m-0"><ChallengeList list={past} /></TabsContent>
+                                <TabsContent value="events" className="h-full m-0"><LiveEventsTab key={eventTabKey} /></TabsContent>
+                            </div>
+                        </Tabs>
+                    )}
+                </TabsContent>
+                <TabsContent value="program" className="flex-1 min-h-0">
+                     <ExerciseLibrary />
+                </TabsContent>
+            </Tabs>
         </CoachPageModal>
 
+        {/* Dialogs remain here, outside the main modal structure */}
         <CreateChallengeDialog 
             key={createDialogState.challenge?.id || 'new'}
             open={createDialogState.open} 
