@@ -1,9 +1,11 @@
 'use client';
 
-import { ChallengeList } from '@/components/challenges/challenge-list';
 import { BaseModal } from '@/components/ui/base-modal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExerciseLibrary } from '@/components/coach/exercise-library/exercise-library'; // Placeholder for now
+import { ChallengeList } from '@/components/challenges/challenge-list';
+import { LiveEventsTab } from '@/app/coach/events/LiveEventsTab';
+import { ProgramBuilderTabs } from '@/components/coach/program-builder/program-builder-tabs';
+import { useAuth } from '@/components/auth/auth-provider';
 
 interface ManageCommunityDialogProps {
   isOpen: boolean;
@@ -11,23 +13,41 @@ interface ManageCommunityDialogProps {
 }
 
 export function ManageCommunityDialog({ isOpen, onClose }: ManageCommunityDialogProps) {
+  const { user } = useAuth();
+
   return (
     <BaseModal
       isOpen={isOpen}
       onClose={onClose}
-      title="Manage Community"
-      description="Manage community challenges and your workout program library."
+      title="Manage Community & Programs"
+      description="Engage your community and build your comprehensive fitness programs."
+      className="max-w-4xl"
     >
-      <Tabs defaultValue="challenges" className="w-full">
+      <Tabs defaultValue="community" className="w-full pt-2">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="challenges">Challenges</TabsTrigger>
-          <TabsTrigger value="exercises">Exercise Library</TabsTrigger>
+          <TabsTrigger value="community">Community</TabsTrigger>
+          <TabsTrigger value="program-builder">Program Builder</TabsTrigger>
         </TabsList>
-        <TabsContent value="challenges">
-            <ChallengeList />
+        
+        {/* Community Tab Content */}
+        <TabsContent value="community">
+          <Tabs defaultValue="challenges" className="w-full mt-2">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="challenges">Challenges</TabsTrigger>
+              <TabsTrigger value="events">Events</TabsTrigger>
+            </TabsList>
+            <TabsContent value="challenges">
+              <ChallengeList />
+            </TabsContent>
+            <TabsContent value="events">
+              <LiveEventsTab />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
-        <TabsContent value="exercises">
-            <ExerciseLibrary />
+
+        {/* Program Builder Tab Content */}
+        <TabsContent value="program-builder">
+          {user && <ProgramBuilderTabs coachId={user.uid} />}
         </TabsContent>
       </Tabs>
     </BaseModal>

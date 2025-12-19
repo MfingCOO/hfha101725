@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useState, useEffect } from 'react';
+import { useForm, useFieldArray, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { v4 as uuidv4 } from 'uuid';
@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -20,24 +19,33 @@ import {
   FormControl,
   FormField,
   FormItem,
-  FormLabel,
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
 
-import { Exercise, Workout, WorkoutBlock, ExerciseBlock, RestBlock, GroupBlock } from "@/types/workout-program";
+import { Exercise, Workout } from "@/types/workout-program";
 import { createWorkoutAction, updateWorkoutAction, getExercisesForCoach } from "@/app/coach/actions/workout-actions";
-import { PlusCircle, GripVertical, Trash2 } from 'lucide-react';
+import { PlusCircle } from 'lucide-react';
+import { ExerciseBlockEditor } from '../workout-builder/exercise-block-editor';
+import { RestBlockEditor } from '../workout-builder/rest-block-editor';
+import { GroupBlockEditor } from '../workout-builder/group-block-editor';
 
-// --- Zod Schemas for Validation ---
-// These match the backend schemas
+type ErrorResponse = { success: false; error: string };
+
+const setSchema = z.object({
+  id: z.string().optional(),
+  metric: z.string().optional(),
+  value: z.string().optional(),
+  weight: z.string().optional(),
+});
+
 const exerciseBlockSchema = z.object({
   id: z.string(),
   type: z.literal('exercise'),
-  exerciseId: z.string(),
-  // Add other exercise-specific fields here
+  exerciseId: z.string().min(1, "Exercise must be selected"),
+  sets: z.array(setSchema).min(1, "At least one set is required"),
+  restBetweenSets: z.string().optional(),
 });
 
 const restBlockSchema = z.object({
@@ -51,7 +59,8 @@ const groupBlockSchema = z.object({
   type: z.literal('group'),
   name: z.string().min(1, "Group name is required"),
   rounds: z.number().min(1, "Must have at least 1 round"),
-  blocks: z.array(exerciseBlockSchema).min(1, "A group must have at least one exercise"),
+  restBetweenRounds: z.number().min(0).optional(),
+  blocks: z.array(z.lazy(() => exerciseBlockSchema)).min(1, "A group must contain at least one exercise"),
 });
 
 const workoutBlockSchema = z.union([
@@ -61,14 +70,12 @@ const workoutBlockSchema = z.union([
 ]);
 
 const workoutFormSchema = z.object({
-  name: z.string().min(1, "Workout name is required."),
-  description: z.string().min(1, "Description is required."),
+  name: z.string().min(2, "Workout name is required."),
+  description: z.string().optional(),
   blocks: z.array(workoutBlockSchema).min(1, "A workout must have at least one block."),
 });
 
 type WorkoutFormValues = z.infer<typeof workoutFormSchema>;
-
-// --- Component Props ---
 
 interface CreateWorkoutDialogProps {
   isOpen: boolean;
@@ -78,14 +85,12 @@ interface CreateWorkoutDialogProps {
   workoutToEdit: Workout | null;
 }
 
-// --- Main Component ---
-
 export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, coachId, workoutToEdit }: CreateWorkoutDialogProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
     const isEditMode = !!workoutToEdit;
 
-    const form = useForm<WorkoutFormValues>({
+    const methods = useForm<WorkoutFormValues>({
         resolver: zodResolver(workoutFormSchema),
         defaultValues: {
             name: '',
@@ -94,115 +99,133 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, coachId, 
         }
     });
 
-    const { fields, append, remove, move } = useFieldArray({
-        control: form.control,
+    const { control, handleSubmit, reset, formState: { isValid } } = methods;
+
+    const { fields, append, remove } = useFieldArray({
+        control,
         name: "blocks",
     });
 
-    // Fetch exercises coach can add to the workout
     useEffect(() => {
         if (isOpen && coachId) {
             getExercisesForCoach(coachId).then(result => {
-                if (result.success && result.data) {
-                    setAvailableExercises(result.data);
-                } else {
-                    toast.error("Could not load your exercises.");
+                if (!result.success) {
+                    toast.error((result as ErrorResponse).error);
+                    return;
                 }
+                setAvailableExercises(result.data);
             });
         }
     }, [isOpen, coachId]);
 
-    // Populate form if editing
     useEffect(() => {
         if (isEditMode && workoutToEdit) {
-            form.reset({
-                name: workoutToEdit.name,
-                description: workoutToEdit.description,
-                blocks: workoutToEdit.blocks as any[], // TODO: Fix type assertion
-            });
+            reset(workoutToEdit as any);
         } else {
-            form.reset({ name: '', description: '', blocks: [] });
+            reset({ name: '', description: '', blocks: [] });
         }
-    }, [workoutToEdit, isEditMode, form]);
+    }, [workoutToEdit, isEditMode, reset]);
 
     const onSubmit = async (data: WorkoutFormValues) => {
         setIsLoading(true);
-        // TODO: Implement save logic
-        console.log("Form Data:", data);
-        await new Promise(res => setTimeout(res, 1000)); // Simulate API call
+        const action = isEditMode
+            ? updateWorkoutAction({ workoutId: workoutToEdit!.id, workoutData: data })
+            : createWorkoutAction({ coachId, workoutData: data });
+
+        const result = await action;
         setIsLoading(false);
-        toast.success("Workout saved (simulation)!");
+
+        if (!result.success) {
+            toast.error((result as any).error);
+            return;
+        }
+
+        toast.success(`Workout ${isEditMode ? 'updated' : 'created'} successfully!`);
         onWorkoutSaved();
     };
 
-    // --- Render --- 
+    const addExerciseBlock = () => {
+        if (availableExercises.length === 0) {
+            toast.error("You must have at least one exercise in your library.");
+            return;
+        }
+        append({ id: uuidv4(), type: 'exercise', exerciseId: availableExercises[0].id, sets: [{ id: uuidv4(), metric: 'reps', value: '10', weight: '' }], restBetweenSets: '60' });
+    };
+
+    const addRestBlock = () => {
+        append({ id: uuidv4(), type: 'rest', duration: 60 });
+    };
+
+    const addGroupBlock = () => {
+        if (availableExercises.length === 0) {
+            toast.error("You must have at least one exercise in your library to create a superset.");
+            return;
+        }
+        append({
+            id: uuidv4(),
+            type: 'group',
+            name: 'New Superset',
+            rounds: 3,
+            blocks: [{
+                id: uuidv4(),
+                type: 'exercise',
+                exerciseId: availableExercises[0].id,
+                sets: [{ id: uuidv4(), metric: 'reps', value: '10', weight: '' }],
+                restBetweenSets: '60'
+            }]
+        });
+    };
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-3xl h-[90vh] flex flex-col">
-                <DialogHeader>
+            <DialogContent className="max-w-xl h-[90vh] flex flex-col p-2">
+                <DialogHeader className="p-1">
                     <DialogTitle>{isEditMode ? 'Edit Workout' : 'Create New Workout'}</DialogTitle>
-                    <DialogDescription>
-                        Build a workout by adding exercises, rest periods, and supersets.
-                    </DialogDescription>
                 </DialogHeader>
-                
-                <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0">
-                        <div className="grid grid-cols-2 gap-4 mb-4">
-                             <FormField
-                                control={form.control}
-                                name="name"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Workout Name</FormLabel>
-                                        <FormControl><Input placeholder="e.g., Upper Body Strength" {...field} /></FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                             <FormField
-                                control={form.control}
-                                name="description"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Description</FormLabel>
-                                        <FormControl><Input placeholder="A brief summary of the workout's focus." {...field} /></FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                        </div>
 
-                        <div className="flex-1 border-2 border-dashed rounded-lg p-4 bg-muted/50 overflow-y-auto">
-                            <p className="text-center text-muted-foreground">
-                                Workout canvas - drag and drop blocks here.
-                            </p>
-                            {/* Workout block rendering will go here */}
-                        </div>
+                <FormProvider {...methods}>
+                    <Form {...methods}>
+                        <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0 space-y-2">
+                            <div className="grid grid-cols-2 gap-2 px-1">
+                                <FormField control={control} name="name" render={({ field }) => <FormItem><FormControl><Input placeholder="Workout Name" {...field} className="h-9"/></FormControl><FormMessage /></FormItem>} />
+                                <FormField control={control} name="description" render={({ field }) => <FormItem><FormControl><Input placeholder="Description (optional)" {...field} className="h-9"/></FormControl><FormMessage /></FormItem>} />
+                            </div>
 
-                        <div className="flex items-center gap-2 mt-4">
-                            <Button type="button" variant="outline" size="sm" disabled>
-                                <PlusCircle className="h-4 w-4 mr-2"/> Add Exercise
-                            </Button>
-                            <Button type="button" variant="outline" size="sm" disabled>
-                                <PlusCircle className="h-4 w-4 mr-2"/> Add Rest
-                            </Button>
-                            <Button type="button" variant="outline" size="sm" disabled>
-                                <PlusCircle className="h-4 w-4 mr-2"/> Add Superset/Circuit
-                            </Button>
-                        </div>
-                        
-                        <DialogFooter className="mt-4">
-                            <Button type="button" variant="ghost" onClick={onClose} disabled={isLoading}>
-                                Cancel
-                            </Button>
-                            <Button type="submit" disabled={isLoading}>
-                                {isLoading ? 'Saving...' : 'Save Workout'}
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                </Form>
+                            <div className="flex-1 border-2 border-dashed rounded-lg p-1 bg-muted/50 overflow-y-auto space-y-2">
+                                {fields.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full">
+                                        <p className="text-center text-muted-foreground py-10">Your workout is empty.</p>
+                                     </div>
+                                ) : (
+                                    fields.map((field, index) => {
+                                        const block = field as any;
+                                        switch (block.type) {
+                                            case 'exercise':
+                                                return <ExerciseBlockEditor key={field.id} fieldPrefix={`blocks.${index}`} removeBlock={() => remove(index)} availableExercises={availableExercises} />;
+                                            case 'rest':
+                                                return <RestBlockEditor key={field.id} blockIndex={index} removeBlock={remove} />;
+                                            case 'group':
+                                                return <GroupBlockEditor key={field.id} blockIndex={index} removeBlock={remove} coachId={coachId} availableExercises={availableExercises} />;
+                                            default:
+                                                return null;
+                                        }
+                                    })
+                                )}
+                            </div>
+
+                            <div className="flex items-center justify-center gap-2 pt-1 border-t">
+                                <Button type="button" variant="outline" size="sm" onClick={addExerciseBlock}><PlusCircle className="h-4 w-4 mr-2"/>Exercise</Button>
+                                <Button type="button" variant="outline" size="sm" onClick={addRestBlock}><PlusCircle className="h-4 w-4 mr-2"/>Rest</Button>
+                                <Button type="button" variant="outline" size="sm" onClick={addGroupBlock}><PlusCircle className="h-4 w-4 mr-2"/>Superset</Button>
+                            </div>
+                            
+                            <DialogFooter className="p-0 pt-1">
+                                <Button type="button" variant="ghost" onClick={onClose} disabled={isLoading}>Cancel</Button>
+                                <Button type="submit" disabled={isLoading || !isValid}>{isLoading ? 'Saving...' : 'Save Workout'}</Button>
+                            </DialogFooter>
+                        </form>
+                    </Form>
+                </FormProvider>
             </DialogContent>
         </Dialog>
     );

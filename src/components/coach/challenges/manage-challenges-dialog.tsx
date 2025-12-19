@@ -40,7 +40,8 @@ import { ManageCustomHabitsDialog } from './manage-custom-habits-dialog';
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
 import { LiveEventsTab } from '@/app/coach/events/LiveEventsTab';
 import { UpsertEventDialog } from '@/app/coach/events/UpsertEventDialog';
-import { ExerciseLibrary } from '@/components/coach/exercise-library/exercise-library';
+import { ProgramBuilderTabs } from '@/components/coach/program-builder/program-builder-tabs';
+import { useAuth } from '@/components/auth/auth-provider';
 
 type SerializableChallenge = Omit<Challenge, 'dates' | 'createdAt'> & {
     dates: { from: string, to: string };
@@ -55,6 +56,7 @@ interface ManageChallengesDialogProps {
 
 export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesDialogProps) {
     const { toast } = useToast();
+    const { user } = useAuth();
     const [challenges, setChallenges] = useState<SerializableChallenge[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [activeMainTab, setActiveMainTab] = useState("community");
@@ -238,7 +240,7 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
                     )}
                 </TabsContent>
                 <TabsContent value="program" className="flex-1 min-h-0">
-                     <ExerciseLibrary />
+                <ProgramBuilderTabs coachId={user?.uid} />
                 </TabsContent>
             </Tabs>
         </CoachPageModal>

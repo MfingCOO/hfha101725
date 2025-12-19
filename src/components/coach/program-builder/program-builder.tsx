@@ -2,7 +2,11 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export function ProgramBuilder() {
+interface ProgramBuilderProps {
+  coachId: string;
+}
+
+export function ProgramBuilder({ coachId }: ProgramBuilderProps) {
   return (
     <Card className="mt-4">
       <CardHeader>

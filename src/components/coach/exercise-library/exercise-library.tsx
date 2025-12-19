@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from "@/components/ui/input";
-import { useAuth } from '@/components/auth/auth-provider';
-import { getAllExercises, deleteExerciseAction } from '@/app/coach/actions/workout-actions';
+import { getExercisesForCoach, deleteExerciseAction } from '@/app/coach/actions/workout-actions';
 import { CreateExerciseDialog } from '@/app/coach/components/create-exercise-dialog';
 import { Exercise } from '@/types/workout-program';
 import { Loader2, PlusCircle, MoreVertical, Edit, Trash2, Search } from 'lucide-react';
@@ -14,8 +13,11 @@ import { toast } from 'sonner';
 // --- Re-declaring the ActionResponse type for casting ---
 type ErrorResponse = { success: false; error: string };
 
-export function ExerciseLibrary() {
-    const { user } = useAuth();
+interface ExerciseLibraryProps {
+  coachId: string;
+}
+
+export function ExerciseLibrary({ coachId }: ExerciseLibraryProps) {
     const [allExercises, setAllExercises] = useState<Exercise[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -25,11 +27,10 @@ export function ExerciseLibrary() {
     const [searchTerm, setSearchTerm] = useState('');
 
     const fetchExercises = useCallback(async () => {
-        if (!user) return;
+        if (!coachId) return;
         setIsLoading(true);
         try {
-            // FIX: Call the new function to get all exercises for all coaches
-            const result = await getAllExercises();
+            const result = await getExercisesForCoach(coachId);
             if (!result.success) {
                 // Forcefully casting the type to make TypeScript understand
                 toast.error((result as ErrorResponse).error);
@@ -41,7 +42,7 @@ export function ExerciseLibrary() {
         } finally {
             setIsLoading(false);
         }
-    }, [user]);
+    }, [coachId]);
 
     useEffect(() => {
         fetchExercises();
@@ -159,12 +160,12 @@ export function ExerciseLibrary() {
                 </div>
             )}
 
-            {user && (
+            {coachId && (
                 <CreateExerciseDialog
                     isOpen={isDialogOpen}
                     onClose={handleDialogClose}
                     onExerciseSaved={handleExerciseSaved}
-                    coachId={user.uid}
+                    coachId={coachId}
                     exerciseToEdit={editingExercise}
                 />
             )}
