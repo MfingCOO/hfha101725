@@ -2,42 +2,34 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { getWorkoutsForCoachAction, deleteWorkoutAction } from '@/app/coach/actions/workout-actions';
+import { getWorkoutsAction, deleteWorkoutAction } from '@/app/coach/actions/workout-actions';
 import { CreateWorkoutDialog } from '@/components/coach/workout-library/create-workout-dialog';
 import { Workout } from '@/types/workout-program';
 import { Loader2, PlusCircle, MoreVertical, Edit, Trash2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from 'sonner';
 
-// Re-declaring the ActionResponse type for casting
-type ErrorResponse = { success: false; error: string };
-
-interface WorkoutLibraryProps {
-  coachId: string;
-}
-
-export function WorkoutLibrary({ coachId }: WorkoutLibraryProps) {
+export function WorkoutLibrary() {
     const [workouts, setWorkouts] = useState<Workout[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
 
     const fetchWorkouts = useCallback(async () => {
-        if (!coachId) return;
         setIsLoading(true);
         try {
-            const result = await getWorkoutsForCoachAction(coachId);
+            const result = await getWorkoutsAction();
             if (result.success) {
                 setWorkouts(result.data);
-            } else {
-                toast.error((result as ErrorResponse).error || 'Failed to fetch workouts.');
+            } else if ('error' in result) {
+                toast.error(result.error || 'Failed to fetch workouts.');
             }
         } catch (error) {
             toast.error('An unexpected error occurred while fetching workouts.');
         } finally {
             setIsLoading(false);
         }
-    }, [coachId]);
+    }, []);
 
     useEffect(() => {
         fetchWorkouts();
@@ -54,7 +46,13 @@ export function WorkoutLibrary({ coachId }: WorkoutLibraryProps) {
     };
 
     const handleDelete = async (workoutId: string) => {
-        toast.warning("Delete functionality not yet implemented.");
+        const result = await deleteWorkoutAction(workoutId);
+        if (result.success) {
+            toast.success("Workout deleted successfully.");
+            fetchWorkouts();
+        } else if ('error' in result) {
+            toast.error(result.error || 'Failed to delete workout.');
+        }
     };
 
     const handleDialogClose = () => {
@@ -70,7 +68,7 @@ export function WorkoutLibrary({ coachId }: WorkoutLibraryProps) {
     return (
         <div className="p-4 border rounded-lg mt-4">
             <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold">Your Workouts</h3>
+                <h3 className="text-lg font-semibold">Shared Workout Library</h3>
                 <Button size="sm" onClick={handleOpenDialogForCreate}>
                     <PlusCircle className="h-4 w-4 mr-2" />
                     New Workout
@@ -84,7 +82,7 @@ export function WorkoutLibrary({ coachId }: WorkoutLibraryProps) {
             ) : workouts.length === 0 ? (
                 <div className="text-center text-muted-foreground py-10">
                     <p>No workouts found.</p>
-                    <p className="text-sm">Click "New Workout" to create your first one.</p>
+                    <p className="text-sm">Click "New Workout" to create the first one.</p>
                 </div>
             ) : (
                 <div className="space-y-2">
@@ -116,15 +114,12 @@ export function WorkoutLibrary({ coachId }: WorkoutLibraryProps) {
                 </div>
             )}
 
-            {coachId && (
-                <CreateWorkoutDialog
-                    isOpen={isDialogOpen}
-                    onClose={handleDialogClose}
-                    onWorkoutSaved={handleWorkoutSaved}
-                    coachId={coachId}
-                    workoutToEdit={editingWorkout}
-                />
-            )}
+            <CreateWorkoutDialog
+                isOpen={isDialogOpen}
+                onClose={handleDialogClose}
+                onWorkoutSaved={handleWorkoutSaved}
+                workoutToEdit={editingWorkout}
+            />
         </div>
     );
 }

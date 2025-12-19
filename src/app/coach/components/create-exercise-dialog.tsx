@@ -29,7 +29,6 @@ import { toast } from 'sonner';
 import { createExerciseAction, updateExerciseAction } from "@/app/coach/actions/workout-actions";
 import { Exercise } from "@/types/workout-program";
 
-// --- Re-declaring the ActionResponse type for casting ---
 type ErrorResponse = { success: false; error: string };
 
 const exerciseSchema = z.object({
@@ -47,13 +46,12 @@ interface CreateExerciseDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onExerciseSaved: () => void;
-  coachId: string;
   exerciseToEdit: Exercise | null;
 }
 
 const TRACKING_METRICS_OPTIONS = ["reps", "weight", "time", "distance"];
 
-export function CreateExerciseDialog({ isOpen, onClose, onExerciseSaved, coachId, exerciseToEdit }: CreateExerciseDialogProps) {
+export function CreateExerciseDialog({ isOpen, onClose, onExerciseSaved, exerciseToEdit }: CreateExerciseDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const isEditMode = !!exerciseToEdit;
 
@@ -80,35 +78,24 @@ export function CreateExerciseDialog({ isOpen, onClose, onExerciseSaved, coachId
             mediaUrl: exerciseToEdit.mediaUrl || ''
         });
     } else {
-        form.reset({
-            name: "",
-            description: "",
-            bodyParts: "",
-            equipmentNeeded: "",
-            trackingMetrics: [],
-            mediaUrl: "",
-        });
+        form.reset(form.formState.defaultValues);
     }
   }, [exerciseToEdit, form, isEditMode]);
 
   const onSubmit = async (data: ExerciseFormValues) => {
     setIsLoading(true);
-    const bodyPartsArray = data.bodyParts.split(",").map(part => part.trim()).filter(Boolean);
-
     const exerciseData = {
         ...data,
-        bodyParts: bodyPartsArray,
-        trackingMetrics: data.trackingMetrics as Array<'reps' | 'weight' | 'time' | 'distance'>,
+        bodyParts: data.bodyParts.split(",").map(part => part.trim()).filter(Boolean),
     };
 
     const result = isEditMode && exerciseToEdit
       ? await updateExerciseAction({ exerciseId: exerciseToEdit.id, exerciseData })
-      : await createExerciseAction({ coachId, exerciseData });
+      : await createExerciseAction({ exerciseData });
 
     setIsLoading(false);
 
     if (!result.success) {
-      // Forcefully casting the type to make TypeScript understand
       toast.error((result as ErrorResponse).error);
       return;
     }
@@ -123,65 +110,41 @@ export function CreateExerciseDialog({ isOpen, onClose, onExerciseSaved, coachId
         <DialogHeader>
           <DialogTitle>{isEditMode ? 'Edit Exercise' : 'Create New Exercise'}</DialogTitle>
           <DialogDescription>
-            Define a new exercise for your library. This can be reused in multiple workouts.
+            Define a new exercise for the shared library. This can be reused in multiple workouts.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <fieldset disabled={isLoading} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
+              <FormField control={form.control} name="name" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Exercise Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Barbell Squat" {...field} />
-                    </FormControl>
+                    <FormControl><Input placeholder="e.g., Barbell Squat" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
+                )} />
+              <FormField control={form.control} name="description" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="Describe the exercise form and instructions..." {...field} />
-                    </FormControl>
+                    <FormControl><Textarea placeholder="Describe the exercise form and instructions..." {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="bodyParts"
-                render={({ field }) => (
+                )} />
+              <FormField control={form.control} name="bodyParts" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Body Parts (comma-separated)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Quadriceps, Glutes" {...field} />
-                    </FormControl>
+                    <FormControl><Input placeholder="e.g., Quadriceps, Glutes" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="equipmentNeeded"
-                render={({ field }) => (
+                )} />
+              <FormField control={form.control} name="equipmentNeeded" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Equipment</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Barbell, Dumbbells" {...field} />
-                    </FormControl>
+                    <FormControl><Input placeholder="e.g., Barbell, Dumbbells" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}
-              />
-              <FormField
+                )} />
+                 <FormField
                 control={form.control}
                 name="trackingMetrics"
                 render={() => (
@@ -196,25 +159,19 @@ export function CreateExerciseDialog({ isOpen, onClose, onExerciseSaved, coachId
                           control={form.control}
                           name="trackingMetrics"
                           render={({ field }) => (
-                            <FormItem
-                              key={metric}
-                              className="flex flex-row items-start space-x-3 space-y-0"
-                            >
+                            <FormItem key={metric} className="flex flex-row items-start space-x-3 space-y-0">
                               <FormControl>
                                 <Checkbox
                                   checked={field.value?.includes(metric)}
                                   onCheckedChange={(checked) => {
-                                    return checked
-                                      ? field.onChange([...(field.value || []), metric])
-                                      : field.onChange(
-                                          field.value?.filter((value) => value !== metric)
-                                        );
+                                    const updatedMetrics = checked
+                                      ? [...(field.value || []), metric]
+                                      : field.value?.filter((value) => value !== metric);
+                                    field.onChange(updatedMetrics);
                                   }}
                                 />
                               </FormControl>
-                              <FormLabel className="font-normal capitalize">
-                                {metric}
-                              </FormLabel>
+                              <FormLabel className="font-normal capitalize">{metric}</FormLabel>
                             </FormItem>
                           )}
                         />
@@ -224,30 +181,17 @@ export function CreateExerciseDialog({ isOpen, onClose, onExerciseSaved, coachId
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="mediaUrl"
-                render={({ field }) => (
+              <FormField control={form.control} name="mediaUrl" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Media URL (Optional)</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="e.g., https://www.youtube.com/watch?v=..."
-                        {...field}
-                      />
-                    </FormControl>
+                    <FormControl><Textarea placeholder="e.g., https://www.youtube.com/watch?v=..." {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}
-              />
+                )} />
             </fieldset>
             <DialogFooter>
-              <Button type="button" variant="ghost" onClick={onClose} disabled={isLoading}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isLoading}>
-                {isLoading ? (isEditMode ? 'Saving Changes...' : 'Creating...') : (isEditMode ? 'Save Changes' : 'Create Exercise')}
-              </Button>
+              <Button type="button" variant="ghost" onClick={onClose} disabled={isLoading}>Cancel</Button>
+              <Button type="submit" disabled={isLoading}>{isLoading ? (isEditMode ? 'Saving...' : 'Creating...') : (isEditMode ? 'Save Changes' : 'Create Exercise')}</Button>
             </DialogFooter>
           </form>
         </Form>

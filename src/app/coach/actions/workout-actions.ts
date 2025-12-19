@@ -2,9 +2,8 @@
 
 import { z } from 'zod';
 import { db as firestore } from '@/lib/firebaseAdmin';
-import { Exercise, Workout, WorkoutBlock } from '@/types/workout-program';
+import { Exercise, Workout } from '@/types/workout-program';
 
-// --- Discriminated Union for Action Responses ---
 export type ActionResponse<T = object> =
   | { success: true; data: T }
   | { success: false; error: string };
@@ -27,59 +26,54 @@ const workoutDataSchema = z.object({
 });
 
 
-// --- Exercise Actions ---
+// --- Exercise Actions (Shared) ---
 
-export async function createExerciseAction(params: { coachId: string, exerciseData: any }): Promise<ActionResponse<Exercise>> {
+export async function createExerciseAction(params: { exerciseData: any }): Promise<ActionResponse<Exercise>> {
     const validation = exerciseDataSchema.safeParse(params.exerciseData);
     if (!validation.success) {
         const errorMsg = validation.error.errors.map(e => e.message).join(', ');
         return { success: false, error: errorMsg };
     }
 
-    const { name, description, bodyParts, equipmentNeeded, trackingMetrics, mediaUrl } = validation.data;
-
     try {
         const docRef = firestore.collection('exercises').doc();
         const newExercise: Exercise = {
             id: docRef.id,
-            coachId: params.coachId,
-            name,
-            description,
-            bodyParts,
-            equipmentNeeded,
-            trackingMetrics,
-            mediaUrl: mediaUrl || '',
+            name: validation.data.name,
+            description: validation.data.description,
+            bodyParts: validation.data.bodyParts,
+            equipmentNeeded: validation.data.equipmentNeeded,
+            trackingMetrics: validation.data.trackingMetrics,
+            mediaUrl: validation.data.mediaUrl || '',
         };
         await docRef.set(newExercise);
         return { success: true, data: newExercise };
     } catch (error: any) {
-        return { success: false, error: "Failed to create exercise in the database." };
+        return { success: false, error: "Failed to create exercise." };
     }
 }
 
-export async function getAllExercises(): Promise<ActionResponse<Exercise[]>> {
+export async function getExercisesAction(): Promise<ActionResponse<Exercise[]>> {
     try {
-        const snapshot = await firestore.collection('exercises').get();
+        const snapshot = await firestore.collection('exercises').orderBy('name').get();
         const exercises = snapshot.docs.map(doc => doc.data() as Exercise);
         return { success: true, data: exercises };
     } catch (error: any) {
-        return { success: false, error: "An unexpected error occurred while fetching exercises." };
+        return { success: false, error: "Failed to fetch exercises." };
     }
 }
 
 export async function updateExerciseAction(params: { exerciseId: string, exerciseData: any }): Promise<ActionResponse> {
     const validation = exerciseDataSchema.safeParse(params.exerciseData);
     if (!validation.success) {
-        const errorMsg = validation.error.errors.map(e => e.message).join(', ');
-        return { success: false, error: errorMsg };
+        return { success: false, error: validation.error.errors.map(e => e.message).join(', ') };
     }
 
     try {
-        const docRef = firestore.collection('exercises').doc(params.exerciseId);
-        await docRef.update(validation.data);
+        await firestore.collection('exercises').doc(params.exerciseId).update(validation.data);
         return { success: true, data: {} };
     } catch (error: any) {
-        return { success: false, error: "Failed to update exercise in the database." };
+        return { success: false, error: "Failed to update exercise." };
     }
 }
 
@@ -92,62 +86,43 @@ export async function deleteExerciseAction(exerciseId: string): Promise<ActionRe
     }
 }
 
-// --- Workout Actions ---
+// --- Workout Actions (Shared) ---
 
-export async function getExercisesForCoach(coachId: string): Promise<ActionResponse<Exercise[]>> {
-    if (!coachId) return { success: false, error: "Coach ID is required." };
-    try {
-        const snapshot = await firestore.collection('exercises').where('coachId', '==', coachId).get();
-        const exercises = snapshot.docs.map(doc => doc.data() as Exercise);
-        return { success: true, data: exercises };
-    } catch (error: any) {
-        console.error("Error fetching exercises for coach:", error);
-        return { success: false, error: "An unexpected error occurred while fetching exercises." };
-    }
-}
-
-export async function createWorkoutAction(params: { coachId: string, workoutData: any }): Promise<ActionResponse<Workout>> {
+export async function createWorkoutAction(params: { workoutData: any }): Promise<ActionResponse<Workout>> {
     const validation = workoutDataSchema.safeParse(params.workoutData);
     if (!validation.success) {
-        const errorMsg = validation.error.errors.map(e => e.message).join(', ');
-        return { success: false, error: errorMsg };
+        return { success: false, error: validation.error.errors.map(e => e.message).join(', ') };
     }
-
-    const { name, description, blocks } = validation.data;
 
     try {
         const docRef = firestore.collection('workouts').doc();
         const newWorkout: Workout = {
             id: docRef.id,
-            coachId: params.coachId,
-            name,
-            description: description || '',
-            blocks
+            name: validation.data.name,
+            description: validation.data.description || '',
+            blocks: validation.data.blocks,
         };
         await docRef.set(newWorkout);
         return { success: true, data: newWorkout };
     } catch (error: any) {
-        return { success: false, error: "Failed to create workout in the database." };
+        return { success: false, error: "Failed to create workout." };
     }
 }
 
-export async function getWorkoutsForCoachAction(coachId: string): Promise<ActionResponse<Workout[]>> {
-    if (!coachId) return { success: false, error: "Coach ID is required." };
+export async function getWorkoutsAction(): Promise<ActionResponse<Workout[]>> {
     try {
-        const snapshot = await firestore.collection('workouts').where('coachId', '==', coachId).get();
+        const snapshot = await firestore.collection('workouts').orderBy('name').get();
         const workouts = snapshot.docs.map(doc => doc.data() as Workout);
         return { success: true, data: workouts };
     } catch (error: any) {
-        return { success: false, error: "An unexpected error occurred while fetching workouts." };
+        return { success: false, error: "Failed to fetch workouts." };
     }
 }
-
 
 export async function updateWorkoutAction(params: { workoutId: string, workoutData: any }): Promise<ActionResponse> {
     const validation = workoutDataSchema.safeParse(params.workoutData);
     if (!validation.success) {
-        const errorMsg = validation.error.errors.map(e => e.message).join(', ');
-        return { success: false, error: errorMsg };
+        return { success: false, error: validation.error.errors.map(e => e.message).join(', ') };
     }
     try {
         await firestore.collection('workouts').doc(params.workoutId).update(validation.data);

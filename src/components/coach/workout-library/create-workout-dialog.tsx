@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from 'sonner';
 
 import { Exercise, Workout } from "@/types/workout-program";
-import { createWorkoutAction, updateWorkoutAction, getExercisesForCoach } from "@/app/coach/actions/workout-actions";
+import { createWorkoutAction, updateWorkoutAction, getExercisesAction } from "@/app/coach/actions/workout-actions";
 import { PlusCircle } from 'lucide-react';
 import { ExerciseBlockEditor } from '../workout-builder/exercise-block-editor';
 import { RestBlockEditor } from '../workout-builder/rest-block-editor';
@@ -81,11 +81,10 @@ interface CreateWorkoutDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onWorkoutSaved: () => void;
-  coachId: string;
   workoutToEdit: Workout | null;
 }
 
-export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, coachId, workoutToEdit }: CreateWorkoutDialogProps) {
+export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, workoutToEdit }: CreateWorkoutDialogProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [availableExercises, setAvailableExercises] = useState<Exercise[]>([]);
     const isEditMode = !!workoutToEdit;
@@ -107,8 +106,8 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, coachId, 
     });
 
     useEffect(() => {
-        if (isOpen && coachId) {
-            getExercisesForCoach(coachId).then(result => {
+        if (isOpen) {
+            getExercisesAction().then(result => {
                 if (!result.success) {
                     toast.error((result as ErrorResponse).error);
                     return;
@@ -116,7 +115,7 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, coachId, 
                 setAvailableExercises(result.data);
             });
         }
-    }, [isOpen, coachId]);
+    }, [isOpen]);
 
     useEffect(() => {
         if (isEditMode && workoutToEdit) {
@@ -130,7 +129,7 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, coachId, 
         setIsLoading(true);
         const action = isEditMode
             ? updateWorkoutAction({ workoutId: workoutToEdit!.id, workoutData: data })
-            : createWorkoutAction({ coachId, workoutData: data });
+            : createWorkoutAction({ workoutData: data });
 
         const result = await action;
         setIsLoading(false);
@@ -205,7 +204,7 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, coachId, 
                                             case 'rest':
                                                 return <RestBlockEditor key={field.id} blockIndex={index} removeBlock={remove} />;
                                             case 'group':
-                                                return <GroupBlockEditor key={field.id} blockIndex={index} removeBlock={remove} coachId={coachId} availableExercises={availableExercises} />;
+                                                return <GroupBlockEditor key={field.id} blockIndex={index} removeBlock={remove} availableExercises={availableExercises} />;
                                             default:
                                                 return null;
                                         }

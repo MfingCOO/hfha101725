@@ -15,7 +15,7 @@ interface GroupBlockEditorProps {
   blockIndex: number;
   removeBlock: (index: number) => void;
   availableExercises: Exercise[];
-  coachId: string;
+  coachId?: string; // Made optional
 }
 
 export function GroupBlockEditor({ blockIndex, removeBlock, availableExercises }: GroupBlockEditorProps) {

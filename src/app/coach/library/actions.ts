@@ -11,8 +11,6 @@ export interface LibraryDocument {
     storagePath: string;
     text?: string;
     createdAt: string;
-    coachId: string;
-    coachName: string;
 }
 
 /**
@@ -49,7 +47,7 @@ async function uploadFileAction(base64DataUrl: string, fileName: string, fileTyp
 }
 
 
-export async function uploadDocumentAction(base64: string, name: string, type: string, text: string = '', coachId: string, coachName: string): Promise<{ success: boolean; error?: string }> {
+export async function uploadDocumentAction(base64: string, name: string, type: string, text: string = ''): Promise<{ success: boolean; error?: string }> {
     try {
         const uploadResult = await uploadFileAction(base64, name, type, 'library');
         if (uploadResult.success && uploadResult.url && uploadResult.storagePath) {
@@ -60,8 +58,6 @@ export async function uploadDocumentAction(base64: string, name: string, type: s
                 url: uploadResult.url,
                 storagePath: uploadResult.storagePath,
                 createdAt: FieldValue.serverTimestamp(),
-                coachId,
-                coachName
             };
             await adminDb.collection('library').add(docData);
             return { success: true };
@@ -87,8 +83,6 @@ export async function getLibraryDocumentsAction(): Promise<{ success: boolean; d
                 type: data.type,
                 storagePath: data.storagePath,
                 createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-                coachId: data.coachId,
-                coachName: data.coachName,
                 text: data.text,
             };
         });

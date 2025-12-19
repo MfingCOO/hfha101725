@@ -1,7 +1,7 @@
 
 export interface Exercise {
   id: string; // Unique identifier
-  coachId: string; // Reference to the coach who created it
+  coachId?: string; // Reference to the coach who created it
   name: string;
   description: string; // Detailed instructions for the exercise
   bodyParts: string[]; // e.g., ["Quadriceps", "Glutes", "Hamstrings"]
@@ -48,7 +48,7 @@ export type WorkoutBlock = ExerciseBlock | RestBlock | GroupBlock;
 
 export interface Workout {
   id: string; // Unique identifier
-  coachId: string; // Reference to the creator
+  coachId?: string; // Reference to the creator
   name: string; // e.g., "Leg Day - Volume", "HIIT Cardio Blast"
   description: string;
   // The ordered list of blocks that make up the workout
@@ -59,7 +59,7 @@ export interface Workout {
 
 export interface Program {
   id: string; // Unique identifier
-  coachId: string; // Reference to the creator
+  coachId?: string; // Reference to the creator
   name: string; // e.g., "8-Week Strength Foundation"
   description: string;
   workouts: Array<{ // An ordered list defining the schedule
