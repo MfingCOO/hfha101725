@@ -1,7 +1,6 @@
 
 export interface Exercise {
   id: string; // Unique identifier
-  coachId?: string; // Reference to the coach who created it
   name: string;
   description: string; // Detailed instructions for the exercise
   bodyParts: string[]; // e.g., ["Quadriceps", "Glutes", "Hamstrings"]
@@ -48,24 +47,28 @@ export type WorkoutBlock = ExerciseBlock | RestBlock | GroupBlock;
 
 export interface Workout {
   id: string; // Unique identifier
-  coachId?: string; // Reference to the creator
   name: string; // e.g., "Leg Day - Volume", "HIIT Cardio Blast"
   description: string;
   // The ordered list of blocks that make up the workout
   blocks: WorkoutBlock[];
 }
 
-// --- Program & User Program Structures (remain the same) ---
+// --- New Program Structures ---
+
+export interface ProgramWeek {
+  id: string; // Unique ID for this week entry in the program
+  weekNumber: number; // The order of the week, e.g., 1, 2, 3
+  name: string; // Custom name for the week, e.g., "Week 1: Foundation Phase"
+  workoutId: string; // The ID of the Workout assigned to this week
+}
 
 export interface Program {
   id: string; // Unique identifier
-  coachId?: string; // Reference to the creator
   name: string; // e.g., "8-Week Strength Foundation"
   description: string;
-  workouts: Array<{ // An ordered list defining the schedule
-    day: number;
-    workoutId: string;
-  }>;
+  // Duration can be a specific number of weeks or 'continuous' for ongoing programs
+  duration: number | 'continuous';
+  weeks: ProgramWeek[]; // An ordered list of weeks defining the program schedule
 }
 
 // To track user subscriptions to programs

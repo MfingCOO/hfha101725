@@ -69,7 +69,7 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
     const fetchChallenges = useCallback(async () => {
         setIsLoading(true);
         const result = await getChallengesForCoach();
-        if (result.success && result.data) {
+        if (result.success) {
             setChallenges(result.data as unknown as SerializableChallenge[]);
         } else {
             toast({
@@ -194,18 +194,16 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
             description="Manage community engagement and your program library."
             footer={
                 activeMainTab === 'community' ? (
-                 <div className="flex justify-between w-full">
-                    <Button onClick={() => setHabitsDialogState(true)} size="sm" variant="outline">
-                        Custom Habits
+                 <div className="grid grid-cols-3 gap-2 w-full">
+                    <Button onClick={() => setHabitsDialogState(true)} size="sm" variant="outline" className="gap-1 text-xs sm:text-sm">
+                        <PlusCircle className="h-4 w-4" /> Habits
                     </Button>
-                    <div className="flex gap-2">
-                        <Button onClick={() => setCreateEventDialogState(true)} size="sm" variant="outline" className="gap-1">
-                            <PlusCircle className="h-4 w-4" /> New Event
-                        </Button>
-                        <Button onClick={() => setCreateDialogState({ open: true, challenge: null })} size="sm" className="gap-1">
-                            <PlusCircle className="h-4 w-4" /> New Challenge
-                        </Button>
-                    </div>
+                    <Button onClick={() => setCreateEventDialogState(true)} size="sm" variant="outline" className="gap-1 text-xs sm:text-sm">
+                        <PlusCircle className="h-4 w-4" /> Event
+                    </Button>
+                    <Button onClick={() => setCreateDialogState({ open: true, challenge: null })} size="sm" className="gap-1 text-xs sm:text-sm">
+                        <PlusCircle className="h-4 w-4" /> Challenge
+                    </Button>
                 </div>
                 ) : null
             }
