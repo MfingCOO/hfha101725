@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { getWorkoutsAction, deleteWorkoutAction } from '@/app/coach/actions/workout-actions';
+import { getWorkoutsAction, deleteWorkoutAction, ActionResponse } from '@/app/coach/actions/workout-actions';
 import { CreateWorkoutDialog } from '@/components/coach/workout-library/create-workout-dialog';
 import { Workout } from '@/types/workout-program';
 import { Loader2, PlusCircle, MoreVertical, Edit, Trash2 } from 'lucide-react';
@@ -19,11 +19,14 @@ export function WorkoutLibrary() {
         setIsLoading(true);
         try {
             const result = await getWorkoutsAction();
-            if (result.success) {
-                setWorkouts(result.data);
-            } else if ('error' in result) {
-                toast.error(result.error || 'Failed to fetch workouts.');
+            if (!result.success) {
+                // This is the safe way to access the error property on a discriminated union
+                if ('error' in result) {
+                    toast.error(result.error || 'Failed to fetch workouts.');
+                }
+                return;
             }
+            setWorkouts(result.data);
         } catch (error) {
             toast.error('An unexpected error occurred while fetching workouts.');
         } finally {
@@ -47,12 +50,15 @@ export function WorkoutLibrary() {
 
     const handleDelete = async (workoutId: string) => {
         const result = await deleteWorkoutAction(workoutId);
-        if (result.success) {
-            toast.success("Workout deleted successfully.");
-            fetchWorkouts();
-        } else if ('error' in result) {
-            toast.error(result.error || 'Failed to delete workout.');
+        if (!result.success) {
+            // This is the safe way to access the error property on a discriminated union
+            if ('error' in result) {
+                toast.error(result.error || 'Failed to delete workout.');
+            }
+            return;
         }
+        toast.success("Workout deleted successfully.");
+        fetchWorkouts();
     };
 
     const handleDialogClose = () => {

@@ -5,11 +5,7 @@ import { ExerciseLibrary } from '@/components/coach/exercise-library/exercise-li
 import { WorkoutBuilder } from '@/components/coach/workout-builder/workout-builder';
 import { ProgramBuilder } from '@/components/coach/program-builder/program-builder';
 
-interface ProgramBuilderTabsProps {
-  coachId: string;
-}
-
-export function ProgramBuilderTabs({ coachId }: ProgramBuilderTabsProps) {
+export function ProgramBuilderTabs() {
   return (
     <Tabs defaultValue="exercises" className="w-full mt-2">
       <TabsList className="grid w-full grid-cols-3">
@@ -18,13 +14,13 @@ export function ProgramBuilderTabs({ coachId }: ProgramBuilderTabsProps) {
         <TabsTrigger value="programs">Programs</TabsTrigger>
       </TabsList>
       <TabsContent value="exercises">
-        <ExerciseLibrary coachId={coachId} />
+        <ExerciseLibrary />
       </TabsContent>
       <TabsContent value="workouts">
-        <WorkoutBuilder coachId={coachId} />
+        <WorkoutBuilder />
       </TabsContent>
       <TabsContent value="programs">
-        <ProgramBuilder coachId={coachId} />
+        <ProgramBuilder />
       </TabsContent>
     </Tabs>
   );

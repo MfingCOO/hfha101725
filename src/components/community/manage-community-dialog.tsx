@@ -5,7 +5,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChallengeList } from '@/components/challenges/challenge-list';
 import { LiveEventsTab } from '@/app/coach/events/LiveEventsTab';
 import { ProgramBuilderTabs } from '@/components/coach/program-builder/program-builder-tabs';
-import { useAuth } from '@/components/auth/auth-provider';
 
 interface ManageCommunityDialogProps {
   isOpen: boolean;
@@ -13,8 +12,6 @@ interface ManageCommunityDialogProps {
 }
 
 export function ManageCommunityDialog({ isOpen, onClose }: ManageCommunityDialogProps) {
-  const { user } = useAuth();
-
   return (
     <BaseModal
       isOpen={isOpen}
@@ -47,7 +44,7 @@ export function ManageCommunityDialog({ isOpen, onClose }: ManageCommunityDialog
 
         {/* Program Builder Tab Content */}
         <TabsContent value="program-builder">
-          {user && <ProgramBuilderTabs coachId={user.uid} />}
+          <ProgramBuilderTabs />
         </TabsContent>
       </Tabs>
     </BaseModal>
