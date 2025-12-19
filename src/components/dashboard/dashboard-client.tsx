@@ -37,6 +37,7 @@ import { UpgradeModal } from '../modals/upgrade-modal';
 import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
 import { ProgramWidget } from '@/components/client/ProgramWidget'; 
 import { ProgramListDialog } from '@/components/programs/program-list-dialog';
+import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
 import quotes from '@/lib/quotes.json';
 
 // FIX: Define Pillar type locally to resolve import error
@@ -104,6 +105,7 @@ export function DashboardClient() {
   const [isMounted, setIsMounted] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [isProgramListOpen, setIsProgramListOpen] = useState(false);
+  const [isProgramHubOpen, setIsProgramHubOpen] = useState(false);
   const [isJoiningChallenge, setIsJoiningChallenge] = useState(false);
 
   const { onOpenCalendar } = useDashboardActions();
@@ -267,7 +269,7 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
   };
 
   const handleOpenCurrentProgram = () => {
-    alert('This will open the current program view. This feature is under construction.');
+    setIsProgramHubOpen(true);
   };
 
   const bingeFreeSinceDate = useMemo(() => {
@@ -506,6 +508,12 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
         onClose={() => setIsProgramListOpen(false)}
         userProfile={userProfile}
         onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
+      />
+
+      <ProgramHubDialog
+        isOpen={isProgramHubOpen}
+        onClose={() => setIsProgramHubOpen(false)}
+        userProfile={userProfile}
       />
 
       {activePillar && (

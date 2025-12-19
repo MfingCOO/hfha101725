@@ -1,32 +1,36 @@
 
 export interface Exercise {
-  id: string; // Unique identifier
+  id: string;
   name: string;
-  description: string; // Detailed instructions for the exercise
-  bodyParts: string[]; // e.g., ["Quadriceps", "Glutes", "Hamstrings"]
-  equipmentNeeded: string; // e.g., "Barbell", "Treadmill", "None (Bodyweight)"
+  description: string;
+  bodyParts: string[];
+  equipmentNeeded: string;
   trackingMetrics: Array<'reps' | 'weight' | 'time' | 'distance'>;
-  mediaUrl?: string; // Optional link to a demonstration video or image
+  mediaUrl?: string;
 }
 
-// --- New Advanced Workout Structures ---
+// --- Workout Structures ---
 
 export type WorkoutBlockType = 'exercise' | 'rest' | 'group';
 
 export interface BaseBlock {
-  id: string; // Unique ID for each block within a workout
+  id: string;
   type: WorkoutBlockType;
+}
+
+// Represents a single set within an exercise, e.g., "10 reps at 50kg".
+export interface Set {
+    id: string;
+    metric?: 'reps' | 'time' | 'distance'; // The primary metric for the set
+    value?: string;   // The target value for the metric (e.g., '10', '60s')
+    weight?: string;  // The weight to be used, if applicable
 }
 
 export interface ExerciseBlock extends BaseBlock {
   type: 'exercise';
   exerciseId: string; // Reference to an Exercise in the library
-  // Details for this specific instance of the exercise
-  sets?: number;
-  reps?: number;
-  weight?: number;
-  time?: number; // in seconds
-  distance?: number; // in meters
+  sets: Set[]; // An array of sets to be performed
+  restBetweenSets?: string; // e.g., '60'
   notes?: string; // Coach's notes for this specific step
 }
 
@@ -46,34 +50,37 @@ export interface GroupBlock extends BaseBlock {
 export type WorkoutBlock = ExerciseBlock | RestBlock | GroupBlock;
 
 export interface Workout {
-  id: string; // Unique identifier
-  name: string; // e.g., "Leg Day - Volume", "HIIT Cardio Blast"
+  id: string;
+  name: string;
   description: string;
-  // The ordered list of blocks that make up the workout
   blocks: WorkoutBlock[];
+  duration?: number; // Estimated duration in minutes
 }
 
-// --- New Program Structures ---
+// --- Program Structures ---
 
 export interface ProgramWeek {
-  id: string; // Unique ID for this week entry in the program
-  weekNumber: number; // The order of the week, e.g., 1, 2, 3
-  name: string; // Custom name for the week, e.g., "Week 1: Foundation Phase"
-  workoutId: string; // The ID of the Workout assigned to this week
+  id: string;
+  weekNumber: number;
+  name: string;
+  workoutIds: string[];
 }
 
 export interface Program {
-  id: string; // Unique identifier
-  name: string; // e.g., "8-Week Strength Foundation"
+  id: string;
+  name: string;
   description: string;
-  // Duration can be a specific number of weeks or 'continuous' for ongoing programs
   duration: number | 'continuous';
-  weeks: ProgramWeek[]; // An ordered list of weeks defining the program schedule
+  weeks: ProgramWeek[];
 }
 
-// To track user subscriptions to programs
 export interface UserProgram {
   userId: string;
   programId: string;
   startDate: string; // ISO date string
+  completedWorkouts: {
+    weekId: string;
+    workoutId: string;
+    completedAt: string; // ISO date string
+  }[];
 }

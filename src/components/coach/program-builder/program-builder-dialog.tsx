@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { getWorkoutsAction } from '@/app/coach/actions/workout-actions';
 import { upsertProgramAction } from '@/app/coach/actions/program-actions';
 import type { Workout, Program, ProgramWeek } from '@/types/workout-program';
-import { Loader2, PlusCircle, Trash2, ChevronsUpDown, Check } from 'lucide-react';
+import { Loader2, PlusCircle, Trash2, X, Check } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useToast } from '@/hooks/use-toast';
@@ -43,7 +43,11 @@ export function ProgramBuilderDialog({ isOpen, onClose, onProgramSaved, initialD
                 setProgramName(initialData.name);
                 setProgramDescription(initialData.description || '');
                 setDuration(initialData.duration);
-                setWeeks(initialData.weeks || []);
+                const sanitizedWeeks = initialData.weeks.map((week: any) => ({
+                    ...week,
+                    workoutIds: Array.isArray(week.workoutIds) ? week.workoutIds : (week.workoutId ? [week.workoutId] : [])
+                }));
+                setWeeks(sanitizedWeeks);
             } else {
                 setProgramName('');
                 setProgramDescription('');
@@ -70,7 +74,7 @@ export function ProgramBuilderDialog({ isOpen, onClose, onProgramSaved, initialD
     }, [isOpen, toast]);
 
     const handleAddWeek = () => {
-        const newWeek: Partial<ProgramWeek> = { id: uuidv4(), weekNumber: weeks.length + 1, name: `Week ${weeks.length + 1}`, workoutId: '' };
+        const newWeek: Partial<ProgramWeek> = { id: uuidv4(), weekNumber: weeks.length + 1, name: `Week ${weeks.length + 1}`, workoutIds: [] };
         setWeeks([...weeks, newWeek]);
     };
 
@@ -82,8 +86,24 @@ export function ProgramBuilderDialog({ isOpen, onClose, onProgramSaved, initialD
         setWeeks(weeks.map(week => week.id === id ? { ...week, name } : week));
     };
 
-    const handleWorkoutSelect = (id: string, workoutId: string) => {
-        setWeeks(weeks.map(week => week.id === id ? { ...week, workoutId } : week));
+    const handleAddWorkoutToWeek = (weekId: string, workoutId: string) => {
+        setWeeks(weeks.map(week => {
+            if (week.id === weekId) {
+                return { ...week, workoutIds: [...(week.workoutIds || []), workoutId] };
+            }
+            return week;
+        }));
+    };
+
+    const handleRemoveWorkoutFromWeek = (weekId: string, workoutIndex: number) => {
+        setWeeks(weeks.map(week => {
+            if (week.id === weekId) {
+                const newWorkoutIds = [...(week.workoutIds || [])];
+                newWorkoutIds.splice(workoutIndex, 1);
+                return { ...week, workoutIds: newWorkoutIds };
+            }
+            return week;
+        }));
     };
 
     const handleSaveProgram = async () => {
@@ -91,8 +111,8 @@ export function ProgramBuilderDialog({ isOpen, onClose, onProgramSaved, initialD
             toast({ title: "Program name is required", variant: "destructive" });
             return;
         }
-        if (weeks.some(w => !w.workoutId)) {
-            toast({ title: "All weeks must have a workout assigned", variant: "destructive"});
+        if (weeks.some(w => !w.workoutIds || w.workoutIds.length === 0)) {
+            toast({ title: "All weeks must have at least one workout assigned", variant: "destructive"});
             return;
         }
 
@@ -102,7 +122,7 @@ export function ProgramBuilderDialog({ isOpen, onClose, onProgramSaved, initialD
             id: w.id!,
             weekNumber: w.weekNumber!,
             name: w.name!,
-            workoutId: w.workoutId!,
+            workoutIds: w.workoutIds!,
         }));
         
         const result = await upsertProgramAction({ programData, weeksData, programId: initialData?.id || null });
@@ -138,21 +158,33 @@ export function ProgramBuilderDialog({ isOpen, onClose, onProgramSaved, initialD
                             <div className="flex items-center space-x-2"><RadioGroupItem value="continuous" id="continuous" /><Label htmlFor="continuous">Continuous</Label></div>
                             <div className="flex items-center space-x-2"><RadioGroupItem value="weeks" id="weeks" /><Label htmlFor="weeks">Fixed Weeks</Label></div>
                         </RadioGroup>
-                        {duration !== 'continuous' && <Input type="number" value={weeks.length} onChange={(e) => setDuration(Math.max(1, parseInt(e.target.value)) || 1)} className="w-24 mt-2" readOnly disabled/>}
+                        {duration !== 'continuous' && <Input type="number" value={weeks.length} readOnly disabled className="w-24 mt-2" />}
                     </div>
                     <div className="space-y-4">
                         <h3 className="text-md font-medium">Weekly Schedule</h3>
                         {weeks.map((week) => (
-                            <div key={week.id} className="flex items-center gap-2 p-2 rounded-md bg-muted/40">
-                                <Input value={week.name!} onChange={(e) => handleWeekNameChange(week.id!, e.target.value)} className="flex-grow font-semibold h-9" />
-                                {isLoadingWorkouts ? (
-                                    <div className='w-full sm:w-56'><Loader2 className="h-4 w-4 animate-spin" /></div>
-                                ) : (
-                                    <WorkoutSelector workouts={workouts} selectedWorkoutId={week.workoutId!} onSelect={(workoutId) => handleWorkoutSelect(week.id!, workoutId)} />
-                                )}
-                                <Button variant="ghost" size="icon" onClick={() => handleRemoveWeek(week.id!)} className="text-muted-foreground hover:text-destructive shrink-0">
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
+                            <div key={week.id} className="flex flex-col gap-3 p-3 rounded-lg bg-muted/50">
+                                <div className="flex items-center gap-2">
+                                    <Input value={week.name!} onChange={(e) => handleWeekNameChange(week.id!, e.target.value)} className="flex-grow font-semibold h-9" />
+                                    <Button variant="ghost" size="icon" onClick={() => handleRemoveWeek(week.id!)} className="text-muted-foreground hover:text-destructive shrink-0">
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                <div className="pl-2 space-y-2">
+                                    <Label className="text-xs text-muted-foreground">Assigned Workouts</Label>
+                                    {week.workoutIds?.map((workoutId, index) => {
+                                        const workout = workouts.find(w => w.id === workoutId);
+                                        return (
+                                            <div key={`${workoutId}-${index}`} className='flex items-center justify-between text-sm p-2 bg-background rounded-md shadow-sm'>
+                                                <span>{`Day ${index + 1}: ${workout?.name || "Loading..."}`}</span>
+                                                <Button variant="ghost" size="icon" onClick={() => handleRemoveWorkoutFromWeek(week.id!, index)} className="text-muted-foreground hover:text-destructive h-6 w-6 shrink-0">
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        )
+                                    })}
+                                    {isLoadingWorkouts ? <Loader2 className="h-4 w-4 animate-spin" /> : <WorkoutMultiSelector workouts={workouts} assignedWorkoutIds={week.workoutIds || []} onSelect={(workoutId) => handleAddWorkoutToWeek(week.id!, workoutId)} />}
+                                </div>
                             </div>
                         ))}
                         <Button onClick={handleAddWeek} variant="outline" className="w-full">
@@ -171,27 +203,26 @@ export function ProgramBuilderDialog({ isOpen, onClose, onProgramSaved, initialD
     );
 }
 
-function WorkoutSelector({ workouts, selectedWorkoutId, onSelect }: { workouts: Workout[], selectedWorkoutId: string, onSelect: (id: string) => void }) {
+function WorkoutMultiSelector({ workouts, assignedWorkoutIds, onSelect }: { workouts: Workout[], assignedWorkoutIds: string[], onSelect: (id: string) => void }) {
     const [open, setOpen] = useState(false);
-    const selectedWorkout = workouts.find(w => w.id === selectedWorkoutId);
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
-                <Button variant="outline" role="combobox" aria-expanded={open} className="w-full sm:w-56 justify-between h-9">
-                    {selectedWorkout ? selectedWorkout.name : "Select..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                <Button variant="outline" size="sm" className="w-full mt-2">
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Add Workout
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+            <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                 <Command>
-                    <CommandInput placeholder="Search..." />
+                    <CommandInput placeholder="Search workouts..." />
                     <CommandList>
                         <CommandEmpty>No workouts found.</CommandEmpty>
                         <CommandGroup>
                             {workouts.map((workout) => (
                                 <CommandItem key={workout.id} value={workout.name} onSelect={() => { onSelect(workout.id); setOpen(false); }}>
-                                    <Check className={cn("mr-2 h-4 w-4", selectedWorkoutId === workout.id ? "opacity-100" : "opacity-0")} />
+                                    <Check className={cn("mr-2 h-4 w-4", "opacity-0")} />
                                     {workout.name}
                                 </CommandItem>
                             ))}
