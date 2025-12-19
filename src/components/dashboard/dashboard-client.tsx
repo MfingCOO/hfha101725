@@ -35,6 +35,8 @@ import { FirstUseEducationalModal } from '../modals/FirstUseEducationalModal';
 import { educationalContentLibrary, EducationalContent } from '@/lib/educational-content';
 import { UpgradeModal } from '../modals/upgrade-modal';
 import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
+import { ProgramWidget } from '@/components/client/ProgramWidget'; 
+import { ProgramListDialog } from '@/components/programs/program-list-dialog';
 import quotes from '@/lib/quotes.json';
 
 // FIX: Define Pillar type locally to resolve import error
@@ -101,6 +103,7 @@ export function DashboardClient() {
   const [isEducationalModalOpen, setIsEducationalModalOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [isProgramListOpen, setIsProgramListOpen] = useState(false);
   const [isJoiningChallenge, setIsJoiningChallenge] = useState(false);
 
   const { onOpenCalendar } = useDashboardActions();
@@ -259,7 +262,14 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
     }
   };
 
-  // FIX: Safely access bingeFreeSince from either live state or initial profile data
+  const handleOpenProgramList = () => {
+    setIsProgramListOpen(true);
+  };
+
+  const handleOpenCurrentProgram = () => {
+    alert('This will open the current program view. This feature is under construction.');
+  };
+
   const bingeFreeSinceDate = useMemo(() => {
       const source = liveBingeFreeSince || (userProfile as ClientProfile)?.bingeFreeSince;
       return safeNewDate(source);
@@ -327,16 +337,16 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
     if (!latestChallenge) {
       return (
          <Card className="bg-primary/10 border-primary/20 hover:border-primary/40 transition-all">
-            <CardContent className="p-4 flex items-center gap-4">
-            <div className="relative w-24 h-24 rounded-lg overflow-hidden flex-shrink-0 bg-primary/20 flex items-center justify-center">
-                <Trophy className="w-12 h-12 text-primary/50" />
+            <CardContent className="p-3 flex items-center gap-3">
+            <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-primary/20 flex items-center justify-center">
+                <Trophy className="w-10 h-10 text-primary/50" />
             </div>
-            <div className="flex-1 space-y-2">
+            <div className="flex-1 space-y-1">
                 <div>
-                <h3 className="font-bold text-lg text-card-foreground leading-tight">No Active Challenges</h3>
-                <p className="text-xs text-muted-foreground line-clamp-2">Check back soon for the next community challenge, or view past challenges to see what you've missed!</p>
+                <h3 className="font-bold text-base text-card-foreground leading-tight">No Active Challenges</h3>
+                <p className="text-xs text-muted-foreground line-clamp-2">Check back soon for the next community challenge.</p>
                 </div>
-                <Button size="sm" className="w-full sm:w-auto" onClick={onOpenChallenges}>
+                <Button size="xs" className="w-full sm:w-auto" onClick={onOpenChallenges}>
                     View All Challenges <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
             </div>
@@ -350,7 +360,6 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
     const challengeStartDate = safeNewDate(latestChallenge.dates.from);
     if(!challengeStartDate) return null; // Defensive check
     const isUpcoming = challengeStartDate > now;
-    // FIX: Use UserTier enums for comparisons
     const canJoin = !isParticipant && TIER_ACCESS.indexOf(userProfile?.tier || UserTier.Free) >= TIER_ACCESS.indexOf(UserTier.Premium);
     const needsUpgrade = !isParticipant && TIER_ACCESS.indexOf(userProfile?.tier || UserTier.Free) < TIER_ACCESS.indexOf(UserTier.Premium);
 
@@ -366,31 +375,31 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
 
     return (
        <Card className="bg-primary/10 border-primary/20 hover:border-primary/40 transition-all">
-        <CardContent className="p-4 flex items-center gap-4">
-          <div className="relative w-24 h-24 rounded-lg overflow-hidden flex-shrink-0">
+        <CardContent className="p-3 flex items-center gap-3">
+          <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
             <Image src={latestChallenge.thumbnailUrl || "https://placehold.co/400x400.png"} alt={latestChallenge.name} fill className="object-cover" unoptimized/>
           </div>
-          <div className="flex-1 space-y-2">
+          <div className="flex-1 space-y-1">
             <div>
-              <Badge variant={badgeVariant} className="mb-1">{badgeText}</Badge>
-              <h3 className="font-bold text-lg text-card-foreground leading-tight">{latestChallenge.name}</h3>
-              <p className="text-xs text-muted-foreground line-clamp-2">{latestChallenge.description}</p>
+              <Badge variant={badgeVariant} className="mb-1 text-xs">{badgeText}</Badge>
+              <h3 className="font-bold text-base text-card-foreground leading-tight">{latestChallenge.name}</h3>
+              <p className="text-xs text-muted-foreground line-clamp-1">{latestChallenge.description}</p>
             </div>
             {isParticipant ? (
-                 <Button size="sm" className="w-full sm:w-auto" onClick={onOpenChallenges}>
+                 <Button size="xs" className="w-full sm:w-auto" onClick={onOpenChallenges}>
                     View Challenge <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
             ) : canJoin ? (
-                <Button size="sm" className="w-full sm:w-auto" onClick={() => handleJoinChallenge(latestChallenge.id)} disabled={isJoiningChallenge}>
+                <Button size="xs" className="w-full sm:w-auto" onClick={() => handleJoinChallenge(latestChallenge.id)} disabled={isJoiningChallenge}>
                     {isJoiningChallenge && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
                     Join Challenge <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
             ) : needsUpgrade ? (
-                <Button size="sm" className="w-full sm:w-auto" onClick={() => setIsUpgradeModalOpen(true)}>
+                <Button size="xs" className="w-full sm:w-auto" onClick={() => setIsUpgradeModalOpen(true)}>
                     Upgrade to Join <Lock className="ml-2 h-4 w-4" />
                 </Button>
             ) : (
-                 <Button size="sm" className="w-full sm:w-auto" onClick={onOpenChallenges}>
+                 <Button size="xs" className="w-full sm:w-auto" onClick={onOpenChallenges}>
                     View Details <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
             )}
@@ -426,6 +435,13 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
       )}
       
       {renderChallengeSection()}
+
+      <ProgramWidget 
+        userProfile={userProfile}
+        clientProfile={clientProfile}
+        onOpenProgramList={handleOpenProgramList}
+        onOpenCurrentProgram={handleOpenCurrentProgram}
+      />
 
       <UpcomingEventWidget 
           userProfile={userProfile}
@@ -485,6 +501,13 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
         </Card>
       )}
 
+      <ProgramListDialog
+        isOpen={isProgramListOpen}
+        onClose={() => setIsProgramListOpen(false)}
+        userProfile={userProfile}
+        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
+      />
+
       {activePillar && (
         <DataEntryDialog
           open={dataEntryDialogOpen}
@@ -502,9 +525,9 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
       <UpgradeModal 
         isOpen={isUpgradeModalOpen}
         onClose={() => setIsUpgradeModalOpen(false)}
-        requiredTier={UserTier.Premium} // FIX: Use UserTier enum
-        featureName="Community Challenges"
-        reason="Joining community challenges is a premium feature. Upgrade your account to participate and take your journey to the next level!"
+        requiredTier={UserTier.Premium} 
+        featureName="Workout Programs"
+        reason="Access to workout programs is a premium feature. Upgrade your account to subscribe and take your journey to the next level!"
       />
       
       {isMounted && educationalModalContent && (

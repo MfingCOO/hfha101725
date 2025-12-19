@@ -54,6 +54,7 @@ export interface UserProfile {
     chatIds?: string[];
     coachId?: string;
     challengeIds?: string[];
+    activeProgramId?: string; // Added field for the active program
     stripeCustomerId?: string | null;
     createdAt?: any;
     suggestedGoals?: NutritionalGoals;
