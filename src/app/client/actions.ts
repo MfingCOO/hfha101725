@@ -104,8 +104,9 @@ export async function scheduleWorkoutAction(details: {
     workoutName: string;
     startTime: Date;
     duration: number;
+    isCompleted?: boolean;
 }): Promise<ActionResponse<ScheduledEvent>> {
-    const { userId, workoutId, workoutName, startTime, duration } = details;
+    const { userId, workoutId, workoutName, startTime, duration, isCompleted } = details;
     if (!userId || !workoutId || !startTime) {
         return { success: false, error: "User ID, Workout ID, and start time are required." };
     }
@@ -122,7 +123,7 @@ export async function scheduleWorkoutAction(details: {
             endTime: endTime.toISOString(),
             userId,
             relatedId: workoutId,
-            isCompleted: false
+            isCompleted: isCompleted || false
         };
 
         await firestore.collection('scheduledEvents').doc(eventId).set(newEvent);

@@ -14,7 +14,9 @@ import { pillarsAndTools } from '@/lib/pillars';
 import { AppointmentDetailDialog } from './AppointmentDetailDialog';
 import { LiveEventDetailDialog } from './LiveEventDetailDialog';
 import { WorkoutDetailDialog } from './WorkoutDetailDialog';
-import { triggerSummaryRecalculation } from '@/app/calendar/actions';
+import { triggerSummaryRecalculation, deleteCalendarEvent } from '@/app/calendar/actions';
+import { WorkoutActionDialog } from './WorkoutActionDialog';
+import { EditWorkoutDialog } from './EditWorkoutDialog';
 
 const pillarColors: Record<string, string> = {
     nutrition: 'bg-amber-500 border-amber-700',
@@ -208,7 +210,10 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     const viewportRef = useRef<HTMLDivElement>(null);
     const [isInitialScrollDone, setIsInitialScrollDone] = useState(false);
     const [userTimezone, setUserTimezone] = useState<string>('');
-
+    const [eventToAction, setEventToAction] = useState<any | null>(null);
+    const [isActionDialogOpen, setIsActionDialogOpen] = useState(false);
+    const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+    
     useEffect(() => {
         setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
     }, []);
@@ -262,7 +267,8 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     
     const handleSelectEntry = (entryData: any) => {
         if (entryData.type === 'workout') {
-            setSelectedWorkout(entryData);
+            setEventToAction(entryData);
+            setIsActionDialogOpen(true);
             return;
         }
         if (entryData.pillar === 'appointment') {
@@ -317,7 +323,19 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                 toast({ variant: 'destructive', title: 'Error', description: result.error, });
             }
         };
-
+        const handleDeleteWorkout = async () => {
+            if (!eventToAction) return;
+            const result = await deleteCalendarEvent(eventToAction.id);
+            if (result.success) {
+                toast({ title: 'Workout Deleted', description: 'The workout has been removed from the calendar.' });
+                onEntryChange();
+            } else {
+                toast({ variant: 'destructive', title: 'Error', description: result.error });
+            }
+            setIsActionDialogOpen(false);
+            setEventToAction(null);
+        };
+        
         const changeDay = (days: number) => {
             setIsInitialScrollDone(false);
             onDateChange(addDays(selectedDate, days));
@@ -398,6 +416,33 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                     onClose={() => setSelectedWorkout(null)}
                     event={selectedWorkout}
                 />
+                <WorkoutActionDialog
+                    isOpen={isActionDialogOpen}
+                    onClose={() => setIsActionDialogOpen(false)}
+                    event={eventToAction}
+                    onStart={() => {
+                        setSelectedWorkout(eventToAction);
+                        setIsActionDialogOpen(false);
+                    }}
+                    onEdit={() => {
+                        setIsEditDialogOpen(true);
+                    }}
+                    onDelete={handleDeleteWorkout}
+                />
+
+                {eventToAction && isEditDialogOpen && (
+                    <EditWorkoutDialog
+                        open={isEditDialogOpen}
+                        onOpenChange={(open) => {
+                            if (!open) {
+                                setIsEditDialogOpen(false);
+                                setEventToAction(null);
+                                onEntryChange();
+                            }
+                        }}
+                        event={eventToAction}
+                    />
+                )}
             </div>
         );
     }

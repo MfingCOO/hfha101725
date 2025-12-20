@@ -7,11 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Loader2, PlayCircle, CalendarClock, Check } from 'lucide-react';
 import { Program, Workout } from '@/types/workout-program';
 import { UserProfile } from '@/types';
-import { getProgramDetailsAction } from '@/app/client/actions';
+import { getProgramDetailsAction, scheduleWorkoutAction } from '@/app/client/actions';
 import { getWorkoutsByIdsAction } from '@/app/workouts/actions';
 import { useToast } from '@/hooks/use-toast';
 import { WorkoutPlayer } from '@/components/workout-player/workout-player';
-import { createCalendarEventAction } from '@/app/calendar/actions';
 
 interface ProgramHubDialogProps {
   isOpen: boolean;
@@ -37,27 +36,30 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
     }
     setIsLoading(true);
 
-    try {
-      const programResult = await getProgramDetailsAction(userProfile.activeProgramId);
-      if (programResult.success === false) throw new Error(programResult.error);
+    const programResult = await getProgramDetailsAction(userProfile.activeProgramId);
+
+    if ('error' in programResult && programResult.error) {
+      toast({ variant: 'destructive', title: 'Error Loading Program', description: String(programResult.error) });
+    } else if ('data' in programResult) {
       const fetchedProgram = programResult.data;
       setProgram(fetchedProgram);
 
-      const allWorkoutIds = fetchedProgram.weeks.flatMap((week: any) => 
-          Array.isArray(week.workoutIds) ? week.workoutIds : (week.workoutId ? [week.workoutId] : [])
+      const allWorkoutIds = fetchedProgram.weeks.flatMap((week: any) =>
+        Array.isArray(week.workoutIds) ? week.workoutIds : (week.workoutId ? [week.workoutId] : [])
       ).filter((id: string) => id);
 
       if (allWorkoutIds.length > 0) {
         const workoutsResult = await getWorkoutsByIdsAction(allWorkoutIds);
-        if (workoutsResult.success === false) throw new Error(workoutsResult.error);
-        const fetchedWorkouts = workoutsResult.data;
-        setWorkouts(new Map(fetchedWorkouts.map(w => [w.id, w])));
+        if ('error' in workoutsResult && workoutsResult.error) {
+          toast({ variant: 'destructive', title: 'Error Loading Workouts', description: String(workoutsResult.error) });
+        } else if ('data' in workoutsResult) {
+          const fetchedWorkouts = workoutsResult.data;
+          setWorkouts(new Map(fetchedWorkouts.map(w => [w.id, w])));
+        }
       }
-    } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Error Loading Program', description: error.message });
-    } finally {
-      setIsLoading(false);
     }
+
+    setIsLoading(false);
   }, [userProfile, toast]);
 
   useEffect(() => {
@@ -81,29 +83,30 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
     setScheduleTime('09:00');
   };
 
- const handleConfirmSchedule = async (workout: Workout) => {
+  const handleConfirmSchedule = async (workout: Workout) => {
     if (!scheduleDate || !scheduleTime || !userProfile) {
-        toast({ variant: 'destructive', title: 'Missing Details', description: "Please select both a date and a time." });
-        return;
+      toast({ variant: 'destructive', title: 'Missing Details', description: "Please select both a date and a time." });
+      return;
     }
     setIsSubmitting(true);
     const startTime = new Date(`${scheduleDate}T${scheduleTime}`);
-    
-    const result = await createCalendarEventAction({
-        workoutId: workout.id,
-        workoutName: workout.name,
-        startTime,
-        duration: workout.duration || 60, 
-        userId: userProfile.uid
+
+    const result = await scheduleWorkoutAction({
+      workoutId: workout.id,
+      workoutName: workout.name,
+      startTime,
+      duration: workout.duration || 60,
+      userId: userProfile.uid,
+      isCompleted: false
     });
 
-    setIsSubmitting(false);
-    if (result.success) {
-        toast({ title: "Workout Scheduled!", description: `"${workout.name}" is on your calendar.` });
-        setSchedulingWorkoutId(null);
+    if ('error' in result && result.error) {
+      toast({ variant: 'destructive', title: 'Scheduling Failed', description: String(result.error) });
     } else {
-        toast({ variant: 'destructive', title: 'Scheduling Failed', description: result.error });
+      toast({ title: "Workout Scheduled!", description: `"${workout.name}" is on your calendar.` });
+      setSchedulingWorkoutId(null);
     }
+    setIsSubmitting(false);
   };
 
   return (
@@ -199,6 +202,7 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
             isOpen={!!workoutToPlay}
             onClose={handlePlayerClose}
             workout={workoutToPlay}
+            userProfile={userProfile}
         />
       )}
     </>

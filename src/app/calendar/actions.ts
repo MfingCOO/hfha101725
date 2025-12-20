@@ -272,3 +272,35 @@ export async function createCalendarEventAction(data: CreateEventData) {
         return { success: false, error: "Failed to schedule workout. Please try again." };
     }
 }
+
+export async function deleteCalendarEvent(eventId: string) {
+  if (!eventId) {
+    return { success: false, error: 'Event ID is required.' };
+  }
+
+  try {
+    await adminDb.collection('clientCalendar').doc(eventId).delete();
+    revalidatePath('/client/dashboard');
+    revalidatePath('/calendar');
+    return { success: true };
+  } catch (error) {
+    console.error("Error deleting calendar event:", error);
+    return { success: false, error: 'Failed to delete the event.' };
+  }
+}
+
+export async function updateWorkoutTime(eventId: string, newStartTime: Date) {
+  if (!eventId || !newStartTime) {
+    return { success: false, error: 'Event ID and new start time are required.' };
+  }
+
+  try {
+    const eventRef = adminDb.collection('clientCalendar').doc(eventId);
+    await eventRef.update({ start: Timestamp.fromDate(newStartTime) });
+    revalidatePath('/calendar');
+    return { success: true };
+  } catch (error) {
+    console.error("Error updating workout time:", error);
+    return { success: false, error: 'Failed to update the workout time.' };
+  }
+}

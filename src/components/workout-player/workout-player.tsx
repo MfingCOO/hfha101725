@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -10,14 +11,19 @@ import { Clock, SkipForward, X, CheckCircle, Flame } from 'lucide-react';
 import { useWorkoutEngine, WorkoutStatus } from '@/hooks/useWorkoutEngine';
 import { formatTime, extractExerciseIds } from '@/lib/utils';
 import { getExercisesByIdsAction } from '@/app/exercises/actions';
+import { scheduleWorkoutAction } from '@/app/client/actions'; // Import the action
+import { UserProfile } from '@/types'; // Import UserProfile type
+import { useToast } from '@/hooks/use-toast';
 
 interface WorkoutPlayerProps {
     isOpen: boolean;
     onClose: () => void;
     workout: Workout | null;
+    userProfile: UserProfile | null; // Add userProfile prop
 }
 
-export function WorkoutPlayer({ isOpen, onClose, workout }: WorkoutPlayerProps) {
+export function WorkoutPlayer({ isOpen, onClose, workout, userProfile }: WorkoutPlayerProps) {
+    const { toast } = useToast();
     const {
         status,
         currentBlock,
@@ -36,6 +42,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout }: WorkoutPlayerProps) 
     const [exercises, setExercises] = useState<Map<string, Exercise>>(new Map());
     const [reps, setReps] = useState('');
     const [weight, setWeight] = useState('');
+    const [startTime, setStartTime] = useState<Date | null>(null);
 
     useEffect(() => {
         const fetchExercises = async () => {
@@ -53,9 +60,35 @@ export function WorkoutPlayer({ isOpen, onClose, workout }: WorkoutPlayerProps) 
 
     useEffect(() => {
         if (isOpen && workout && status === 'idle') {
+            setStartTime(new Date()); // Record the start time
             startWorkout();
         }
     }, [isOpen, workout, status, startWorkout]);
+
+    const handleWorkoutCompletion = useCallback(async () => {
+        if (!workout || !userProfile || !startTime) return;
+
+        // Log the completed workout to the calendar
+        const result = await scheduleWorkoutAction({
+            userId: userProfile.uid,
+            workoutId: workout.id,
+            workoutName: workout.name,
+            startTime: startTime,
+            duration: Math.round((new Date().getTime() - startTime.getTime()) / 60000), // Duration in minutes
+            isCompleted: true // Mark as completed
+        });
+
+        if (!result.success) {
+            toast({ variant: 'destructive', title: 'Logging Failed', description: 'Could not save the completed workout to your calendar.' });
+        }
+    }, [workout, userProfile, startTime, toast]);
+    
+    // When the workout engine finishes, log the workout
+    useEffect(() => {
+        if (status === 'finished') {
+            handleWorkoutCompletion();
+        }
+    }, [status, handleWorkoutCompletion]);
     
     const currentExerciseBlock = useMemo(() => 
         currentBlock?.type === 'exercise' ? (currentBlock as ExerciseBlock) : null, 
@@ -127,7 +160,6 @@ export function WorkoutPlayer({ isOpen, onClose, workout }: WorkoutPlayerProps) 
                     <DialogTitle className="truncate pr-4 font-bold text-xl">{workout?.name}</DialogTitle>
                 </DialogHeader>
 
-                {/* This container no longer stretches, fixing the vertical space issue */}
                 <div className="flex flex-col gap-4 py-4">
                     <WorkoutProgressBar progress={workoutProgress} />
                     <div className="flex flex-col items-center justify-center text-center bg-muted/30 dark:bg-muted/50 rounded-lg p-4">
@@ -161,13 +193,11 @@ const ExerciseView = ({ exercise, set, setIndex, totalSets, reps, weight, onReps
             <h2 className="text-3xl sm:text-4xl font-bold truncate">{exercise.name}</h2>
             <p className="text-xl text-muted-foreground">Set {setIndex + 1} of {totalSets}</p>
         </div>
-        {/* This media placeholder no longer has flex-1, fixing the layout */}
         <div className="w-full aspect-video bg-gray-700 rounded-md my-4 flex items-center justify-center">
             {/* Future: IMG/Video component here */}
         </div>
         <form onSubmit={(e) => { e.preventDefault(); onComplete(); }} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-                {/* Placeholder text is now shortened to 'Tgt:' */}
                 <Input type="number" value={reps} onChange={e => onRepsChange(e.target.value)} placeholder={`Tgt: ${set.value || '-'}`} className="text-center text-2xl h-16" />
                 <Input type="number" value={weight} onChange={e => onWeightChange(e.target.value)} placeholder={`Tgt: ${set.weight || '-'}kg`} className="text-center text-2xl h-16" />
             </div>

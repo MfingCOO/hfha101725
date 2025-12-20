@@ -298,5 +298,14 @@ export interface LiveEvent {
     signUpDeadline: any;
     attendees: string[];
     createdAt: any;
-  }
-  
+}
+
+export interface ScheduledEvent {
+    id?: string;
+    userId: string;
+    workoutId: string;
+    workoutName: string;
+    startTime: Date;
+    duration: number; // in minutes
+    isCompleted?: boolean;
+}
