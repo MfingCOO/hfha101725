@@ -87,7 +87,7 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
 
                 const [flatSnapshot, nestedSnapshot] = await Promise.all([
                     flatQuery.get(),
-                    collectionName === 'planner' ? Promise.resolve({ docs: [] }) : nestedQuery.get()
+                    nestedQuery.get() // CORRECTED: Removed the faulty conditional that blocked the nested planner query
                 ]);
 
                 const docs = new Map<string, DocumentSnapshot>();

@@ -12,6 +12,7 @@ import { createCalendarEventAction } from '@/app/calendar/actions';
 import { getWorkoutsByIdsAction } from '@/app/workouts/actions';
 import { useToast } from '@/hooks/use-toast';
 import { WorkoutPlayer } from '@/components/workout-player/workout-player';
+import { ProgramBrowserDialog } from './ProgramBrowserDialog';
 
 interface ProgramHubDialogProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
   const [scheduleTime, setScheduleTime] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [workoutToPlay, setWorkoutToPlay] = useState<Workout | null>(null);
+  const [isBrowserOpen, setIsBrowserOpen] = useState(false);
   const { toast } = useToast();
 
   const fetchProgramData = useCallback(async () => {
@@ -36,31 +38,32 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
       return;
     }
     setIsLoading(true);
+    try {
+      const programResult = await getProgramDetailsAction(userProfile.activeProgramId);
+      if (programResult.success) {
+        const fetchedProgram = programResult.data;
+        setProgram(fetchedProgram);
 
-    const programResult = await getProgramDetailsAction(userProfile.activeProgramId);
-
-    if ('error' in programResult && programResult.error) {
-      toast({ variant: 'destructive', title: 'Error Loading Program', description: String(programResult.error) });
-    } else if ('data' in programResult) {
-      const fetchedProgram = programResult.data;
-      setProgram(fetchedProgram);
-
-      const allWorkoutIds = fetchedProgram.weeks.flatMap((week: any) =>
-        Array.isArray(week.workoutIds) ? week.workoutIds : (week.workoutId ? [week.workoutId] : [])
-      ).filter((id: string) => id);
-
-      if (allWorkoutIds.length > 0) {
-        const workoutsResult = await getWorkoutsByIdsAction(allWorkoutIds);
-        if ('error' in workoutsResult && workoutsResult.error) {
-          toast({ variant: 'destructive', title: 'Error Loading Workouts', description: String(workoutsResult.error) });
-        } else if ('data' in workoutsResult) {
-          const fetchedWorkouts = workoutsResult.data;
-          setWorkouts(new Map(fetchedWorkouts.map(w => [w.id, w])));
+        if (fetchedProgram.weeks?.length > 0) {
+          const allWorkoutIds = fetchedProgram.weeks.flatMap(week => week.workoutIds || []).filter(id => id);
+          if (allWorkoutIds.length > 0) {
+            const workoutsResult = await getWorkoutsByIdsAction(allWorkoutIds);
+            if (workoutsResult.success) {
+              setWorkouts(new Map(workoutsResult.data.map(w => [w.id, w])));
+            } else {
+              throw new Error('Failed to load workouts');
+            }
+          }
         }
+      } else {
+        throw new Error('Failed to load program');
       }
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Error Loading Data', description: error.message });
+      setProgram(null);
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   }, [userProfile, toast]);
 
   useEffect(() => {
@@ -93,26 +96,38 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
     const startTime = new Date(`${scheduleDate}T${scheduleTime}`);
     const newTitle = `${weekName}, Day ${dayIndex + 1}: ${workout.name}`;
 
-    const result = await createCalendarEventAction({
-      userId: userProfile.uid,
-      workoutId: workout.id,
-      workoutName: newTitle, // We are now using the new, more descriptive title
-      startTime,
-      duration: workout.duration || 60,
-    });
+    try {
+      const result = await createCalendarEventAction({
+        userId: userProfile.uid,
+        workoutId: workout.id,
+        workoutName: newTitle,
+        startTime,
+        duration: workout.duration || 60,
+      });
 
-    if ('error' in result && result.error) {
-      toast({ variant: 'destructive', title: 'Scheduling Failed', description: String(result.error) });
-    } else {
-      toast({ title: "Workout Scheduled!", description: `"${newTitle}" is on your calendar.` });
-      setSchedulingWorkoutId(null);
+      if (result.success) {
+        toast({ title: "Workout Scheduled!", description: `"${newTitle}" is on your calendar.` });
+        setSchedulingWorkoutId(null);
+      } else {
+        throw new Error('Failed to schedule workout');
+      }
+    } catch (error: any) {
+      toast({ variant: 'destructive', title: 'Scheduling Failed', description: error.message });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
+  };
+
+  const handleBrowserClose = (shouldRefetch?: boolean) => {
+    setIsBrowserOpen(false);
+    if (shouldRefetch) {
+      fetchProgramData();
+    }
   };
 
   return (
     <>
-      <Dialog open={isOpen && !workoutToPlay} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog open={isOpen && !workoutToPlay && !isBrowserOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
         <DialogContent className="max-w-xl h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{isLoading ? 'Loading Program...' : program?.name || 'Your Active Program'}</DialogTitle>
@@ -127,17 +142,17 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 <p className='ml-3 text-muted-foreground'>Loading your program...</p>
                 </div>
-            ) : program ? (
+            ) : program && program.weeks?.length > 0 ? (
                 <div className="space-y-4">
                 {program.weeks.map((week: any) => {
-                    const workoutIds = Array.isArray(week.workoutIds) ? week.workoutIds : (week.workoutId ? [week.workoutId] : []);
+                    const workoutIds = Array.isArray(week.workoutIds) ? week.workoutIds : [];
                     return (
                     <div key={week.id}>
                         <h3 className='font-semibold text-lg mb-3 sticky top-0 bg-background py-2 border-b'>{week.name}</h3>
                         <div className="space-y-2 px-2">
                         {workoutIds.length > 0 ? workoutIds.map((workoutId: string, index: number) => {
                             const workout = workouts.get(workoutId);
-                            const uniqueId = `${workoutId}-${index}`;
+                            const uniqueId = `${week.id}-${workoutId}-${index}`;
                             const isScheduling = schedulingWorkoutId === uniqueId;
 
                             if (!workout) return (
@@ -186,17 +201,23 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
                 </div>
           ) : (
             <div className="flex items-center justify-center h-full">
-              <p className="text-muted-foreground">You do not have an active program.</p>
+              <p className="text-muted-foreground">You do not have an active program or it is empty.</p>
             </div>
           )}
         </div>
 
           <DialogFooter className="pt-4 border-t">
-            <Button variant="outline" onClick={() => { /* Implement browse logic */ }}>Browse Other Programs</Button>
+            <Button variant="outline" onClick={() => setIsBrowserOpen(true)}>Browse Other Programs</Button>
             <Button onClick={onClose}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ProgramBrowserDialog 
+        isOpen={isBrowserOpen}
+        onClose={handleBrowserClose}
+        userProfile={userProfile}
+      />
 
       {workoutToPlay && (
         <WorkoutPlayer 
