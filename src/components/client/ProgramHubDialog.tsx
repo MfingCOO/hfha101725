@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Loader2, PlayCircle, CalendarClock, Check } from 'lucide-react';
 import { Program, Workout } from '@/types/workout-program';
 import { UserProfile } from '@/types';
-import { getProgramDetailsAction, scheduleWorkoutAction } from '@/app/client/actions';
+import { getProgramDetailsAction } from '@/app/client/actions';
+import { createCalendarEventAction } from '@/app/calendar/actions';
 import { getWorkoutsByIdsAction } from '@/app/workouts/actions';
 import { useToast } from '@/hooks/use-toast';
 import { WorkoutPlayer } from '@/components/workout-player/workout-player';
@@ -83,27 +84,27 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
     setScheduleTime('09:00');
   };
 
-  const handleConfirmSchedule = async (workout: Workout) => {
+  const handleConfirmSchedule = async (workout: Workout, weekName: string, dayIndex: number) => {
     if (!scheduleDate || !scheduleTime || !userProfile) {
       toast({ variant: 'destructive', title: 'Missing Details', description: "Please select both a date and a time." });
       return;
     }
     setIsSubmitting(true);
     const startTime = new Date(`${scheduleDate}T${scheduleTime}`);
+    const newTitle = `${weekName}, Day ${dayIndex + 1}: ${workout.name}`;
 
-    const result = await scheduleWorkoutAction({
+    const result = await createCalendarEventAction({
+      userId: userProfile.uid,
       workoutId: workout.id,
-      workoutName: workout.name,
+      workoutName: newTitle, // We are now using the new, more descriptive title
       startTime,
       duration: workout.duration || 60,
-      userId: userProfile.uid,
-      isCompleted: false
     });
 
     if ('error' in result && result.error) {
       toast({ variant: 'destructive', title: 'Scheduling Failed', description: String(result.error) });
     } else {
-      toast({ title: "Workout Scheduled!", description: `"${workout.name}" is on your calendar.` });
+      toast({ title: "Workout Scheduled!", description: `"${newTitle}" is on your calendar.` });
       setSchedulingWorkoutId(null);
     }
     setIsSubmitting(false);
@@ -168,7 +169,7 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
                                         </div>
                                         <div className='flex justify-end gap-2'>
                                             <Button variant="ghost" size="sm" onClick={() => setSchedulingWorkoutId(null)} disabled={isSubmitting}>Cancel</Button>
-                                            <Button size="sm" onClick={() => handleConfirmSchedule(workout)} disabled={isSubmitting}>
+                                            <Button size="sm" onClick={() => handleConfirmSchedule(workout, week.name, index)} disabled={isSubmitting}>
                                                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Check className="h-4 w-4 mr-2"/>}
                                                 Confirm
                                             </Button>

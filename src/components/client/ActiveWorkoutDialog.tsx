@@ -1,52 +1,28 @@
 'use client';
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Workout, Exercise } from '@/types/workout-program';
-import { WorkoutBlockDisplay } from './WorkoutBlockDisplay';
-import { Clock, Zap } from 'lucide-react';
+import { Workout } from '@/types/workout-program';
+import { UserProfile } from '@/types';
+import { WorkoutPlayer } from '@/components/workout-player/workout-player';
 
 interface ActiveWorkoutDialogProps {
   isOpen: boolean;
   onClose: () => void;
   workout: Workout | null;
-  exerciseDetails: Map<string, Exercise>;
+  userProfile: UserProfile | null;
 }
 
-export function ActiveWorkoutDialog({ isOpen, onClose, workout, exerciseDetails }: ActiveWorkoutDialogProps) {
-  if (!workout) return null;
+export function ActiveWorkoutDialog({ isOpen, onClose, workout, userProfile }: ActiveWorkoutDialogProps) {
+  if (!isOpen || !workout) {
+    return null;
+  }
 
+  // This now correctly renders the interactive WorkoutPlayer
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-xl h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center">
-            <Zap className="h-6 w-6 mr-3 text-yellow-500" />
-            {workout.name}
-          </DialogTitle>
-          <DialogDescription className="pt-1">
-            {workout.description}
-             {workout.duration && (
-                <div className="flex items-center text-xs text-muted-foreground mt-2">
-                    <Clock className="h-3 w-3 mr-1.5" />
-                    <span>Estimated Duration: {workout.duration} minutes</span>
-                </div>
-            )}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex-1 overflow-y-auto p-1 space-y-3">
-            {workout.blocks.map((block) => (
-                <WorkoutBlockDisplay key={block.id} block={block} exerciseDetails={exerciseDetails} />
-            ))}
-        </div>
-
-        <DialogFooter className="pt-4 border-t">
-          <Button onClick={onClose} className="w-full" size="lg">
-            Finish Workout
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <WorkoutPlayer
+      isOpen={isOpen}
+      onClose={onClose}
+      workout={workout}
+      userProfile={userProfile}
+    />
   );
 }

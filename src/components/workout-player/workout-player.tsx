@@ -193,15 +193,47 @@ const ExerciseView = ({ exercise, set, setIndex, totalSets, reps, weight, onReps
             <h2 className="text-3xl sm:text-4xl font-bold truncate">{exercise.name}</h2>
             <p className="text-xl text-muted-foreground">Set {setIndex + 1} of {totalSets}</p>
         </div>
-        <div className="w-full aspect-video bg-gray-700 rounded-md my-4 flex items-center justify-center">
-            {/* Future: IMG/Video component here */}
-        </div>
-        <form onSubmit={(e) => { e.preventDefault(); onComplete(); }} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-                <Input type="number" value={reps} onChange={e => onRepsChange(e.target.value)} placeholder={`Tgt: ${set.value || '-'}`} className="text-center text-2xl h-16" />
-                <Input type="number" value={weight} onChange={e => onWeightChange(e.target.value)} placeholder={`Tgt: ${set.weight || '-'}kg`} className="text-center text-2xl h-16" />
+        
+        {exercise.videoUrl && (
+            <div className="w-full aspect-video bg-gray-900 rounded-md my-4 overflow-hidden">
+                <iframe
+                    width="100%"
+                    height="100%"
+                    src={exercise.videoUrl.replace("watch?v=", "embed/")} // Make sure it's an embeddable URL
+                    title="Exercise video player"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                ></iframe>
             </div>
-            <Button size="lg" className="w-full h-14 text-xl">Complete Set</Button>
+        )}
+
+        <form onSubmit={(e) => { e.preventDefault(); onComplete(); }} className="space-y-4 mt-auto">
+            <div className="grid grid-cols-5 gap-3">
+                <div className='col-span-2'>
+                    <label className='text-xs text-muted-foreground ml-1'>Reps</label>
+                    <Input 
+                        type="number" 
+                        value={reps} 
+                        onChange={e => onRepsChange(e.target.value)} 
+                        placeholder={`${set.value || '-'}`} 
+                        className="text-center text-2xl h-16 w-full" 
+                    />
+                </div>
+                <div className='col-span-3'>
+                    <label className='text-xs text-muted-foreground ml-1'>Weight (kg)</label>
+                     <Input 
+                        type="number" 
+                        value={weight} 
+                        onChange={e => onWeightChange(e.target.value)} 
+                        placeholder={`${set.weight || '-'}`} 
+                        className="text-center text-2xl h-16 w-full" 
+                    />
+                </div>
+            </div>
+            <Button size="lg" className="w-full h-14 text-xl font-bold">
+                <CheckCircle className="mr-3 h-6 w-6" />
+                Complete Set
+            </Button>
         </form>
     </div>
 );

@@ -251,21 +251,27 @@ export async function createCalendarEventAction(data: CreateEventData) {
             return { success: false, error: "Missing required event data." };
         }
 
-        const newEventRef = adminDb.collection('users').doc(userId).collection('events').doc();
+        // This is the fix: writing to the 'clientCalendar' collection
+        const newEventRef = adminDb.collection('clientCalendar').doc();
         
         const newEvent = {
-            title: workoutName,
-            startTime: startTime.toISOString(),
-            endTime: new Date(startTime.getTime() + duration * 60 * 1000).toISOString(),
+            id: newEventRef.id,
+            userId: userId,
+            title: workoutName, // This now contains "Week X, Day Y: [Workout Name]"
+            start: Timestamp.fromDate(startTime), // Use Firestore Timestamp for querying
+            end: Timestamp.fromDate(new Date(startTime.getTime() + duration * 60 * 1000)),
             type: 'workout',
             relatedId: workoutId,
+            isCompleted: false,
+            duration: duration
         };
 
         await newEventRef.set(newEvent);
         
+        revalidatePath('/calendar'); // Revalidate the calendar page
         revalidatePath('/client/dashboard');
 
-        return { success: true, data: { id: newEventRef.id, ...newEvent } };
+        return { success: true, data: newEvent };
 
     } catch (error: any) {
         console.error("Error creating calendar event:", error);

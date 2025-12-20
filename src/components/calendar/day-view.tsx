@@ -13,10 +13,12 @@ import { useToast } from '@/hooks/use-toast';
 import { pillarsAndTools } from '@/lib/pillars';
 import { AppointmentDetailDialog } from './AppointmentDetailDialog';
 import { LiveEventDetailDialog } from './LiveEventDetailDialog';
-import { WorkoutDetailDialog } from './WorkoutDetailDialog';
 import { triggerSummaryRecalculation, deleteCalendarEvent } from '@/app/calendar/actions';
 import { WorkoutActionDialog } from './WorkoutActionDialog';
 import { EditWorkoutDialog } from './EditWorkoutDialog';
+import { getWorkoutByIdAction } from '@/app/workouts/actions';
+import { ActiveWorkoutDialog } from '../client/ActiveWorkoutDialog';
+import type { Workout } from '@/types/workout-program';
 
 const pillarColors: Record<string, string> = {
     nutrition: 'bg-amber-500 border-amber-700',
@@ -213,7 +215,9 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     const [eventToAction, setEventToAction] = useState<any | null>(null);
     const [isActionDialogOpen, setIsActionDialogOpen] = useState(false);
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-    
+    const [isPreparingWorkout, setIsPreparingWorkout] = useState(false);
+    const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
+
     useEffect(() => {
         setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
     }, []);
@@ -335,6 +339,34 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
             setIsActionDialogOpen(false);
             setEventToAction(null);
         };
+        const handleStartWorkout = async (event: any) => {
+            if (!event || !event.relatedId) return;
+
+            setIsActionDialogOpen(false);
+            setIsPreparingWorkout(true);
+
+            try {
+                // Fetch the workout program object
+                const workoutResult = await getWorkoutByIdAction(event.relatedId);
+                if ('error' in workoutResult) {
+                    throw new Error(workoutResult.error);
+                }
+                
+                // Set the active workout. The WorkoutPlayer will handle the rest.
+                setActiveWorkout(workoutResult.data);
+
+            } catch (error: any) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Error Starting Workout',
+                    description: error.message || 'An unknown error occurred.',
+                });
+                setActiveWorkout(null);
+            } finally {
+                setIsPreparingWorkout(false);
+                setEventToAction(null);
+            }
+        };    
         
         const changeDay = (days: number) => {
             setIsInitialScrollDone(false);
@@ -359,6 +391,12 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                     {isLoading && (
                         <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-20">
                             <Loader2 className="h-8 w-8 animate-spin" />
+                        </div>
+                    )}
+                    {isPreparingWorkout && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 z-30">
+                            <Loader2 className="h-8 w-8 animate-spin" />
+                            <p className='mt-4 text-sm text-muted-foreground'>Preparing your workout...</p>
                         </div>
                     )}
                      <ScrollArea className="h-full w-full" viewportRef={viewportRef}>
@@ -411,38 +449,45 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                     event={selectedLiveEvent}
                 />
                 
-                <WorkoutDetailDialog
-                    isOpen={!!selectedWorkout}
-                    onClose={() => setSelectedWorkout(null)}
-                    event={selectedWorkout}
-                />
                 <WorkoutActionDialog
-                    isOpen={isActionDialogOpen}
-                    onClose={() => setIsActionDialogOpen(false)}
-                    event={eventToAction}
-                    onStart={() => {
-                        setSelectedWorkout(eventToAction);
-                        setIsActionDialogOpen(false);
-                    }}
-                    onEdit={() => {
-                        setIsEditDialogOpen(true);
-                    }}
-                    onDelete={handleDeleteWorkout}
-                />
+                isOpen={isActionDialogOpen}
+                onClose={() => setIsActionDialogOpen(false)}
+                event={eventToAction}
+                onStart={() => handleStartWorkout(eventToAction)}
+                onEdit={() => {
+                    setIsEditDialogOpen(true);
+                    setIsActionDialogOpen(false); // Close the action dialog
+                }}
+                onDelete={handleDeleteWorkout}
+            />
 
-                {eventToAction && isEditDialogOpen && (
-                    <EditWorkoutDialog
-                        open={isEditDialogOpen}
-                        onOpenChange={(open) => {
-                            if (!open) {
-                                setIsEditDialogOpen(false);
-                                setEventToAction(null);
-                                onEntryChange();
-                            }
-                        }}
-                        event={eventToAction}
-                    />
-                )}
+            {eventToAction && isEditDialogOpen && (
+                <EditWorkoutDialog
+                    open={isEditDialogOpen}
+                    onOpenChange={(open) => {
+                        if (!open) {
+                            setIsEditDialogOpen(false);
+                            setEventToAction(null);
+                            onEntryChange();
+                        }
+                    }}
+                    event={eventToAction}
+                />
+            )}
+            
+            {activeWorkout && (
+     <ActiveWorkoutDialog
+        isOpen={!!activeWorkout}
+        onClose={() => {
+            setActiveWorkout(null);
+            onEntryChange();
+        }}
+        workout={activeWorkout}
+        userProfile={client}
+    />
+)}
+
+
             </div>
         );
     }
