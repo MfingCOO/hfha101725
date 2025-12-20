@@ -24,6 +24,8 @@ export function ProgramListDialog({ isOpen, onClose, userProfile, onOpenUpgradeM
   const [isSubscribing, setIsSubscribing] = useState<string | null>(null);
   const { toast } = useToast();
 
+  const hasProgramAccess = userProfile?.tier === UserTier.Premium || userProfile?.tier === UserTier.Coaching;
+
   useEffect(() => {
     const fetchPrograms = async () => {
       setIsLoading(true);
@@ -47,14 +49,14 @@ export function ProgramListDialog({ isOpen, onClose, userProfile, onOpenUpgradeM
   const handleSubscribe = async (programId: string) => {
     if (!userProfile) return;
 
-    if (userProfile.tier !== UserTier.Premium) {
+    if (!hasProgramAccess) {
       onOpenUpgradeModal();
       return;
     }
 
     setIsSubscribing(programId);
     const result = await setClientProgramAction(userProfile.uid, programId);
-
+    
     if (!result.success) {
       toast({ variant: "destructive", title: "Error", description: (result as { error: string }).error });
       setIsSubscribing(null);
@@ -92,7 +94,7 @@ export function ProgramListDialog({ isOpen, onClose, userProfile, onOpenUpgradeM
                         <p className="text-sm text-muted-foreground line-clamp-2">{program.description}</p>
                         <Badge variant="outline" className="text-xs">{typeof program.duration === 'number' ? `${program.duration} Weeks` : 'Continuous'}</Badge>
                       </div>
-                      {userProfile?.tier === UserTier.Premium ? (
+                      {hasProgramAccess ? (
                         <Button 
                           size="sm"
                           onClick={() => handleSubscribe(program.id)}
