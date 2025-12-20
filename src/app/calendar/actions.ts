@@ -4,6 +4,7 @@ import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp, DocumentSnapshot } from 'firebase-admin/firestore';
 import { subDays, addDays, isWithinInterval } from 'date-fns';
 import { calculateDailySummaryForUser } from '@/services/summary-calculator'; 
+import { revalidatePath } from 'next/cache';
 
 const ALL_DATA_COLLECTIONS = ['nutrition', 'hydration', 'activity', 'sleep', 'stress', 'measurements', 'protocol', 'planner', 'cravings'];
 
@@ -231,5 +232,43 @@ export async function getTodaysContextualData(userId: string) {
     } catch (error) {
         console.error("Error fetching contextual data: ", error);
         return null;
+    }
+}
+
+interface CreateEventData {
+    userId: string;
+    workoutId: string;
+    workoutName: string;
+    startTime: Date;
+    duration: number; // in minutes
+}
+
+export async function createCalendarEventAction(data: CreateEventData) {
+    try {
+        const { userId, workoutId, workoutName, startTime, duration } = data;
+
+        if (!userId || !workoutId || !workoutName || !startTime) {
+            return { success: false, error: "Missing required event data." };
+        }
+
+        const newEventRef = adminDb.collection('users').doc(userId).collection('events').doc();
+        
+        const newEvent = {
+            title: workoutName,
+            startTime: startTime.toISOString(),
+            endTime: new Date(startTime.getTime() + duration * 60 * 1000).toISOString(),
+            type: 'workout',
+            relatedId: workoutId,
+        };
+
+        await newEventRef.set(newEvent);
+        
+        revalidatePath('/client/dashboard');
+
+        return { success: true, data: { id: newEventRef.id, ...newEvent } };
+
+    } catch (error: any) {
+        console.error("Error creating calendar event:", error);
+        return { success: false, error: "Failed to schedule workout. Please try again." };
     }
 }

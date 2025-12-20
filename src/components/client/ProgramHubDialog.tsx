@@ -4,25 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, PlayCircle, CalendarClock, Check, X } from 'lucide-react';
-import { Program, Workout, Exercise } from '@/types/workout-program';
+import { Loader2, PlayCircle, CalendarClock, Check } from 'lucide-react';
+import { Program, Workout } from '@/types/workout-program';
 import { UserProfile } from '@/types';
 import { getProgramDetailsAction } from '@/app/client/actions';
 import { getWorkoutsByIdsAction } from '@/app/workouts/actions';
-import { getExercisesByIdsAction } from '@/app/exercises/actions';
 import { useToast } from '@/hooks/use-toast';
-import { ActiveWorkoutDialog } from './ActiveWorkoutDialog';
-import { extractExerciseIds } from '@/lib/utils';
-
-// TODO: Replace with your actual server action to create a calendar event.
-async function scheduleWorkoutAction(data: { workoutId: string, workoutName: string, startTime: Date, duration: number, userId: string }) {
-    console.log("Simulating call to schedule workout action with:", data);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    if (!data.workoutName) {
-        return { success: false, error: "Workout name cannot be empty." };
-    }
-    return { success: true, data: { ...data, id: `evt_${Math.random()}` } };
-}
+import { WorkoutPlayer } from '@/components/workout-player/workout-player';
+import { createCalendarEventAction } from '@/app/calendar/actions';
 
 interface ProgramHubDialogProps {
   isOpen: boolean;
@@ -33,13 +22,12 @@ interface ProgramHubDialogProps {
 export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDialogProps) {
   const [program, setProgram] = useState<Program | null>(null);
   const [workouts, setWorkouts] = useState<Map<string, Workout>>(new Map());
-  const [exerciseDetails, setExerciseDetails] = useState<Map<string, Exercise>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [schedulingWorkoutId, setSchedulingWorkoutId] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
+  const [workoutToPlay, setWorkoutToPlay] = useState<Workout | null>(null);
   const { toast } = useToast();
 
   const fetchProgramData = useCallback(async () => {
@@ -64,14 +52,6 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
         if (workoutsResult.success === false) throw new Error(workoutsResult.error);
         const fetchedWorkouts = workoutsResult.data;
         setWorkouts(new Map(fetchedWorkouts.map(w => [w.id, w])));
-
-        const allExerciseIds = extractExerciseIds(fetchedWorkouts.flatMap(w => w.blocks));
-        if (allExerciseIds.length > 0) {
-          const exercisesResult = await getExercisesByIdsAction(allExerciseIds);
-          if (exercisesResult.success) {
-            setExerciseDetails(new Map(exercisesResult.data.map(e => [e.id, e])));
-          }
-        }
       }
     } catch (error: any) {
       toast({ variant: 'destructive', title: 'Error Loading Program', description: error.message });
@@ -87,7 +67,11 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
   }, [isOpen, fetchProgramData]);
 
   const handleStartWorkout = (workout: Workout) => {
-    setActiveWorkout(workout);
+    setWorkoutToPlay(workout);
+  };
+  
+  const handlePlayerClose = () => {
+      setWorkoutToPlay(null);
   };
 
   const handleOpenScheduler = (uniqueId: string) => {
@@ -105,7 +89,7 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
     setIsSubmitting(true);
     const startTime = new Date(`${scheduleDate}T${scheduleTime}`);
     
-    const result = await scheduleWorkoutAction({
+    const result = await createCalendarEventAction({
         workoutId: workout.id,
         workoutName: workout.name,
         startTime,
@@ -124,7 +108,7 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
 
   return (
     <>
-      <Dialog open={isOpen && !activeWorkout} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog open={isOpen && !workoutToPlay} onOpenChange={(open) => { if (!open) onClose(); }}>
         <DialogContent className="max-w-xl h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{isLoading ? 'Loading Program...' : program?.name || 'Your Active Program'}</DialogTitle>
@@ -210,12 +194,13 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
         </DialogContent>
       </Dialog>
 
-      <ActiveWorkoutDialog 
-        isOpen={!!activeWorkout}
-        onClose={() => setActiveWorkout(null)}
-        workout={activeWorkout}
-        exerciseDetails={exerciseDetails}
-      />
+      {workoutToPlay && (
+        <WorkoutPlayer 
+            isOpen={!!workoutToPlay}
+            onClose={handlePlayerClose}
+            workout={workoutToPlay}
+        />
+      )}
     </>
   );
 }

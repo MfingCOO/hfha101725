@@ -25,6 +25,10 @@ export const pillarDetails: Record<string, { icon: React.ElementType, getTitle: 
         icon: Flame,
         getTitle: (entry) => 'Activity', // Always generic
     },
+    workout: {
+        icon: Flame,
+        getTitle: (entry) => entry.title || 'Workout',
+    },
     sleep: {
         icon: Moon,
         getTitle: (entry) => typeof entry.duration === 'number' ? `${entry.duration.toFixed(1)}hr Sleep` : 'Sleep',

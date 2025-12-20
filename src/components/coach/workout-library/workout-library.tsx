@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { getWorkoutsAction, deleteWorkoutAction, ActionResponse } from '@/app/coach/actions/workout-actions';
 import { CreateWorkoutDialog } from '@/components/coach/workout-library/create-workout-dialog';
 import { Workout } from '@/types/workout-program';
-import { Loader2, PlusCircle, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Loader2, PlusCircle, MoreVertical, Edit, Trash2, Clock } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from 'sonner';
 
@@ -20,7 +20,6 @@ export function WorkoutLibrary() {
         try {
             const result = await getWorkoutsAction();
             if (!result.success) {
-                // This is the safe way to access the error property on a discriminated union
                 if ('error' in result) {
                     toast.error(result.error || 'Failed to fetch workouts.');
                 }
@@ -51,7 +50,6 @@ export function WorkoutLibrary() {
     const handleDelete = async (workoutId: string) => {
         const result = await deleteWorkoutAction(workoutId);
         if (!result.success) {
-            // This is the safe way to access the error property on a discriminated union
             if ('error' in result) {
                 toast.error(result.error || 'Failed to delete workout.');
             }
@@ -94,9 +92,17 @@ export function WorkoutLibrary() {
                 <div className="space-y-2">
                     {workouts.map(workout => (
                         <div key={workout.id} className="flex items-center justify-between p-3 border rounded-md bg-muted/50">
-                            <div className="flex-1">
+                            <div className="flex-1 pr-4">
                                 <p className="font-semibold">{workout.name}</p>
                                 <p className="text-sm text-muted-foreground line-clamp-2">{workout.description}</p>
+                            </div>
+                            <div className="flex items-center gap-1 w-24 text-right pr-2">
+                                {workout.duration && (
+                                    <>
+                                        <Clock className="h-4 w-4 text-muted-foreground" />
+                                        <span className="text-sm text-muted-foreground">{workout.duration} min</span>
+                                    </>
+                                )}
                             </div>
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>

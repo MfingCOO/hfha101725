@@ -72,6 +72,10 @@ const workoutBlockSchema = z.union([
 const workoutFormSchema = z.object({
   name: z.string().min(2, "Workout name is required."),
   description: z.string().optional(),
+  duration: z.preprocess(
+    (val) => (val ? parseInt(String(val), 10) : undefined),
+    z.number().positive("Duration must be a positive number").optional()
+  ),
   blocks: z.array(workoutBlockSchema).min(1, "A workout must have at least one block."),
 });
 
@@ -94,6 +98,7 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, workoutTo
         defaultValues: {
             name: '',
             description: '',
+            duration: undefined,
             blocks: [],
         }
     });
@@ -121,7 +126,7 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, workoutTo
         if (isEditMode && workoutToEdit) {
             reset(workoutToEdit as any);
         } else {
-            reset({ name: '', description: '', blocks: [] });
+            reset({ name: '', description: '', duration: undefined, blocks: [] });
         }
     }, [workoutToEdit, isEditMode, reset]);
 
@@ -177,7 +182,7 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, workoutTo
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-xl h-[90vh] flex flex-col p-2">
+            <DialogContent className="max-w-2xl h-[90vh] flex flex-col p-2">
                 <DialogHeader className="p-1">
                     <DialogTitle>{isEditMode ? 'Edit Workout' : 'Create New Workout'}</DialogTitle>
                 </DialogHeader>
@@ -185,9 +190,26 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, workoutTo
                 <FormProvider {...methods}>
                     <Form {...methods}>
                         <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0 space-y-2">
-                            <div className="grid grid-cols-2 gap-2 px-1">
+                            <div className="grid grid-cols-3 gap-2 px-1">
                                 <FormField control={control} name="name" render={({ field }) => <FormItem><FormControl><Input placeholder="Workout Name" {...field} className="h-9"/></FormControl><FormMessage /></FormItem>} />
                                 <FormField control={control} name="description" render={({ field }) => <FormItem><FormControl><Input placeholder="Description (optional)" {...field} className="h-9"/></FormControl><FormMessage /></FormItem>} />
+                                <FormField
+                                    control={control}
+                                    name="duration"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormControl>
+                                                <Input
+                                                    placeholder="Est. duration (mins)"
+                                                    type="number"
+                                                    {...field}
+                                                    className="h-9"
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
                             </div>
 
                             <div className="flex-1 border-2 border-dashed rounded-lg p-1 bg-muted/50 overflow-y-auto space-y-2">

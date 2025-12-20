@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { pillarsAndTools } from '@/lib/pillars';
 import { AppointmentDetailDialog } from './AppointmentDetailDialog';
 import { LiveEventDetailDialog } from './LiveEventDetailDialog';
+import { WorkoutDetailDialog } from './WorkoutDetailDialog';
 import { triggerSummaryRecalculation } from '@/app/calendar/actions';
 
 const pillarColors: Record<string, string> = {
@@ -31,6 +32,7 @@ const pillarColors: Record<string, string> = {
     habit: 'bg-yellow-500 border-yellow-700',
     appointment: 'bg-purple-500 border-purple-700',
     'live-event': 'bg-rose-500 border-rose-700',
+    workout: 'bg-green-600 border-green-800',
     default: 'bg-gray-500 border-gray-700',
 };
 
@@ -45,12 +47,8 @@ interface PositionedEntry {
 
 const safeParseDate = (dateSource: any): Date | null => {
     if (!dateSource) return null;
-    if (typeof dateSource.toDate === 'function') {
-        return dateSource.toDate();
-    }
-    if (dateSource instanceof Date) {
-        return dateSource;
-    }
+    if (typeof dateSource.toDate === 'function') return dateSource.toDate();
+    if (dateSource instanceof Date) return dateSource;
     const parsed = new Date(dateSource);
     return isNaN(parsed.getTime()) ? null : parsed;
 };
@@ -65,18 +63,22 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
         let start: Date | null = null;
         let end: Date | null = null;
 
+        const eventStart = safeParseDate(entry.start || entry.startTime);
+        const eventEnd = safeParseDate(entry.end || entry.endTime);
         const entryDate = safeParseDate(entry.entryDate);
         const indulgenceDate = safeParseDate(entry.indulgenceDate);
-        const eventStart = safeParseDate(entry.start);
-        const eventEnd = safeParseDate(entry.end);
 
-        if (entry.pillar === 'sleep' && entryDate) {
+        if (entry.type === 'workout' && eventStart) {
+            start = eventStart;
+            const duration = entry.duration || 60; // Use event's duration or default to 60 mins
+            end = addMinutes(start, duration);
+        } else if (entry.pillar === 'sleep' && entryDate) {
             start = entryDate;
             end = addHours(start, entry.duration || 0);
         } else if (entry.pillar === 'activity' && entryDate) {
             start = entryDate;
             end = addMinutes(start, entry.duration || 15);
-        } else if ((entry.pillar === 'appointment' || entry.pillar === 'live-event') && eventStart && eventEnd) { // Use pillar here
+        } else if ((entry.pillar === 'appointment' || entry.pillar === 'live-event') && eventStart && eventEnd) {
             start = eventStart;
             end = eventEnd;
         } else if (entry.pillar === 'planner' && indulgenceDate) {
@@ -106,7 +108,7 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
     for (const entry of timedEntries) {
         let placed = false;
         for (const cluster of eventClusters) {
-            if (cluster.some(e => entry!.startMinutes <= e.endMinutes && entry!.endMinutes >= e.startMinutes)) {
+            if (cluster.some(e => entry!.startMinutes < e.endMinutes && entry!.endMinutes > e.startMinutes)) {
                 cluster.push(entry);
                 placed = true;
                 break;
@@ -124,7 +126,7 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
         for (const entry of cluster) {
             let placedInCol = false;
             for (let i = 0; i < cols.length; i++) {
-                if (cols[i].every(e => entry.startMinutes > e.endMinutes)) {
+                if (cols[i].every(e => entry.startMinutes >= e.endMinutes)) {
                     cols[i].push(entry);
                     placedInCol = true;
                     break;
@@ -156,7 +158,7 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
 };
 
 const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEntry, onSelect: (entry: any) => void, isHighlighted: boolean }) => {
-    const pillarKey = entry.originalData.pillar || 'default';
+    const pillarKey = entry.originalData.type || entry.originalData.pillar || 'default';
     const details = pillarDetails[pillarKey] || pillarDetails.default;
     const Icon = details.icon;
     const colorClass = pillarColors[pillarKey] || pillarColors.default;
@@ -202,6 +204,7 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     const [activePillar, setActivePillar] = useState<any | null>(null);
     const [selectedAppointment, setSelectedAppointment] = useState<any | null>(null);
     const [selectedLiveEvent, setSelectedLiveEvent] = useState<any | null>(null);
+    const [selectedWorkout, setSelectedWorkout] = useState<any | null>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
     const [isInitialScrollDone, setIsInitialScrollDone] = useState(false);
     const [userTimezone, setUserTimezone] = useState<string>('');
@@ -258,12 +261,15 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     }, [isLoading, client, highlightedEntryId, processedEntries, isInitialScrollDone, entries]);
     
     const handleSelectEntry = (entryData: any) => {
+        if (entryData.type === 'workout') {
+            setSelectedWorkout(entryData);
+            return;
+        }
         if (entryData.pillar === 'appointment') {
             setSelectedAppointment(entryData);
             return;
         }
-
-        if (entryData.pillar === 'live-event') { // CORRECTED CHECK
+        if (entryData.pillar === 'live-event') {
             setSelectedLiveEvent(entryData);
             return;
         }
@@ -386,6 +392,12 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                     onClose={() => setSelectedLiveEvent(null)}
                     event={selectedLiveEvent}
                 />
+                
+                <WorkoutDetailDialog
+                    isOpen={!!selectedWorkout}
+                    onClose={() => setSelectedWorkout(null)}
+                    event={selectedWorkout}
+                />
             </div>
         );
-    }  
+    }

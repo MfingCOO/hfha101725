@@ -14,6 +14,8 @@ import { DayView } from './day-view';
 import { WeekView } from './WeekView';
 import { MonthView } from './MonthView';
 import { getCalendarDataForDay, triggerSummaryRecalculation } from '@/app/calendar/actions';
+import { getScheduledEventsAction } from '@/app/client/actions';
+import { ScheduledEvent } from '@/types/event';
 import { UtensilsCrossed, Droplet, Moon, Flame, ShieldAlert, ClipboardList, Pencil } from 'lucide-react';
 import { Button } from '../ui/button';
 import { BaseModal } from '../ui/base-modal';
@@ -223,24 +225,52 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
   
   const timezoneOffset = selectedDate.getTimezoneOffset();
   
-  const { data: calendarData, isLoading } = useQuery({
+  const { data: calendarData, isLoading: isLoadingCalendar } = useQuery({
       queryKey: ['calendarData', dateString, initialClient.uid, userTimezone, timezoneOffset],
       queryFn: async () => {
           const result = await getCalendarDataForDay(initialClient.uid, dateString, userTimezone, timezoneOffset);
-          if (result.success) {
-              return result;
-          } else {
+          if ('error' in result) {
               console.error("Failed to fetch calendar data:", result.error);
               toast({ variant: 'destructive', title: 'Error', description: 'Could not load calendar data.' });
               return { data: [], summary: null };
           }
+          return result;
       },
       enabled: isOpen && !!initialClient.uid && !!userTimezone
   });
 
+  const { data: scheduledEvents, isLoading: isLoadingEvents } = useQuery({
+    queryKey: ['scheduledEvents', initialClient.uid],
+    queryFn: async () => {
+        const result = await getScheduledEventsAction(initialClient.uid);
+        if ('error' in result) {
+            console.error("Failed to fetch scheduled events:", result.error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not load scheduled workouts.' });
+            return [];
+        } 
+        return result.data;
+    },
+    enabled: isOpen && !!initialClient.uid
+  });
+
+ const allEntries = useMemo(() => {
+    const regularEntries = calendarData?.data || [];
+    const workoutEvents = (scheduledEvents || []).map((event: ScheduledEvent) => ({
+        ...event,
+        start: new Date(event.startTime),
+        end: new Date(event.endTime),
+        allDay: false, // Or determine based on event properties
+        __TYPE: 'workout'
+    }));
+    return [...regularEntries, ...workoutEvents];
+}, [calendarData, scheduledEvents]);
+
+  const isLoading = isLoadingCalendar || isLoadingEvents;
+
   const handleEntryChange = async () => {
       await triggerSummaryRecalculation(initialClient.uid, dateString, userTimezone, timezoneOffset);
       queryClient.invalidateQueries({ queryKey: ['calendarData', dateString, initialClient.uid, userTimezone, timezoneOffset] });
+      queryClient.invalidateQueries({ queryKey: ['scheduledEvents', initialClient.uid]});
   };
 
   const handleEditGoals = () => {
@@ -274,10 +304,9 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
                 {activeTab === 'day' && <DailySummaryBar summary={calendarData?.summary} onSummaryClick={handleSummaryClick} />}
             </div>
             <div className="flex-1 min-h-0">
-              {activeTab === 'day' && <DayView client={initialClient} selectedDate={selectedDate} entries={calendarData?.data || []} isLoading={isLoading} onDateChange={setSelectedDate} onEntryChange={handleEntryChange} highlightedEntryId={highlightedEntryId} />}
-              {/* The other views may also need to be adapted if they consume this data differently */}
-              {activeTab === 'week' && <WeekView client={initialClient} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setActiveTab={setActiveTab} onDateChange={setSelectedDate} entries={calendarData?.data || []} isLoading={isLoading} />}
-              {activeTab === 'month' && <MonthView client={initialClient} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setActiveTab={setActiveTab} onDateChange={setSelectedDate} entries={calendarData?.data || []} isLoading={isLoading} />}
+              {activeTab === 'day' && <DayView client={initialClient} selectedDate={selectedDate} entries={allEntries} isLoading={isLoading} onDateChange={setSelectedDate} onEntryChange={handleEntryChange} highlightedEntryId={highlightedEntryId} />}
+              {activeTab === 'week' && <WeekView client={initialClient} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setActiveTab={setActiveTab} onDateChange={setSelectedDate} entries={allEntries} isLoading={isLoading} />}
+              {activeTab === 'month' && <MonthView client={initialClient} selectedDate={selectedDate} setSelectedDate={setSelectedDate} setActiveTab={setActiveTab} onDateChange={setSelectedDate} entries={allEntries} isLoading={isLoading} />}
             </div>
         </div>
       </DialogContent>

@@ -135,3 +135,29 @@ export async function scheduleWorkoutAction(details: {
         return { success: false, error: "Failed to schedule the workout. Please try again." };
     }
 }
+
+/**
+ * Fetches all scheduled events for a specific user.
+ */
+export async function getScheduledEventsAction(userId: string): Promise<ActionResponse<ScheduledEvent[]>> {
+    if (!userId) {
+        return { success: false, error: "User ID is required." };
+    }
+
+    try {
+        const snapshot = await firestore.collection('scheduledEvents')
+            .where('userId', '==', userId)
+            .orderBy('startTime', 'asc')
+            .get();
+
+        if (snapshot.empty) {
+            return { success: true, data: [] };
+        }
+
+        const events = snapshot.docs.map(doc => doc.data() as ScheduledEvent);
+        return { success: true, data: events };
+    } catch (error: any) {
+        console.error("Error fetching scheduled events:", error);
+        return { success: false, error: "Failed to fetch your scheduled events." };
+    }
+}
