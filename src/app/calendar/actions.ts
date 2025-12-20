@@ -271,7 +271,15 @@ export async function createCalendarEventAction(data: CreateEventData) {
         revalidatePath('/calendar'); // Revalidate the calendar page
         revalidatePath('/client/dashboard');
 
-        return { success: true, data: newEvent };
+        // Convert Firestore Timestamps to ISO strings before returning to the client
+        const serializableEvent = {
+            ...newEvent,
+            start: newEvent.start.toDate().toISOString(),
+            end: newEvent.end.toDate().toISOString(),
+        };
+
+        return { success: true, data: serializableEvent };
+
 
     } catch (error: any) {
         console.error("Error creating calendar event:", error);
