@@ -84,10 +84,30 @@ export const FoodCacheModal: React.FC<FoodCacheModalProps> = ({ isOpen, onClose,
       },
   });
 
-  const { control, register, handleSubmit, reset } = form;
+  const { control, register, handleSubmit, reset, setValue, getValues } = form;
   const nutrients = useWatch({ control, name: 'nutrients' }) || [];
-
   const { fields, append, remove } = useFieldArray({ control, name: "portionSizes" });
+
+  const upfPercentageValue = useWatch({ control, name: 'upfPercentage.value' });
+
+  useEffect(() => {
+    const percentage = upfPercentageValue;
+    if (typeof percentage !== 'number' || isNaN(percentage)) return;
+
+    let newNovaGroup: NovaGroup;
+    if (percentage <= 10) {
+      newNovaGroup = NovaGroup.WHOLE_FOOD;
+    } else if (percentage <= 20) {
+      newNovaGroup = NovaGroup.PROCESSED;
+    } else {
+      newNovaGroup = NovaGroup.UPF;
+    }
+
+    if (getValues('upfAnalysis.rating') !== newNovaGroup) {
+      setValue('upfAnalysis.rating', newNovaGroup, { shouldDirty: true });
+    }
+  }, [upfPercentageValue, setValue, getValues]);
+
 
   const loadFoodData = useCallback(async (id: number) => {
     setIsLoading(true);
