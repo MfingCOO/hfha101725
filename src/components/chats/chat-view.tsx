@@ -1,4 +1,3 @@
-
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -310,7 +309,7 @@ export function ChatView({ chatId }: ChatViewProps) {
                                         "text-[10px] mt-0.5 opacity-70",
                                         msg.userId === user?.uid ? 'text-right' : 'text-left'
                                     )}>
-                                        {msg.userName.split(' ')[0]} - {msg.timestamp ? format(new Date(msg.timestamp as any), 'p') : ''}
+                                        {msg.userName.split(' ')[0]} - {msg.timestamp ? format(new Date(msg.timestamp as any), 'MM/dd/yy, p') : ''}
                                     </p>
                                 </div>
                                 {canDelete && msg.userId !== user?.uid && (
@@ -372,7 +371,3 @@ export function ChatView({ chatId }: ChatViewProps) {
         </div>
     );
 };
-
-    
-
-    
