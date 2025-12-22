@@ -167,9 +167,7 @@ const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEn
     const Icon = details.icon;
     const colorClass = pillarColors[pillarKey] || pillarColors.default;
 
-    const displayName = entry.originalData.pillar === 'activity' 
-        ? entry.originalData.name 
-        : entry.originalData.title || details.getTitle(entry.originalData);
+    const displayName = entry.originalData.title || entry.originalData.name || details.getTitle(entry.originalData);
 
     return (
         <div 
