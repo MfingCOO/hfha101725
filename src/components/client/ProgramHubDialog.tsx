@@ -94,22 +94,21 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
     }
     setIsSubmitting(true);
     const startTime = new Date(`${scheduleDate}T${scheduleTime}`);
-    const newTitle = `${weekName}, Day ${dayIndex + 1}: ${workout.name}`;
 
     try {
       const result = await createCalendarEventAction({
         userId: userProfile.uid,
+        programId: program?.id, // Pass programId for context
         workoutId: workout.id,
-        workoutName: newTitle,
         startTime,
         duration: workout.duration || 60,
       });
 
       if (result.success) {
-        toast({ title: "Workout Scheduled!", description: `"${newTitle}" is on your calendar.` });
+        toast({ title: "Workout Scheduled!", description: `Your workout is on the calendar.` });
         setSchedulingWorkoutId(null);
       } else {
-        throw new Error('Failed to schedule workout');
+        throw new Error((result as any).error || 'Failed to schedule workout');
       }
     } catch (error: any) {
       toast({ variant: 'destructive', title: 'Scheduling Failed', description: error.message });
@@ -225,6 +224,7 @@ export function ProgramHubDialog({ isOpen, onClose, userProfile }: ProgramHubDia
             onClose={handlePlayerClose}
             workout={workoutToPlay}
             userProfile={userProfile}
+            programId={program?.id}
         />
       )}
     </>

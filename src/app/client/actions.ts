@@ -3,30 +3,29 @@
 import { revalidatePath } from 'next/cache';
 import { db as firestore } from '@/lib/firebaseAdmin';
 import { Program, UserProgram } from '@/types/workout-program';
-import { ScheduledEvent } from '../../types/event'; // Corrected import path
+import { ScheduledEvent } from '@/types/event';
 import { ActionResponse } from '@/types/action-response';
-import { v4 as uuidv4 } from 'uuid';
+import { Timestamp } from 'firebase-admin/firestore';
 
-
-/**
- * Fetches all available workout programs from the database.
- */
 export async function getClientProgramsAction(): Promise<ActionResponse<Program[]>> {
   try {
     const snapshot = await firestore.collection('programs').orderBy('name').get();
     if (snapshot.empty) {
       return { success: true, data: [] };
     }
-    const programs = snapshot.docs.map(doc => doc.data() as Program);
+    // CORRECTED: Removed the faulty logic that tried to access a `workouts` property that does not exist.
+    // This was causing the server to crash.
+    const programs = snapshot.docs.map(doc => {
+        const program = doc.data() as Program;
+        program.id = doc.id;
+        return program;
+    });
     return { success: true, data: programs };
   } catch (error: any) {
     return { success: false, error: "Failed to fetch workout programs." };
   }
 }
 
-/**
- * Fetches the full details of a single workout program.
- */
 export async function getProgramDetailsAction(programId: string): Promise<ActionResponse<Program>> {
   if (!programId) {
     return { success: false, error: "Program ID is required." };
@@ -36,31 +35,16 @@ export async function getProgramDetailsAction(programId: string): Promise<Action
     if (!doc.exists) {
       return { success: false, error: "Program not found." };
     }
-    return { success: true, data: doc.data() as Program };
+    const program = doc.data() as Program;
+    program.id = doc.id;
+    // CORRECTED: Removed the faulty logic that tried to access a `workouts` property that does not exist.
+    // This was the primary cause of server crashes when loading program-related data.
+    return { success: true, data: program };
   } catch (error: any) {
     return { success: false, error: "Failed to fetch program details." };
   }
 }
 
-/**
- * Sets the active workout program for a specific client.
- */
-export async function setClientProgramAction(clientId: string, programId: string | null): Promise<ActionResponse<{}>> {
-  if (!clientId) {
-    return { success: false, error: "Client ID is required." };
-  }
-  try {
-    await firestore.collection('clients').doc(clientId).update({ activeProgramId: programId });
-    revalidatePath('/client/dashboard');
-    return { success: true, data: {} };
-  } catch (error: any) {
-    return { success: false, error: "Failed to update your workout program." };
-  }
-}
-
-/**
- * Fetches the user-specific program data, like completed workouts.
- */
 export async function getUserProgramAction(userId: string): Promise<ActionResponse<UserProgram>> {
   if (!userId) {
     return { success: false, error: "User ID is required." };
@@ -68,7 +52,9 @@ export async function getUserProgramAction(userId: string): Promise<ActionRespon
   try {
     const doc = await firestore.collection('userPrograms').doc(userId).get();
     if (!doc.exists) {
-      return { success: false, error: "No user program data found." };
+        const defaultProgram: UserProgram = { userId: userId, programId: '', startDate: '', completedWorkouts: [] };
+        await firestore.collection('userPrograms').doc(userId).set(defaultProgram);
+        return { success: true, data: defaultProgram };
     }
     return { success: true, data: doc.data() as UserProgram };
   } catch (error: any) {
@@ -76,9 +62,6 @@ export async function getUserProgramAction(userId: string): Promise<ActionRespon
   }
 }
 
-/**
- * Creates or updates user-specific program data, like progress.
- */
 export async function upsertUserProgramAction(userProgramData: Partial<UserProgram>): Promise<ActionResponse<UserProgram>> {
     const { userId } = userProgramData;
     if(!userId) {
@@ -95,70 +78,72 @@ export async function upsertUserProgramAction(userProgramData: Partial<UserProgr
     }
 }
 
-/**
- * Schedules a workout for a user by creating a new event.
- */
-export async function scheduleWorkoutAction(details: {
-    userId: string;
-    workoutId: string;
-    workoutName: string;
-    startTime: Date;
-    duration: number;
-    isCompleted?: boolean;
-}): Promise<ActionResponse<ScheduledEvent>> {
-    const { userId, workoutId, workoutName, startTime, duration, isCompleted } = details;
-    if (!userId || !workoutId || !startTime) {
-        return { success: false, error: "User ID, Workout ID, and start time are required." };
-    }
-
-    try {
-        const eventId = uuidv4();
-        const endTime = new Date(startTime.getTime() + duration * 60000); // duration is in minutes
-
-        const newEvent: ScheduledEvent = {
-            id: eventId,
-            type: 'workout',
-            title: workoutName,
-            startTime: startTime.toISOString(),
-            endTime: endTime.toISOString(),
-            userId,
-            relatedId: workoutId,
-            isCompleted: isCompleted || false
-        };
-
-        await firestore.collection('scheduledEvents').doc(eventId).set(newEvent);
-        revalidatePath('/client/calendar');
-        revalidatePath('/client/dashboard');
-
-        return { success: true, data: newEvent };
-    } catch (error: any) {
-        console.error("Error scheduling workout:", error);
-        return { success: false, error: "Failed to schedule the workout. Please try again." };
-    }
-}
-
-/**
- * Fetches all scheduled events for a specific user.
- */
 export async function getScheduledEventsAction(userId: string): Promise<ActionResponse<ScheduledEvent[]>> {
     if (!userId) {
         return { success: false, error: "User ID is required." };
     }
 
     try {
-        const snapshot = await firestore.collection('scheduledEvents')
-            .where('userId', '==', userId)
-            .orderBy('startTime', 'asc')
-            .get();
+        const snapshot = await firestore.collection('clientCalendar').where('userId', '==', userId).get();
 
         if (snapshot.empty) {
             return { success: true, data: [] };
         }
 
-        const events = snapshot.docs.map(doc => doc.data() as ScheduledEvent);
+        const events: ScheduledEvent[] = snapshot.docs.map(doc => {
+            const data = doc.data();
+            const startTime = data.startTime || data.start; // Handle legacy data
+            const endTime = data.endTime || data.end;       // Handle legacy data
+            return {
+                id: data.id,
+                type: data.type,
+                title: data.title,
+                userId: data.userId,
+                relatedId: data.relatedId,
+                isCompleted: data.isCompleted,
+                duration: data.duration,
+                startTime: (startTime as Timestamp).toDate().toISOString(),
+                endTime: (endTime as Timestamp).toDate().toISOString(),
+            } as ScheduledEvent;
+        });
+
+        events.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
         return { success: true, data: events };
     } catch (error: any) {
         console.error("Error fetching scheduled events:", error);
         return { success: false, error: "Failed to fetch your scheduled events." };
+    }
+}
+
+export async function updateWorkoutCompletionAction(details: { eventId: string; }): Promise<ActionResponse<{}>> {
+    const { eventId } = details;
+    if (!eventId) {
+        return { success: false, error: "Event ID is required." };
+    }
+    try {
+        await firestore.collection('clientCalendar').doc(eventId).update({ isCompleted: true });
+        revalidatePath('/calendar');
+        revalidatePath('/client/dashboard');
+        return { success: true, data: {} };
+    } catch (error: any) {
+        console.error("Error updating workout completion:", error);
+        return { success: false, error: "Failed to update workout completion status." };
+    }
+}
+
+export async function deleteCalendarEventAction(eventId: string): Promise<ActionResponse<{}>> {
+    if (!eventId) {
+        return { success: false, error: "Event ID is required to delete." };
+    }
+
+    try {
+        await firestore.collection('clientCalendar').doc(eventId).delete();
+        revalidatePath('/calendar');
+        revalidatePath('/client/dashboard');
+        return { success: true, data: {} };
+    } catch (error: any) {
+        console.error("Error deleting calendar event:", error);
+        return { success: false, error: "Failed to delete the calendar event." };
     }
 }

@@ -101,6 +101,8 @@ export interface UserProfile {
     dismissedPopupIds?: string[];
     idealBodyWeight?: number; // ADDED
     hasLoggedInBefore?: boolean; // STEP 1: ADDED 'FIRST-LOGIN' FLAG
+    timezone?: string; // ADDED TO FIX REGRESSION
+    timezoneOffset?: number; // ADDED TO FIX REGRESSION
 }
 
 export type ClientProfile = UserProfile;
@@ -298,14 +300,4 @@ export interface LiveEvent {
     signUpDeadline: any;
     attendees: string[];
     createdAt: any;
-}
-
-export interface ScheduledEvent {
-    id?: string;
-    userId: string;
-    workoutId: string;
-    workoutName: string;
-    startTime: Date;
-    duration: number; // in minutes
-    isCompleted?: boolean;
 }

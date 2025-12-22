@@ -18,20 +18,19 @@ export interface BaseBlock {
   type: WorkoutBlockType;
 }
 
-// Represents a single set within an exercise, e.g., "10 reps at 50kg".
 export interface Set {
     id: string;
-    metric?: 'reps' | 'time' | 'distance'; // The primary metric for the set
-    value?: string;   // The target value for the metric (e.g., '10', '60s')
-    weight?: string;  // The weight to be used, if applicable
+    metric?: 'reps' | 'time' | 'distance';
+    value?: string;  
+    weight?: string; 
 }
 
 export interface ExerciseBlock extends BaseBlock {
   type: 'exercise';
-  exerciseId: string; // Reference to an Exercise in the library
-  sets: Set[]; // An array of sets to be performed
-  restBetweenSets?: string; // e.g., '60'
-  notes?: string; // Coach's notes for this specific step
+  exerciseId: string;
+  sets: Set[];
+  restBetweenSets?: string;
+  notes?: string;
 }
 
 export interface RestBlock extends BaseBlock {
@@ -41,10 +40,10 @@ export interface RestBlock extends BaseBlock {
 
 export interface GroupBlock extends BaseBlock {
   type: 'group';
-  name: string; // e.g., "Superset" or "Circuit"
-  rounds: number; // How many times to repeat the group
-  blocks: ExerciseBlock[]; // The exercises within the group
-  restBetweenRounds?: number; // Optional rest in seconds after each round
+  name: string; 
+  rounds: number;
+  blocks: ExerciseBlock[];
+  restBetweenRounds?: number;
 }
 
 export type WorkoutBlock = ExerciseBlock | RestBlock | GroupBlock;
@@ -55,6 +54,7 @@ export interface Workout {
   description: string;
   blocks: WorkoutBlock[];
   duration?: number; // Estimated duration in minutes
+  programId?: string; // CORRECTED: Added programId to the workout type
 }
 
 // --- Program Structures ---
@@ -77,10 +77,10 @@ export interface Program {
 export interface UserProgram {
   userId: string;
   programId: string;
-  startDate: string; // ISO date string
+  startDate: string; 
   completedWorkouts: {
     weekId: string;
     workoutId: string;
-    completedAt: string; // ISO date string
+    completedAt: string; 
   }[];
 }

@@ -1,28 +1,30 @@
-
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Workout, ExerciseBlock, Set, RestBlock, Exercise } from '@/types/workout-program';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Workout, ExerciseBlock, RestBlock, Exercise } from '@/types/workout-program';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { Clock, SkipForward, X, CheckCircle, Flame } from 'lucide-react';
-import { useWorkoutEngine, WorkoutStatus } from '@/hooks/useWorkoutEngine';
+import { Clock, SkipForward, X, CheckCircle } from 'lucide-react';
+import { useWorkoutEngine } from '@/hooks/useWorkoutEngine';
 import { formatTime, extractExerciseIds } from '@/lib/utils';
 import { getExercisesByIdsAction } from '@/app/exercises/actions';
-import { scheduleWorkoutAction } from '@/app/client/actions'; // Import the action
-import { UserProfile } from '@/types'; // Import UserProfile type
+import { completeWorkoutAction } from '@/app/calendar/actions';
+import { UserProfile } from '@/types';
 import { useToast } from '@/hooks/use-toast';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 
 interface WorkoutPlayerProps {
     isOpen: boolean;
     onClose: () => void;
     workout: Workout | null;
-    userProfile: UserProfile | null; // Add userProfile prop
+    userProfile: UserProfile | null;
+    calendarEventId?: string;
+    programId?: string; 
 }
 
-export function WorkoutPlayer({ isOpen, onClose, workout, userProfile }: WorkoutPlayerProps) {
+export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, calendarEventId, programId }: WorkoutPlayerProps) {
     const { toast } = useToast();
     const {
         status,
@@ -30,13 +32,10 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile }: Workout
         nextBlock,
         currentSetIndex,
         timer,
-        isTimerActive,
         workoutProgress,
-        performanceData,
         startWorkout,
         completeSet,
         skipRest,
-        endWorkout,
     } = useWorkoutEngine(workout);
 
     const [exercises, setExercises] = useState<Map<string, Exercise>>(new Map());
@@ -45,22 +44,24 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile }: Workout
     const [startTime, setStartTime] = useState<Date | null>(null);
 
     useEffect(() => {
+        if (!workout) return;
         const fetchExercises = async () => {
-            if (!workout) return;
             const exerciseIds = extractExerciseIds(workout);
             if (exerciseIds.length > 0) {
                 const result = await getExercisesByIdsAction(exerciseIds);
                 if (result.success) {
                     setExercises(new Map(result.data.map(ex => [ex.id, ex])));
+                } else {
+                    toast({ variant: 'destructive', title: 'Error', description: 'Could not load exercise details.' });
                 }
             }
         };
         fetchExercises();
-    }, [workout]);
+    }, [workout, toast]);
 
     useEffect(() => {
         if (isOpen && workout && status === 'idle') {
-            setStartTime(new Date()); // Record the start time
+            setStartTime(new Date());
             startWorkout();
         }
     }, [isOpen, workout, status, startWorkout]);
@@ -68,22 +69,29 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile }: Workout
     const handleWorkoutCompletion = useCallback(async () => {
         if (!workout || !userProfile || !startTime) return;
 
-        // Log the completed workout to the calendar
-        const result = await scheduleWorkoutAction({
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const timezoneOffset = new Date().getTimezoneOffset();
+
+        const result = await completeWorkoutAction({
             userId: userProfile.uid,
             workoutId: workout.id,
-            workoutName: workout.name,
             startTime: startTime,
-            duration: Math.round((new Date().getTime() - startTime.getTime()) / 60000), // Duration in minutes
-            isCompleted: true // Mark as completed
+            duration: workout.duration || 60, 
+            programId,
+            calendarEventId,
+            timezone, 
+            timezoneOffset,
         });
 
-        if (!result.success) {
-            toast({ variant: 'destructive', title: 'Logging Failed', description: 'Could not save the completed workout to your calendar.' });
+        if (result.success === false) {
+            toast({ variant: 'destructive', title: 'Logging Failed', description: result.error || 'Could not save workout progress.' });
+        } else {
+            toast({ title: 'Workout Complete!', description: 'Great job! Your progress has been saved.' });
         }
-    }, [workout, userProfile, startTime, toast]);
+        onClose();
+    }, [workout, userProfile, startTime, toast, calendarEventId, programId, onClose]);
+
     
-    // When the workout engine finishes, log the workout
     useEffect(() => {
         if (status === 'finished') {
             handleWorkoutCompletion();
@@ -110,7 +118,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile }: Workout
             return nextExercise?.name || "Next exercise";
         }
         return "Get ready!";
-    }, [nextBlock, exercises]);
+    }, [nextBlock, exercises]); 
 
     useEffect(() => {
         if (currentSet) {
@@ -120,17 +128,20 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile }: Workout
     }, [currentSet]);
 
     const handleCompleteSet = () => {
+        if (!currentExerciseBlock) return;
         const repsAsNum = parseInt(reps, 10);
         const weightAsNum = parseFloat(weight);
         if (!isNaN(repsAsNum)) {
-            completeSet(repsAsNum, isNaN(weightAsNum) ? 0 : weightAsNum);
+            completeSet(repsAsNum, isNaN(weightAsNum) ? undefined : weightAsNum);
         }
     };
 
     const renderContent = () => {
+        if (!workout) return <p>Loading workout...</p>;
         switch (status) {
             case 'resting':
-                return <RestView timer={timer} onSkip={skipRest} />;
+                const restBlock = currentBlock as RestBlock;
+                return <RestView timer={timer} onSkip={skipRest} duration={restBlock.duration} />;
             case 'exercising':
                 if (!currentExercise || !currentSet) return <p>Loading exercise...</p>;
                 return (
@@ -147,7 +158,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile }: Workout
                     />
                 );
             case 'finished':
-                return <FinishedView onClose={onClose} workoutName={workout?.name || 'Workout'} />;
+                return <FinishedView onClose={onClose} workoutName={workout.name} />;
             default:
                 return <p>Preparing your workout...</p>;
         }
@@ -155,28 +166,36 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile }: Workout
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="h-[90dvh] w-[95vw] max-w-md flex flex-col p-4 sm:p-6 bg-background text-foreground">
-                <DialogHeader className="flex flex-row items-center justify-between border-b pb-4">
-                    <DialogTitle className="truncate pr-4 font-bold text-xl">{workout?.name}</DialogTitle>
+            <DialogContent className="max-w-4xl w-full h-full max-h-[95vh] flex flex-col p-0">
+                <DialogHeader className="p-4 border-b">
+                    <DialogTitle>{workout?.name || 'Workout'}</DialogTitle>
+                    <VisuallyHidden>
+                        <DialogDescription>An interactive player to guide you through your workout, set by set.</DialogDescription>
+                    </VisuallyHidden>
                 </DialogHeader>
+                
+                <div className="flex-shrink-0 flex flex-row items-center justify-between sr-only">
+                    <h2 className="truncate pr-4 font-bold text-xl">{workout?.name || 'Workout'}</h2>
+                    <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5"/></Button>
+                </div>
 
-                <div className="flex flex-col gap-4 py-4">
+                <div className="flex-1 flex flex-col gap-4 p-4 overflow-y-auto">
                     <WorkoutProgressBar progress={workoutProgress} />
-                    <div className="flex flex-col items-center justify-center text-center bg-muted/30 dark:bg-muted/50 rounded-lg p-4">
+                    <div className="flex flex-col items-center justify-center text-center bg-muted/30 dark:bg-muted/50 rounded-lg p-4 min-h-[300px]">
                         {renderContent()}
                     </div>
                 </div>
 
-                <DialogFooter className="border-t pt-4 mt-auto">
-                   <p className="w-full text-center text-muted-foreground text-sm">Up Next: {upNextText}</p>
-                </DialogFooter>
+                <div className="flex-shrink-0 border-t p-4">
+                    <p className="w-full text-center text-muted-foreground text-sm">Up Next: {upNextText}</p>
+                </div>
             </DialogContent>
         </Dialog>
     );
 }
 
 // Sub-components for different states
-const RestView = ({ timer, onSkip }: { timer: number, onSkip: () => void }) => (
+const RestView = ({ timer, onSkip, duration }: { timer: number, onSkip: () => void, duration: number }) => (
     <div className="flex flex-col items-center justify-center h-full w-full">
         <p className="text-3xl font-medium text-muted-foreground mb-4">REST</p>
         <h2 className="text-8xl font-bold font-mono tracking-tighter mb-8">{formatTime(timer)}</h2>
@@ -194,12 +213,11 @@ const ExerciseView = ({ exercise, set, setIndex, totalSets, reps, weight, onReps
             <p className="text-xl text-muted-foreground">Set {setIndex + 1} of {totalSets}</p>
         </div>
         
-        {exercise.videoUrl && (
+        {exercise.mediaUrl && (
             <div className="w-full aspect-video bg-gray-900 rounded-md my-4 overflow-hidden">
-                <iframe
-                    width="100%"
-                    height="100%"
-                    src={exercise.videoUrl.replace("watch?v=", "embed/")} // Make sure it's an embeddable URL
+                 <iframe
+                    className="w-full h-full"
+                    src={exercise.mediaUrl.replace("watch?v=", "embed/")}
                     title="Exercise video player"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
@@ -215,8 +233,8 @@ const ExerciseView = ({ exercise, set, setIndex, totalSets, reps, weight, onReps
                         type="number" 
                         value={reps} 
                         onChange={e => onRepsChange(e.target.value)} 
-                        placeholder={`${set.value || '-'}`} 
-                        className="text-center text-2xl h-16 w-full" 
+                        placeholder={`${set.value || '-'}`}
+                        className="text-center text-2xl h-16 w-full"
                     />
                 </div>
                 <div className='col-span-3'>
@@ -225,8 +243,8 @@ const ExerciseView = ({ exercise, set, setIndex, totalSets, reps, weight, onReps
                         type="number" 
                         value={weight} 
                         onChange={e => onWeightChange(e.target.value)} 
-                        placeholder={`${set.weight || '-'}`} 
-                        className="text-center text-2xl h-16 w-full" 
+                        placeholder={`${set.weight || '-'}`}
+                        className="text-center text-2xl h-16 w-full"
                     />
                 </div>
             </div>

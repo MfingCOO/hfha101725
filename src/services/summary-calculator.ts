@@ -5,6 +5,7 @@ import { getCalendarDataForDay } from '@/app/calendar/actions';
 
 export async function calculateDailySummaryForUser(userId: string, date: string, userTimezone: string, timezoneOffset: number): Promise<{ success: boolean; error?: string }> {
     try {
+        // The getCalendarDataForDay function fetches ALL relevant data for the day, including all pillars.
         const result = await getCalendarDataForDay(userId, date, userTimezone, timezoneOffset);
 
         if (!result.success || !result.data) {
@@ -19,6 +20,7 @@ export async function calculateDailySummaryForUser(userId: string, date: string,
         let totalActivity = 0;
         const dailyNutrients: { [key: string]: { value: number, unit: string } } = {};
 
+        // This loop now correctly processes all data returned from getCalendarDataForDay
         for (const entry of entries) {
             switch (entry.pillar) {
                 case 'nutrition':
@@ -48,9 +50,11 @@ export async function calculateDailySummaryForUser(userId: string, date: string,
                     }
                     break;
                 case 'activity':
-                    totalActivity += entry.duration || 0;
+                    // This correctly captures workout durations logged as activities.
+                    totalActivity += entry.durationInMinutes || entry.duration || 0;
                     break;
                 default:
+                    // Other pillars like 'stress', 'measurements', etc., do not affect the summary bar.
                     break;
             }
         }

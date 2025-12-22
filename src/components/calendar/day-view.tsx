@@ -13,8 +13,8 @@ import { useToast } from '@/hooks/use-toast';
 import { pillarsAndTools } from '@/lib/pillars';
 import { AppointmentDetailDialog } from './AppointmentDetailDialog';
 import { LiveEventDetailDialog } from './LiveEventDetailDialog';
-import { triggerSummaryRecalculation, deleteCalendarEvent } from '@/app/calendar/actions';
-import { WorkoutActionDialog } from './WorkoutActionDialog';
+import { triggerSummaryRecalculation } from '@/app/calendar/actions';
+import { WorkoutActionDialog } from './WorkoutActionDialog'; // UPDATED IMPORT
 import { EditWorkoutDialog } from './EditWorkoutDialog';
 import { getWorkoutByIdAction } from '@/app/workouts/actions';
 import { ActiveWorkoutDialog } from '../client/ActiveWorkoutDialog';
@@ -74,7 +74,7 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
 
         if (entry.type === 'workout' && eventStart) {
             start = eventStart;
-            const duration = entry.duration || 60; // Use event's duration or default to 60 mins
+            const duration = entry.duration || 60; 
             end = addMinutes(start, duration);
         } else if (entry.pillar === 'sleep' && entryDate) {
             start = entryDate;
@@ -162,10 +162,14 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
 };
 
 const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEntry, onSelect: (entry: any) => void, isHighlighted: boolean }) => {
-    const pillarKey = entry.originalData.type || entry.originalData.pillar || 'default';
+    const pillarKey = entry.originalData.pillar === 'activity' && entry.originalData.type === 'workout' ? 'workout' : entry.originalData.pillar || 'default';
     const details = pillarDetails[pillarKey] || pillarDetails.default;
     const Icon = details.icon;
     const colorClass = pillarColors[pillarKey] || pillarColors.default;
+
+    const displayName = entry.originalData.pillar === 'activity' 
+        ? entry.originalData.name 
+        : entry.originalData.title || details.getTitle(entry.originalData);
 
     return (
         <div 
@@ -186,11 +190,12 @@ const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEn
         >
              <div className="relative flex items-center gap-1 p-1 text-white h-full bg-black/20 rounded-md">
                 <Icon className="h-4 w-4 flex-shrink-0" />
-                <span className="text-[10px] font-medium truncate">{details.getTitle(entry.originalData)}</span>
+                <span className="text-[10px] font-medium truncate">{displayName}</span>
             </div>
         </div>
     );
 };
+
 
 interface DayViewProps {
     client: ClientProfile;
@@ -208,7 +213,6 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     const [activePillar, setActivePillar] = useState<any | null>(null);
     const [selectedAppointment, setSelectedAppointment] = useState<any | null>(null);
     const [selectedLiveEvent, setSelectedLiveEvent] = useState<any | null>(null);
-    const [selectedWorkout, setSelectedWorkout] = useState<any | null>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
     const [isInitialScrollDone, setIsInitialScrollDone] = useState(false);
     const [userTimezone, setUserTimezone] = useState<string>('');
@@ -270,7 +274,10 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     }, [isLoading, client, highlightedEntryId, processedEntries, isInitialScrollDone, entries]);
     
     const handleSelectEntry = (entryData: any) => {
-        if (entryData.type === 'workout') {
+        // SURGICAL CHANGE: Check if it's any kind of workout
+        const isWorkout = (entryData.pillar === 'activity' && entryData.type === 'workout') || (entryData.type === 'workout');
+        
+        if (isWorkout) {
             setEventToAction(entryData);
             setIsActionDialogOpen(true);
             return;
@@ -298,167 +305,155 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
             }
         };
         
-        const handleDialogClose = (wasSaved: boolean) => {
-            setSelectedEntry(null);
-            setActivePillar(null);
-            if (wasSaved) {
-                onEntryChange(); 
-            }
-        };
-        
-        const handleAppointmentDialogClose = (wasDeleted: boolean) => {
-            setSelectedAppointment(null);
-            if (wasDeleted) {
-                onEntryChange();
-            }
-        };
+    const handleDialogClose = (wasSaved: boolean) => {
+        setSelectedEntry(null);
+        setActivePillar(null);
+        if (wasSaved) {
+            onEntryChange(); 
+        }
+    };
+    
+    const handleAppointmentDialogClose = (wasDeleted: boolean) => {
+        setSelectedAppointment(null);
+        if (wasDeleted) {
+            onEntryChange();
+        }
+    };
 
-        const handleDelete = async () => {
-            if (!selectedEntry) return;
-            const { pillar, id } = selectedEntry;
-            const result = await deleteData(pillar, id, client.uid);
-            if (result.success) {
-                toast({ title: 'Entry Deleted' });
-                const dateString = selectedDate.toISOString().split('T')[0];
-                const timezoneOffset = selectedDate.getTimezoneOffset();
-                await triggerSummaryRecalculation(client.uid, dateString, userTimezone, timezoneOffset);
-                handleDialogClose(true);
-            } else {
-                toast({ variant: 'destructive', title: 'Error', description: result.error, });
+    const handleDelete = async () => {
+        if (!selectedEntry) return;
+        const { pillar, id } = selectedEntry;
+        const result = await deleteData(pillar, id, client.uid);
+
+        if (!result.success) {
+            toast({ variant: 'destructive', title: 'Error', description: result.error });
+            return;
+        }
+
+        toast({ title: 'Entry Deleted' });
+        const dateString = selectedDate.toISOString().split('T')[0];
+        const timezoneOffset = selectedDate.getTimezoneOffset();
+        await triggerSummaryRecalculation(client.uid, dateString, userTimezone, timezoneOffset);
+        handleDialogClose(true);
+    };
+
+    const handleStartWorkout = async (event: any) => {
+        if (!event || !event.relatedId) return;
+
+        setIsActionDialogOpen(false);
+        setIsPreparingWorkout(true);
+
+        try {
+            const workoutResult = await getWorkoutByIdAction(event.relatedId);
+            if (workoutResult.success === false) { 
+                throw new Error(workoutResult.error);
             }
-        };
-        const handleDeleteWorkout = async () => {
-            if (!eventToAction) return;
-            const result = await deleteCalendarEvent(eventToAction.id);
-            if (result.success) {
-                toast({ title: 'Workout Deleted', description: 'The workout has been removed from the calendar.' });
-                onEntryChange();
-            } else {
-                toast({ variant: 'destructive', title: 'Error', description: result.error });
-            }
-            setIsActionDialogOpen(false);
-            setEventToAction(null);
-        };
-        const handleStartWorkout = async (event: any) => {
-            if (!event || !event.relatedId) return;
+            setActiveWorkout(workoutResult.data);
+        } catch (error: any) {
+            toast({
+                variant: 'destructive',
+                title: 'Error Starting Workout',
+                description: error.message || 'An unknown error occurred.',
+            });
+            setActiveWorkout(null);
+        } finally {
+            setIsPreparingWorkout(false);
+        }
+    };    
+    
+    const changeDay = (days: number) => {
+        setIsInitialScrollDone(false);
+        onDateChange(addDays(selectedDate, days));
+    };
+    
+    const hours = Array.from({ length: 24 }, (_, i) => i);
 
-            setIsActionDialogOpen(false);
-            setIsPreparingWorkout(true);
-
-            try {
-                // Fetch the workout program object
-                const workoutResult = await getWorkoutByIdAction(event.relatedId);
-                if ('error' in workoutResult) {
-                    throw new Error(workoutResult.error);
-                }
-                
-                // Set the active workout. The WorkoutPlayer will handle the rest.
-                setActiveWorkout(workoutResult.data);
-
-            } catch (error: any) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Error Starting Workout',
-                    description: error.message || 'An unknown error occurred.',
-                });
-                setActiveWorkout(null);
-            } finally {
-                setIsPreparingWorkout(false);
-                setEventToAction(null);
-            }
-        };    
-        
-        const changeDay = (days: number) => {
-            setIsInitialScrollDone(false);
-            onDateChange(addDays(selectedDate, days));
-        };
-        
-        const hours = Array.from({ length: 24 }, (_, i) => i);
-
-        return (
-            <div className="flex flex-col h-full">
-                 <div className="flex-shrink-0 p-2 flex justify-between items-center border-b">
-                    <Button variant="ghost" size="icon" onClick={() => changeDay(-1)}>
-                        <ChevronLeft className="h-5 w-5" />
-                    </Button>
-                    <h3 className="text-lg font-semibold">{format(selectedDate, 'PPP')}</h3>
-                    <Button variant="ghost" size="icon" onClick={() => changeDay(1)}>
-                        <ChevronRight className="h-5 w-5" />
-                    </Button>
-                </div>
-                
-                <div className="flex-1 min-h-0 relative flex">
-                    {isLoading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-20">
-                            <Loader2 className="h-8 w-8 animate-spin" />
-                        </div>
-                    )}
-                    {isPreparingWorkout && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 z-30">
-                            <Loader2 className="h-8 w-8 animate-spin" />
-                            <p className='mt-4 text-sm text-muted-foreground'>Preparing your workout...</p>
-                        </div>
-                    )}
-                     <ScrollArea className="h-full w-full" viewportRef={viewportRef}>
-                        <div className="flex">
-                            <div className="w-12 flex-shrink-0 pr-1 border-r">
-                                {hours.map(hour => (
-                                    <div key={hour} className="h-[60px] text-right relative -top-2.5">
-                                        <span className="text-[10px] text-muted-foreground pr-1">{format(new Date(0, 0, 0, hour), 'ha')}</span>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="relative flex-1">
-                                 {hours.map(hour => (
-                                    <div key={hour} className="h-[60px] border-b" />
-                                ))}
-                               
-                               {processedEntries.map(entry => (
-                                   <TimelineEntry 
-                                     key={entry.id} 
-                                     entry={entry} 
-                                     onSelect={handleSelectEntry} 
-                                     isHighlighted={entry.id === highlightedEntryId}
-                                    />
-                               ))}
-                            </div>
-                        </div>
-                    </ScrollArea>
-                </div>
-                
-                {selectedEntry && activePillar && (
-                    <DataEntryDialog
-                        open={!!selectedEntry}
-                        onOpenChange={handleDialogClose}
-                        pillar={activePillar}
-                        initialData={selectedEntry}
-                        onDelete={handleDelete}
-                        userId={client.uid}
-                    />
+    return (
+        <div className="flex flex-col h-full">
+            <div className="flex-shrink-0 p-2 flex justify-between items-center border-b">
+                <Button variant="ghost" size="icon" onClick={() => changeDay(-1)}>
+                    <ChevronLeft className="h-5 w-5" />
+                </Button>
+                <h3 className="text-lg font-semibold">{format(selectedDate, 'PPP')}</h3>
+                <Button variant="ghost" size="icon" onClick={() => changeDay(1)}>
+                    <ChevronRight className="h-5 w-5" />
+                </Button>
+            </div>
+            
+            <div className="flex-1 min-h-0 relative flex">
+                {isLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/50 z-20">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                    </div>
                 )}
-                
-                 <AppointmentDetailDialog 
-                    isOpen={!!selectedAppointment}
-                    onClose={handleAppointmentDialogClose}
-                    event={selectedAppointment}
+                {isPreparingWorkout && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 z-30">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <p className='mt-4 text-sm text-muted-foreground'>Preparing your workout...</p>
+                    </div>
+                )}
+                    <ScrollArea className="h-full w-full" viewportRef={viewportRef}>
+                    <div className="flex">
+                        <div className="w-12 flex-shrink-0 pr-1 border-r">
+                            {hours.map(hour => (
+                                <div key={hour} className="h-[60px] text-right relative -top-2.5">
+                                    <span className="text-[10px] text-muted-foreground pr-1">{format(new Date(0, 0, 0, hour), 'ha')}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="relative flex-1">
+                                {hours.map(hour => (
+                                <div key={hour} className="h-[60px] border-b" />
+                            ))}
+                           
+                           {processedEntries.map(entry => (
+                               <TimelineEntry 
+                                 key={entry.id} 
+                                 entry={entry} 
+                                 onSelect={handleSelectEntry} 
+                                 isHighlighted={entry.id === highlightedEntryId}
+                                />
+                           ))}
+                        </div>
+                    </div>
+                </ScrollArea>
+            </div>
+            
+            {selectedEntry && activePillar && (
+                <DataEntryDialog
+                    open={!!selectedEntry}
+                    onOpenChange={handleDialogClose}
+                    pillar={activePillar}
+                    initialData={selectedEntry}
+                    onDelete={handleDelete}
+                    userId={client.uid}
                 />
+            )}
+            
+            <AppointmentDetailDialog 
+                isOpen={!!selectedAppointment}
+                onClose={handleAppointmentDialogClose}
+                event={selectedAppointment}
+            />
 
-                 <LiveEventDetailDialog
-                    isOpen={!!selectedLiveEvent}
-                    onClose={() => setSelectedLiveEvent(null)}
-                    event={selectedLiveEvent}
-                />
-                
-                <WorkoutActionDialog
+            <LiveEventDetailDialog
+                isOpen={!!selectedLiveEvent}
+                onClose={() => setSelectedLiveEvent(null)}
+                event={selectedLiveEvent}
+            />
+            
+            {/* SURGICAL CHANGE: Using the new intelligent dialog */}
+            <WorkoutActionDialog
                 isOpen={isActionDialogOpen}
                 onClose={() => setIsActionDialogOpen(false)}
                 event={eventToAction}
+                client={client}
                 onStart={() => handleStartWorkout(eventToAction)}
                 onEdit={() => {
                     setIsEditDialogOpen(true);
-                    setIsActionDialogOpen(false); // Close the action dialog
+                    setIsActionDialogOpen(false);
                 }}
-                onDelete={handleDeleteWorkout}
+                onEntryChange={onEntryChange}
             />
 
             {eventToAction && isEditDialogOpen && (
@@ -476,18 +471,20 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
             )}
             
             {activeWorkout && (
-     <ActiveWorkoutDialog
-        isOpen={!!activeWorkout}
-        onClose={() => {
-            setActiveWorkout(null);
-            onEntryChange();
-        }}
-        workout={activeWorkout}
-        userProfile={client}
-    />
-)}
+                    <ActiveWorkoutDialog
+                    isOpen={!!activeWorkout}
+                    onClose={() => {
+                        setActiveWorkout(null);
+                        setEventToAction(null); 
+                        onEntryChange();
+                    }}
+                    workout={activeWorkout}
+                    userProfile={client}
+                    calendarEventId={eventToAction?.id}
+                    programId={eventToAction?.programId} 
+                />
+            )}
 
-
-            </div>
-        );
-    }
+        </div>
+    );
+}

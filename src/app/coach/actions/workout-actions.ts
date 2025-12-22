@@ -19,9 +19,11 @@ const exerciseDataSchema = z.object({
     mediaUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
 });
 
+// FIXED: Added duration to the schema
 const workoutDataSchema = z.object({
     name: z.string().min(1),
     description: z.string().optional(),
+    duration: z.number().optional(), // This was missing
     blocks: z.array(z.any()).min(1, "A workout must have at least one block."),
 });
 
@@ -96,10 +98,12 @@ export async function createWorkoutAction(params: { workoutData: any }): Promise
 
     try {
         const docRef = firestore.collection('workouts').doc();
+        // FIXED: Added duration to the new workout object
         const newWorkout: Workout = {
             id: docRef.id,
             name: validation.data.name,
             description: validation.data.description || '',
+            duration: validation.data.duration || 0, // Default to 0 if not provided
             blocks: validation.data.blocks,
         };
         await docRef.set(newWorkout);
@@ -125,7 +129,12 @@ export async function updateWorkoutAction(params: { workoutId: string, workoutDa
         return { success: false, error: validation.error.errors.map(e => e.message).join(', ') };
     }
     try {
-        await firestore.collection('workouts').doc(params.workoutId).update(validation.data);
+        // FIXED: Explicitly include duration in the update
+        const dataToUpdate = {
+            ...validation.data,
+            duration: validation.data.duration || 0,
+        };
+        await firestore.collection('workouts').doc(params.workoutId).update(dataToUpdate);
         return { success: true, data: {} };
     } catch (error: any) {
         return { success: false, error: "Failed to update workout." };

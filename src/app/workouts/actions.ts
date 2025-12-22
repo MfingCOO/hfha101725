@@ -8,11 +8,9 @@ import { v4 as uuidv4 } from 'uuid';
 
 
 // --- Data Migration Helper ---
-// This function ensures that workouts fetched from Firestore match the latest data structure.
 function migrateWorkoutSets(workout: any): Workout {
     const migratedBlocks = workout.blocks.map((block: any) => {
         if (block.type === 'exercise' && typeof block.sets === 'number') {
-            // This is the old format. Convert it.
             const numberOfSets = block.sets;
             const newSets: Set[] = [];
             for (let i = 0; i < numberOfSets; i++) {
@@ -23,7 +21,6 @@ function migrateWorkoutSets(workout: any): Workout {
                     weight: block.weight?.toString() || '0'
                 });
             }
-            // Return a new block with the corrected sets structure
             return { ...block, sets: newSets };
         }
         if (block.type === 'group') {
@@ -51,12 +48,19 @@ function migrateWorkoutSets(workout: any): Workout {
     return { ...workout, blocks: migratedBlocks };
 }
 
-// Action to create or update a workout
+// Action to create or update a workout - RESTORED AND FIXED
 export async function upsertWorkoutAction(workoutData: Workout): Promise<ActionResponse<Workout>> {
     try {
         if (!workoutData.id) {
             workoutData.id = uuidv4();
         }
+
+        // DEFINITIVE FIX: The duration comes from the form as a string.
+        // This converts it to a number before saving. This single fix works for both create and update.
+        if (workoutData.duration && typeof workoutData.duration !== 'number') {
+            workoutData.duration = Number(workoutData.duration);
+        }
+
         await firestore.collection('workouts').doc(workoutData.id).set(workoutData);
         revalidatePath('/coach/workouts');
         return { success: true, data: workoutData };
@@ -65,7 +69,7 @@ export async function upsertWorkoutAction(workoutData: Workout): Promise<ActionR
     }
 }
 
-// Action to delete a workout
+// Action to delete a workout - RESTORED
 export async function deleteWorkoutAction(workoutId: string): Promise<ActionResponse<{}>> {
     try {
         await firestore.collection('workouts').doc(workoutId).delete();
@@ -76,7 +80,7 @@ export async function deleteWorkoutAction(workoutId: string): Promise<ActionResp
     }
 }
 
-// Action to get a single workout by its ID
+// Action to get a single workout by its ID - RESTORED
 export async function getWorkoutByIdAction(workoutId: string): Promise<ActionResponse<Workout>> {
     try {
         const doc = await firestore.collection('workouts').doc(workoutId).get();
@@ -91,7 +95,7 @@ export async function getWorkoutByIdAction(workoutId: string): Promise<ActionRes
     }
 }
 
-// Action to get multiple workouts by their IDs
+// Action to get multiple workouts by their IDs - RESTORED
 export async function getWorkoutsByIdsAction(workoutIds: string[]): Promise<ActionResponse<Workout[]>> {
     if (!workoutIds || workoutIds.length === 0) {
         return { success: true, data: [] };
@@ -101,10 +105,8 @@ export async function getWorkoutsByIdsAction(workoutIds: string[]): Promise<Acti
         const snapshot = await firestore.collection('workouts').where('id', 'in', workoutIds).get();
         const workouts = snapshot.docs.map(doc => doc.data() as Workout);
         
-        // Create a map for quick lookups
         const workoutMap = new Map(workouts.map(w => [w.id, w]));
 
-        // Ensure the order is the same as the input IDs and migrate data structure
         const orderedAndMigratedWorkouts = workoutIds.map(id => {
             const workout = workoutMap.get(id);
             return workout ? migrateWorkoutSets(workout) : null;

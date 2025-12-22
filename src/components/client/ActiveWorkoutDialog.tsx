@@ -9,20 +9,27 @@ interface ActiveWorkoutDialogProps {
   onClose: () => void;
   workout: Workout | null;
   userProfile: UserProfile | null;
+  calendarEventId?: string;
+  programId?: string;
 }
 
-export function ActiveWorkoutDialog({ isOpen, onClose, workout, userProfile }: ActiveWorkoutDialogProps) {
-  if (!isOpen || !workout) {
-    return null;
-  }
+export function ActiveWorkoutDialog({ 
+  isOpen, 
+  onClose, 
+  workout, 
+  userProfile, 
+  calendarEventId, 
+  programId 
+}: ActiveWorkoutDialogProps) {
 
-  // This now correctly renders the interactive WorkoutPlayer
   return (
-    <WorkoutPlayer
-      isOpen={isOpen}
-      onClose={onClose}
-      workout={workout}
-      userProfile={userProfile}
-    />
+      <WorkoutPlayer
+        isOpen={isOpen}
+        onClose={onClose}
+        workout={workout}
+        userProfile={userProfile}
+        calendarEventId={calendarEventId}
+        programId={programId}
+      />
   );
 }

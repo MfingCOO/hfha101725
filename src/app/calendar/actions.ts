@@ -2,9 +2,11 @@
 
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp, DocumentSnapshot } from 'firebase-admin/firestore';
-import { subDays, addDays, isWithinInterval } from 'date-fns';
+import { subDays, addDays, isWithinInterval, format } from 'date-fns';
 import { calculateDailySummaryForUser } from '@/services/summary-calculator'; 
 import { revalidatePath } from 'next/cache';
+import { Program, Workout } from '@/types/workout-program';
+import { ScheduledEvent } from '@/types/event';
 
 const ALL_DATA_COLLECTIONS = ['nutrition', 'hydration', 'activity', 'sleep', 'stress', 'measurements', 'protocol', 'planner', 'cravings'];
 
@@ -87,7 +89,7 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
 
                 const [flatSnapshot, nestedSnapshot] = await Promise.all([
                     flatQuery.get(),
-                    nestedQuery.get() // CORRECTED: Removed the faulty conditional that blocked the nested planner query
+                    nestedQuery.get()
                 ]);
 
                 const docs = new Map<string, DocumentSnapshot>();
@@ -96,7 +98,7 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
 
                 return Array.from(docs.values()).map(doc => ({ ...unnestLogData(doc), pillar: collectionName }));
             } catch (error) {
-                console.error(`Failed to fetch data for collection ${collectionName}:`, error);
+                console.error(`Failed to fetch data for a collection ${collectionName}:`, error);
                 return [];
             }
         });
@@ -117,12 +119,12 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
 
         const clientCalendarEventsPromise = adminDb.collection('clientCalendar')
             .where('userId', '==', userId)
-            .where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC))
-            .where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC))
+            .where('startTime', '>=', Timestamp.fromDate(firestoreQueryStartUTC))
+            .where('startTime', '<=', Timestamp.fromDate(firestoreQueryEndUTC))
             .get().then(snapshot =>
                 snapshot.docs.map(doc => {
                     const data = doc.data();
-                    return { ...data, id: doc.id, pillar: data.type || 'live-event', entryDate: data.start };
+                    return { ...data, id: doc.id, pillar: data.type || 'live-event', entryDate: data.startTime };
                 })
             ).catch(err => {
                 console.error(`Failed to fetch client calendar events:`, err);
@@ -161,18 +163,61 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
                 const indulgenceDate = getJSDate(entry.indulgenceDate);
                 return indulgenceDate && isWithinInterval(indulgenceDate, { start: filterRangeStartUTC, end: filterRangeEndUTC });
             }
-            const entryDate = getJSDate(entry.entryDate || entry.start);
+            const entryDate = getJSDate(entry.entryDate || entry.start || entry.startTime);
             return entryDate && isWithinInterval(entryDate, { start: filterRangeStartUTC, end: filterRangeEndUTC });
         });
 
         finalEntries.sort((a: any, b: any) => {
             const getJSDate = (d: any) => d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
-            const dateA = getJSDate(a.indulgenceDate || a.entryDate || a.wakeUpDay || a.start);
-            const dateB = getJSDate(b.indulgenceDate || b.entryDate || b.wakeUpDay || b.start);
+            const dateA = getJSDate(a.indulgenceDate || a.entryDate || a.wakeUpDay || a.start || a.startTime);
+            const dateB = getJSDate(b.indulgenceDate || b.entryDate || b.wakeUpDay || b.start || b.startTime);
             return dateA.getTime() - dateB.getTime();
         });
 
-        const serializableData = finalEntries.map(serializeTimestamps);
+        // --- SURGICAL FIX V2: Intelligent Title Mapping ---
+        const displayEntries = finalEntries.map(entry => {
+            if (entry.title) { // If title already exists, do nothing
+                return entry;
+            }
+
+            let newTitle = 'Logged Entry'; // Default fallback title
+
+            switch (entry.pillar) {
+                case 'nutrition':
+                    newTitle = entry.mealType || entry.name || 'Nutrition Entry';
+                    break;
+                case 'activity':
+                    newTitle = entry.name || 'Activity';
+                    break;
+                case 'sleep':
+                    newTitle = entry.isNap ? 'Nap' : 'Sleep';
+                    break;
+                case 'hydration':
+                    newTitle = `Hydration: ${entry.amount}${entry.unit || 'oz'}`;
+                    break;
+                case 'stress':
+                    newTitle = 'Stress Log';
+                    break;
+                case 'measurements':
+                    newTitle = 'Measurement';
+                    break;
+                case 'planner':
+                    newTitle = entry.name || 'Planned Indulgence';
+                    break;
+                case 'cravings':
+                    newTitle = 'Craving/Binge Log';
+                    break;
+                default:
+                    if (entry.name) {
+                        newTitle = entry.name;
+                    }
+                    break;
+            }
+            
+            return { ...entry, title: newTitle };
+        });
+
+        const serializableData = displayEntries.map(serializeTimestamps);
         const summaryData = summarySnap.exists ? serializeTimestamps(summarySnap.data()) : { calories: 0, hydration: 0, sleep: 0, activity: 0, upf: 0, allNutrients: {} };
 
         return { success: true, data: serializableData, summary: summaryData };
@@ -183,10 +228,173 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
     }
 }
 
+async function getWorkoutAndProgramDetails(workoutId: string, programId?: string): Promise<{ workout: Workout | null, program: Program | null, weekName?: string, dayNumber?: number }> {
+    if (!workoutId) return { workout: null, program: null };
+
+    let workout: Workout | null = null;
+    let program: Program | null = null;
+    let weekName: string | undefined;
+    let dayNumber: number | undefined;
+
+    const workoutDoc = await adminDb.collection('workouts').doc(workoutId).get();
+    if (workoutDoc.exists) {
+        workout = { id: workoutDoc.id, ...workoutDoc.data() } as Workout;
+    } else {
+        return { workout: null, program: null };
+    }
+
+    if (programId) {
+        const programDoc = await adminDb.collection('programs').doc(programId).get();
+        if (programDoc.exists) {
+            program = { id: programDoc.id, ...programDoc.data() } as Program;
+            
+            for (const [weekIndex, week] of (program.weeks || []).entries()) {
+                const dayIndex = (week.workoutIds || []).indexOf(workoutId);
+                if (dayIndex !== -1) {
+                    weekName = `Week ${weekIndex + 1}`;
+                    dayNumber = dayIndex + 1;
+                    break; 
+                }
+            }
+        }
+    }
+
+    return { workout, program, weekName, dayNumber };
+}
+
+export async function createCalendarEventAction(data: {
+    userId: string;
+    programId?: string; 
+    workoutId: string;
+    startTime: Date;
+    duration: number;
+    isCompleted?: boolean;
+}) {
+    try {
+        const { userId, programId, workoutId, startTime, duration, isCompleted = false } = data;
+
+        if (!userId || !workoutId || !startTime) {
+            return { success: false, error: "Missing required event data." };
+        }
+
+        const { workout, weekName, dayNumber } = await getWorkoutAndProgramDetails(workoutId, programId);
+        if (!workout) {
+            return { success: false, error: "Workout not found." };
+        }
+
+        const finalTitle = (weekName && dayNumber) 
+            ? `${weekName}, Day ${dayNumber}: ${workout.name}` 
+            : workout.name;
+
+        const newEventRef = adminDb.collection('clientCalendar').doc();
+        const newEvent = {
+            id: newEventRef.id,
+            userId: userId,
+            title: finalTitle,
+            startTime: Timestamp.fromDate(startTime),
+            endTime: Timestamp.fromDate(new Date(startTime.getTime() + duration * 60 * 1000)),
+            type: 'workout',
+            relatedId: workoutId,
+            isCompleted: isCompleted,
+            duration: duration,
+            programId: programId || null, 
+        };
+
+        await newEventRef.set(newEvent);
+        
+        revalidatePath('/calendar');
+        revalidatePath('/client/dashboard');
+
+        return { success: true, data: { ...newEvent, id: newEventRef.id, startTime: newEvent.startTime.toDate().toISOString(), endTime: newEvent.endTime.toDate().toISOString() } };
+
+    } catch (error: any) {
+        console.error("Error creating calendar event:", error);
+        return { success: false, error: "Failed to schedule workout. Please try again." };
+    }
+}
+
+export async function completeWorkoutAction(data: {
+    userId: string;
+    workoutId: string;
+    startTime: Date;
+    duration: number;
+    programId?: string;
+    calendarEventId?: string;
+    timezone?: string; 
+    timezoneOffset?: number; 
+}) {
+    const { userId, workoutId, startTime, duration, calendarEventId, timezone, timezoneOffset } = data;
+    if (!userId || !workoutId || !startTime) return { success: false, error: "Missing user ID, workout ID, or start time." };
+
+    const batch = adminDb.batch();
+
+    try {
+        let effectiveProgramId = data.programId;
+
+        if (!effectiveProgramId && calendarEventId) {
+            const eventRef = adminDb.collection('clientCalendar').doc(calendarEventId);
+            const eventDoc = await eventRef.get();
+            if (eventDoc.exists) {
+                effectiveProgramId = eventDoc.data()?.programId || null;
+            }
+        }
+
+        const { workout, weekName, dayNumber } = await getWorkoutAndProgramDetails(workoutId, effectiveProgramId);
+        if (!workout) return { success: false, error: "Workout not found." };
+
+        const finalName = (weekName && dayNumber) ? `${weekName}, Day ${dayNumber}: ${workout.name}` : workout.name;
+        
+        const activityRef = adminDb.collection(`clients/${userId}/activity`).doc();
+        batch.set(activityRef, {
+            id: activityRef.id,
+            entryDate: Timestamp.fromDate(startTime),
+            name: finalName,      
+            type: 'workout',
+            duration: duration,    
+            calories: workout.calories || null,
+            relatedId: workoutId,
+            programId: effectiveProgramId || null,
+        });
+
+        if (calendarEventId) {
+            const eventToDeleteRef = adminDb.collection('clientCalendar').doc(calendarEventId);
+            batch.delete(eventToDeleteRef);
+        }
+
+        await batch.commit();
+
+        try {
+            const date = format(startTime, 'yyyy-MM-dd');
+            if (timezone && timezoneOffset !== undefined) {
+                await calculateDailySummaryForUser(userId, date, timezone, timezoneOffset);
+            } else {
+                console.warn(`[Action] Missing timezone for user ${userId} on workout completion. Summary might be stale.`);
+            }
+        } catch (summaryError) {
+            console.error(`[Action] Non-critical error: Daily summary calculation failed for user ${userId}.`, summaryError);
+        }
+
+        try {
+            revalidatePath('/calendar');
+            revalidatePath('/client/dashboard');
+        } catch (revalError) {
+            console.warn("[Action] Non-critical error: revalidatePath failed but workout was logged successfully.", revalError);
+        }
+
+        return { success: true };
+
+    } catch (error: any) {
+        console.error("CRITICAL Error in completeWorkoutAction:", error);
+        return { success: false, error: "Failed to complete workout. Please try again." };
+    }
+}
+
+
 export async function getTodaysContextualData(userId: string) {
     if (!userId) return null;
 
     const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
     const startTimestamp = Timestamp.fromDate(startOfToday);
 
     try {
@@ -201,7 +409,7 @@ export async function getTodaysContextualData(userId: string) {
 
         const [sleepFlatSnap, sleepNestedSnap, hydrationFlatSnap, hydrationNestedSnap] = await Promise.all([
             sleepQueryFlat.get(),
-            sleepQueryNested.get(),
+            sleepNestedSnap.get(),
             hydrationQueryFlat.get(),
             hydrationQueryNested.get(),
         ]);
@@ -235,58 +443,6 @@ export async function getTodaysContextualData(userId: string) {
     }
 }
 
-interface CreateEventData {
-    userId: string;
-    workoutId: string;
-    workoutName: string;
-    startTime: Date;
-    duration: number; // in minutes
-}
-
-export async function createCalendarEventAction(data: CreateEventData) {
-    try {
-        const { userId, workoutId, workoutName, startTime, duration } = data;
-
-        if (!userId || !workoutId || !workoutName || !startTime) {
-            return { success: false, error: "Missing required event data." };
-        }
-
-        // This is the fix: writing to the 'clientCalendar' collection
-        const newEventRef = adminDb.collection('clientCalendar').doc();
-        
-        const newEvent = {
-            id: newEventRef.id,
-            userId: userId,
-            title: workoutName, // This now contains "Week X, Day Y: [Workout Name]"
-            start: Timestamp.fromDate(startTime), // Use Firestore Timestamp for querying
-            end: Timestamp.fromDate(new Date(startTime.getTime() + duration * 60 * 1000)),
-            type: 'workout',
-            relatedId: workoutId,
-            isCompleted: false,
-            duration: duration
-        };
-
-        await newEventRef.set(newEvent);
-        
-        revalidatePath('/calendar'); // Revalidate the calendar page
-        revalidatePath('/client/dashboard');
-
-        // Convert Firestore Timestamps to ISO strings before returning to the client
-        const serializableEvent = {
-            ...newEvent,
-            start: newEvent.start.toDate().toISOString(),
-            end: newEvent.end.toDate().toISOString(),
-        };
-
-        return { success: true, data: serializableEvent };
-
-
-    } catch (error: any) {
-        console.error("Error creating calendar event:", error);
-        return { success: false, error: "Failed to schedule workout. Please try again." };
-    }
-}
-
 export async function deleteCalendarEvent(eventId: string) {
   if (!eventId) {
     return { success: false, error: 'Event ID is required.' };
@@ -310,7 +466,18 @@ export async function updateWorkoutTime(eventId: string, newStartTime: Date) {
 
   try {
     const eventRef = adminDb.collection('clientCalendar').doc(eventId);
-    await eventRef.update({ start: Timestamp.fromDate(newStartTime) });
+    const doc = await eventRef.get();
+    if(!doc.exists) {
+        return { success: false, error: 'Event not found.' };
+    }
+    const eventData = doc.data() as ScheduledEvent;
+    const duration = eventData.duration || 60; // Default to 60 mins if no duration
+    const newEndTime = new Date(newStartTime.getTime() + duration * 60 * 1000);
+
+    await eventRef.update({ 
+        startTime: Timestamp.fromDate(newStartTime),
+        endTime: Timestamp.fromDate(newEndTime)
+     });
     revalidatePath('/calendar');
     return { success: true };
   } catch (error) {
