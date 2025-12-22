@@ -26,13 +26,14 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
-import { Loader2, PlusCircle, Users, Lock, X } from 'lucide-react';
+import { Loader2, Users, Lock, X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { createChatAction } from '@/app/chats/actions';
 import { getClientsForCoach } from '@/app/coach/dashboard/actions';
 import type { ClientProfile } from '@/types';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Combobox } from '@/components/ui/combobox';
+import { useAuth } from '@/components/auth/auth-provider';
 
 interface CreateChatDialogProps {
   open: boolean;
@@ -58,6 +59,7 @@ const chatFormSchema = z.object({
 
 export function CreateChatDialog({ open, onOpenChange, onChatCreated }: CreateChatDialogProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [clients, setClients] = useState<ClientProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -73,16 +75,16 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated }: CreateCh
   });
 
    useEffect(() => {
-    if (open) {
+    if (open && user) {
       setIsLoading(true);
-      getClientsForCoach().then(result => {
-        if (result.success && result.data) {
-          setClients(result.data.filter(c => c.tier === 'premium' || c.tier === 'coaching'));
+      getClientsForCoach(user.uid).then(result => {
+        if (result.success && result.clients) {
+          setClients(result.clients.filter(c => c.tier === 'premium' || c.tier === 'coaching'));
         }
         setIsLoading(false);
       });
     }
-  }, [open]);
+  }, [open, user]);
 
   const onSubmit = async (values: z.infer<typeof chatFormSchema>) => {
     setIsLoading(true);
@@ -123,7 +125,7 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated }: CreateCh
           <ScrollArea className="h-full">
             <div className="px-6 py-4">
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" id="create-chat-form">
                   <FormField
                     control={form.control}
                     name="name"
@@ -210,7 +212,6 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated }: CreateCh
                                 options={clientOptions}
                                 placeholder="Select a client to add..."
                                 searchPlaceholder='Search clients...'
-                                value={''}
                                 onChange={(value) => {
                                     if(value && !field.value?.includes(value)) {
                                         field.onChange([...(field.value || []), value]);
