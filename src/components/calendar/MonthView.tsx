@@ -17,6 +17,15 @@ import {
 import { cn } from '@/lib/utils';
 import type { ClientProfile } from '@/types';
 
+// DEFINITIVE FIX: Add a robust date parsing utility to prevent crashes.
+const safeParseDate = (dateSource: any): Date | null => {
+    if (!dateSource) return null;
+    if (typeof dateSource.toDate === 'function') return dateSource.toDate();
+    const date = new Date(dateSource);
+    if (isNaN(date.getTime())) return null;
+    return date;
+};
+
 interface MonthViewProps {
   client: ClientProfile;
   selectedDate: Date;
@@ -43,7 +52,6 @@ const pillarDotColors: Record<string, string> = {
   default: 'bg-gray-400',
 };
 
-
 export function MonthView({ client, selectedDate, setSelectedDate, setActiveTab, entries, isLoading, onDateChange }: MonthViewProps) {
   const currentMonth = useMemo(() => startOfMonth(selectedDate), [selectedDate]);
 
@@ -54,21 +62,24 @@ export function MonthView({ client, selectedDate, setSelectedDate, setActiveTab,
   }, [currentMonth]);
   
   const startingDayIndex = getDay(daysInMonth[0]);
-  
 
   const changeMonth = (direction: 'next' | 'prev') => {
     const newMonth = direction === 'next' ? addMonths(currentMonth, 1) : subMonths(currentMonth, 1);
     onDateChange(newMonth);
   };
   
+  // DEFINITIVE FIX: Use safeParseDate and check multiple date fields to group entries reliably.
   const entriesByDay = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const entry of entries) {
-      const entryDateStr = format(new Date(entry.entryDate || entry.wakeUpDay), 'yyyy-MM-dd');
-      if (!map.has(entryDateStr)) {
-        map.set(entryDateStr, []);
+      const entryDate = safeParseDate(entry.start || entry.startTime || entry.entryDate || entry.wakeUpDay);
+      if (entryDate) {
+        const entryDateStr = format(entryDate, 'yyyy-MM-dd');
+        if (!map.has(entryDateStr)) {
+          map.set(entryDateStr, []);
+        }
+        map.get(entryDateStr)!.push(entry);
       }
-      map.get(entryDateStr)!.push(entry);
     }
     return map;
   }, [entries]);
@@ -108,7 +119,7 @@ export function MonthView({ client, selectedDate, setSelectedDate, setActiveTab,
         {daysInMonth.map((day) => {
           const dayKey = format(day, 'yyyy-MM-dd');
           const dayEntries = entriesByDay.get(dayKey) || [];
-          const pillarDots = Array.from(new Set(dayEntries.map(e => e.displayPillar || e.pillar)));
+          const pillarDots = Array.from(new Set(dayEntries.map(e => e.displayPillar || e.pillar).filter(Boolean)));
 
           return (
             <div
@@ -127,8 +138,9 @@ export function MonthView({ client, selectedDate, setSelectedDate, setActiveTab,
               </span>
               <div className="flex-1 mt-1 overflow-hidden">
                 <div className="flex flex-wrap gap-0.5">
-                    {pillarDots.slice(0, 9).map(pillar => (
-                         <div key={pillar} title={pillar} className={cn("h-1 w-1 rounded-full", pillarDotColors[pillar] || pillarDotColors.default)} />
+                    {/* DEFINITIVE FIX: Add index to key to prevent React warnings */}
+                    {pillarDots.slice(0, 9).map((pillar, index) => (
+                         <div key={`${pillar}-${index}`} title={pillar as string} className={cn("h-1 w-1 rounded-full", pillarDotColors[pillar as string] || pillarDotColors.default)} />
                     ))}
                 </div>
               </div>

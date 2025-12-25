@@ -82,7 +82,7 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
         } else if (entry.pillar === 'activity' && entryDate) {
             start = entryDate;
             end = addMinutes(start, entry.duration || 15);
-        } else if ((entry.pillar === 'appointment' || entry.pillar === 'live-event') && eventStart && eventEnd) {
+        } else if ((entry.pillar === 'appointment' || entry.type === 'live-event') && eventStart && eventEnd) {
             start = eventStart;
             end = eventEnd;
         } else if (entry.pillar === 'planner' && indulgenceDate) {
@@ -162,12 +162,33 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
 };
 
 const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEntry, onSelect: (entry: any) => void, isHighlighted: boolean }) => {
-    const pillarKey = entry.originalData.pillar === 'activity' && entry.originalData.type === 'workout' ? 'workout' : entry.originalData.pillar || 'default';
-    const details = pillarDetails[pillarKey] || pillarDetails.default;
-    const Icon = details.icon;
-    const colorClass = pillarColors[pillarKey] || pillarColors.default;
+const original = entry.originalData;
+let pillarKey = original.pillar === 'activity' && original.type === 'workout' ? 'workout' : original.pillar || 'default';
+let displayName = original.title || original.name;
 
-    const displayName = entry.originalData.title || entry.originalData.name || details.getTitle(entry.originalData);
+// This new logic explicitly checks the event `type` to override defaults.
+if (original.type === 'relief' && original.pillar === 'stress') {
+    pillarKey = 'relief'; // Sets GREEN color
+    displayName = 'Stress Relief';
+} else if (original.type === 'craving') {
+    pillarKey = 'craving'; // Sets ORANGE color
+    displayName = 'Craving Log';
+} else if (original.type === 'binge') {
+    pillarKey = 'binge'; // Sets RED color
+    displayName = 'Binge Log';
+} else if (original.pillar === 'stress') { // Handles a normal stress log
+    displayName = 'Stress Log';
+}
+// ...
+
+
+const details = pillarDetails[pillarKey] || pillarDetails.default;
+const Icon = details.icon;
+const colorClass = pillarColors[pillarKey] || pillarColors.default;
+
+if (!displayName) {
+    displayName = details.getTitle(original);
+}
 
     return (
         <div 
@@ -284,7 +305,7 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
             setSelectedAppointment(entryData);
             return;
         }
-        if (entryData.pillar === 'live-event') {
+        if (entryData.type === 'live-event') {
             setSelectedLiveEvent(entryData);
             return;
         }

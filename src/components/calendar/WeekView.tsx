@@ -15,6 +15,15 @@ import {
 import { cn } from '@/lib/utils';
 import type { ClientProfile } from '@/types';
 
+// DEFINITIVE FIX: Add a robust date parsing utility to prevent crashes.
+const safeParseDate = (dateSource: any): Date | null => {
+    if (!dateSource) return null;
+    if (typeof dateSource.toDate === 'function') return dateSource.toDate();
+    const date = new Date(dateSource);
+    if (isNaN(date.getTime())) return null;
+    return date;
+};
+
 interface WeekViewProps {
   client: ClientProfile;
   selectedDate: Date;
@@ -50,20 +59,23 @@ export function WeekView({ client, selectedDate, setSelectedDate, setActiveTab, 
     });
   }, [selectedDate]);
 
-
   const changeWeek = (direction: 'next' | 'prev') => {
     const newDate = direction === 'next' ? addDays(selectedDate, 7) : subDays(selectedDate, 7);
     onDateChange(newDate);
   };
 
+  // DEFINITIVE FIX: Use safeParseDate and check multiple date fields to group entries reliably.
   const entriesByDay = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const entry of entries) {
-      const entryDateStr = format(new Date(entry.entryDate || entry.wakeUpDay), 'yyyy-MM-dd');
-      if (!map.has(entryDateStr)) {
-        map.set(entryDateStr, []);
+      const entryDate = safeParseDate(entry.start || entry.startTime || entry.entryDate || entry.wakeUpDay);
+      if (entryDate) {
+        const entryDateStr = format(entryDate, 'yyyy-MM-dd');
+        if (!map.has(entryDateStr)) {
+          map.set(entryDateStr, []);
+        }
+        map.get(entryDateStr)!.push(entry);
       }
-      map.get(entryDateStr)!.push(entry);
     }
     return map;
   }, [entries]);
@@ -95,7 +107,7 @@ export function WeekView({ client, selectedDate, setSelectedDate, setActiveTab, 
         {week.map((day) => {
           const dayKey = format(day, 'yyyy-MM-dd');
           const dayEntries = entriesByDay.get(dayKey) || [];
-          const pillarDots = Array.from(new Set(dayEntries.map(e => e.displayPillar || e.pillar)));
+          const pillarDots = Array.from(new Set(dayEntries.map(e => e.displayPillar || e.pillar).filter(Boolean)));
 
           return (
             <div
@@ -119,8 +131,9 @@ export function WeekView({ client, selectedDate, setSelectedDate, setActiveTab, 
               </div>
               <div className="flex-1 mt-2">
                 <div className="flex flex-wrap gap-1">
-                    {pillarDots.map(pillar => (
-                         <div key={pillar} title={pillar} className={cn("h-1.5 w-1.5 rounded-full", pillarDotColors[pillar] || pillarDotColors.default)} />
+                    {/* DEFINITIVE FIX: Add index to key to prevent React warnings */}
+                    {pillarDots.map((pillar, index) => (
+                         <div key={`${pillar}-${index}`} title={pillar as string} className={cn("h-1.5 w-1.5 rounded-full", pillarDotColors[pillar as string] || pillarDotColors.default)} />
                     ))}
                 </div>
               </div>
