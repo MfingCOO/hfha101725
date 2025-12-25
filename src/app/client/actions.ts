@@ -6,6 +6,18 @@ import { Program, UserProgram } from '@/types/workout-program';
 import { ScheduledEvent } from '@/types/event';
 import { ActionResponse } from '@/types/action-response';
 import { Timestamp } from 'firebase-admin/firestore';
+import { getSiteSettings } from '@/services/getSiteSettings';
+
+export async function getVideoCallLinkAction(): Promise<ActionResponse<{ link: string | null }>> {
+  try {
+    const settingsResult = await getSiteSettings();
+    const videoLink = settingsResult.success ? (settingsResult.data?.videoCallLink || null) : null;
+    return { success: true, data: { link: videoLink } };
+  } catch (error) {
+    console.error("Error in getVideoCallLinkAction:", error);
+    return { success: false, error: 'Failed to fetch video call link.' };
+  }
+}
 
 export async function getClientProgramsAction(): Promise<ActionResponse<Program[]>> {
   try {
@@ -13,8 +25,6 @@ export async function getClientProgramsAction(): Promise<ActionResponse<Program[
     if (snapshot.empty) {
       return { success: true, data: [] };
     }
-    // CORRECTED: Removed the faulty logic that tried to access a `workouts` property that does not exist.
-    // This was causing the server to crash.
     const programs = snapshot.docs.map(doc => {
         const program = doc.data() as Program;
         program.id = doc.id;
@@ -37,8 +47,6 @@ export async function getProgramDetailsAction(programId: string): Promise<Action
     }
     const program = doc.data() as Program;
     program.id = doc.id;
-    // CORRECTED: Removed the faulty logic that tried to access a `workouts` property that does not exist.
-    // This was the primary cause of server crashes when loading program-related data.
     return { success: true, data: program };
   } catch (error: any) {
     return { success: false, error: "Failed to fetch program details." };
@@ -92,8 +100,8 @@ export async function getScheduledEventsAction(userId: string): Promise<ActionRe
 
         const events: ScheduledEvent[] = snapshot.docs.map(doc => {
             const data = doc.data();
-            const startTime = data.startTime || data.start; // Handle legacy data
-            const endTime = data.endTime || data.end;       // Handle legacy data
+            const startTime = data.startTime || data.start;
+            const endTime = data.endTime || data.end;
             return {
                 id: data.id,
                 type: data.type,
