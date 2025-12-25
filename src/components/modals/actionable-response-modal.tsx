@@ -9,7 +9,7 @@ interface ActionButtonProps {
   label: string;
   onClick: () => void;
   variant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link';
-  className?: string; // Add this line
+  className?: string;
 }
 
 // Define the props for the modal itself
@@ -30,15 +30,13 @@ export function ActionableResponseModal({
 }: ActionableResponseModalProps) {
 
   const dialogFooter = (
-    <div className="flex items-center justify-end gap-2 w-full">
+    <div className="w-full pt-4 flex flex-col sm:flex-row sm:justify-end gap-2">
       {actions.map((action, index) => (
         <Button
           key={index}
           onClick={action.onClick}
-          variant={action.variant || 'outline'}
-          size="sm"
-          className={`flex-shrink-0 ${action.className || ''}`}
-        >
+          variant={action.variant || 'default'}
+          className={`w-full sm:w-auto ${action.className || ''}`}>
           {action.label}
         </Button>
       ))}
@@ -50,11 +48,9 @@ export function ActionableResponseModal({
       isOpen={isOpen}
       onClose={onClose}
       title={title}
-      description={description}
       footer={dialogFooter}
-    >
-      {/* The main content/message is passed as the 'description' to the BaseModal header */}
-      <div />
+      className="sm:max-w-md">
+      <p className="text-sm text-muted-foreground">{description}</p>
     </BaseModal>
   );
 }

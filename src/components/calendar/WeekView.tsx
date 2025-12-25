@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
@@ -12,10 +12,10 @@ import {
   format,
   isToday,
 } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
 import { cn } from '@/lib/utils';
 import type { ClientProfile } from '@/types';
 
-// DEFINITIVE FIX: Add a robust date parsing utility to prevent crashes.
 const safeParseDate = (dateSource: any): Date | null => {
     if (!dateSource) return null;
     if (typeof dateSource.toDate === 'function') return dateSource.toDate();
@@ -51,7 +51,12 @@ const pillarDotColors: Record<string, string> = {
 };
 
 export function WeekView({ client, selectedDate, setSelectedDate, setActiveTab, entries, isLoading, onDateChange }: WeekViewProps) {
-  
+  const [userTimezone, setUserTimezone] = useState('');
+
+  useEffect(() => {
+    setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  }, []);
+
   const week = useMemo(() => {
     return eachDayOfInterval({
       start: startOfWeek(selectedDate),
@@ -64,13 +69,14 @@ export function WeekView({ client, selectedDate, setSelectedDate, setActiveTab, 
     onDateChange(newDate);
   };
 
-  // DEFINITIVE FIX: Use safeParseDate and check multiple date fields to group entries reliably.
   const entriesByDay = useMemo(() => {
+    if (!userTimezone) return new Map<string, any[]>();
     const map = new Map<string, any[]>();
     for (const entry of entries) {
       const entryDate = safeParseDate(entry.start || entry.startTime || entry.entryDate || entry.wakeUpDay);
       if (entryDate) {
-        const entryDateStr = format(entryDate, 'yyyy-MM-dd');
+        const zonedDate = toZonedTime(entryDate, userTimezone);
+        const entryDateStr = format(zonedDate, 'yyyy-MM-dd');
         if (!map.has(entryDateStr)) {
           map.set(entryDateStr, []);
         }
@@ -78,7 +84,7 @@ export function WeekView({ client, selectedDate, setSelectedDate, setActiveTab, 
       }
     }
     return map;
-  }, [entries]);
+  }, [entries, userTimezone]);
 
   const handleDayClick = (day: Date) => {
     setSelectedDate(day);
@@ -131,7 +137,6 @@ export function WeekView({ client, selectedDate, setSelectedDate, setActiveTab, 
               </div>
               <div className="flex-1 mt-2">
                 <div className="flex flex-wrap gap-1">
-                    {/* DEFINITIVE FIX: Add index to key to prevent React warnings */}
                     {pillarDots.map((pillar, index) => (
                          <div key={`${pillar}-${index}`} title={pillar as string} className={cn("h-1.5 w-1.5 rounded-full", pillarDotColors[pillar as string] || pillarDotColors.default)} />
                     ))}
