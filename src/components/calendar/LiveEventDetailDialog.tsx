@@ -47,11 +47,13 @@ export function LiveEventDetailDialog({ isOpen, onClose, event }: LiveEventDetai
     if (!event?.id) return;
     setIsDeleting(true);
     const result = await deleteCalendarEventAction(event.id);
-    if (result.success) {
+
+    // Using the 'in' operator as a robust type guard to solve the narrowing issue.
+    if ('error' in result) {
+      toast({ variant: 'destructive', title: 'Error', description: result.error || 'Failed to cancel attendance.' });
+    } else {
       toast({ title: 'Attendance Cancelled', description: 'The event has been removed from your calendar.' });
       onClose(true);
-    } else {
-      toast({ variant: 'destructive', title: 'Error', description: result.error || 'Failed to cancel attendance.' });
     }
     setIsDeleting(false);
   };
@@ -105,7 +107,7 @@ export function LiveEventDetailDialog({ isOpen, onClose, event }: LiveEventDetai
           <div className="flex items-center gap-2">
             {hasVideoLink && (
               <Button asChild className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white">
-                <Link href={videoLink} target="_blank">
+                <Link href={videoLink!} target="_blank">
                   <Video className="mr-2 h-4 w-4" />
                   Join Live Event
                 </Link>
