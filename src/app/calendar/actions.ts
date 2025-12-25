@@ -351,7 +351,7 @@ export async function completeWorkoutAction(data: {
             name: finalName,      
             type: 'workout',
             duration: duration,    
-            calories: workout.calories || null,
+            calories: (workout as any).calories || null,
             relatedId: workoutId,
             programId: effectiveProgramId || null,
         });
@@ -409,7 +409,7 @@ export async function getTodaysContextualData(userId: string) {
 
         const [sleepFlatSnap, sleepNestedSnap, hydrationFlatSnap, hydrationNestedSnap] = await Promise.all([
             sleepQueryFlat.get(),
-            sleepNestedSnap.get(),
+            sleepQueryNested.get(),
             hydrationQueryFlat.get(),
             hydrationQueryNested.get(),
         ]);
