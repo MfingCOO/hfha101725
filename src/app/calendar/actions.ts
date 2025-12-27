@@ -2,7 +2,7 @@
 
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp, DocumentSnapshot } from 'firebase-admin/firestore';
-import { subDays, addDays, isWithinInterval, format } from 'date-fns';
+import { subDays, addDays, isWithinInterval, format, startOfDay, endOfDay } from 'date-fns';
 import { calculateDailySummaryForUser } from '@/services/summary-calculator'; 
 import { revalidatePath } from 'next/cache';
 import { Program, Workout } from '@/types/workout-program';
@@ -174,13 +174,12 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
             return dateA.getTime() - dateB.getTime();
         });
 
-        // --- SURGICAL FIX V2: Intelligent Title Mapping ---
         const displayEntries = finalEntries.map(entry => {
-            if (entry.title) { // If title already exists, do nothing
+            if (entry.title) { 
                 return entry;
             }
 
-            let newTitle = 'Logged Entry'; // Default fallback title
+            let newTitle = 'Logged Entry';
 
             switch (entry.pillar) {
                 case 'nutrition':
@@ -484,4 +483,94 @@ export async function updateWorkoutTime(eventId: string, newStartTime: Date) {
     console.error("Error updating workout time:", error);
     return { success: false, error: 'Failed to update the workout time.' };
   }
+}
+
+export async function getCalendarDataForRange(userId: string, startDate: string, endDate: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    if (!userId || !startDate || !endDate) {
+        return { success: false, error: "User ID, start date, and end date are required." };
+    }
+
+    const filterRangeStart = startOfDay(new Date(startDate));
+    const filterRangeEnd = endOfDay(new Date(endDate));
+
+    const firestoreQueryStartUTC = subDays(filterRangeStart, 1);
+    const firestoreQueryEndUTC = addDays(filterRangeEnd, 1);
+
+    try {
+        const personalLogPromises = ALL_DATA_COLLECTIONS.map(async (collectionName) => {
+            const collectionPath = `clients/${userId}/${collectionName}`;
+            const dateField = collectionName === 'planner' ? 'indulgenceDate' : 'entryDate';
+            const nestedDateField = collectionName === 'planner' ? 'log.indulgenceDate' : 'log.entryDate';
+            
+            const flatQuery = adminDb.collection(collectionPath).where(dateField, '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where(dateField, '<=', Timestamp.fromDate(firestoreQueryEndUTC));
+            const nestedQuery = adminDb.collection(collectionPath).where(nestedDateField, '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where(nestedDateField, '<=', Timestamp.fromDate(firestoreQueryEndUTC));
+
+            const [flatSnapshot, nestedSnapshot] = await Promise.all([flatQuery.get(), nestedQuery.get()]);
+            const docs = new Map<string, DocumentSnapshot>();
+            flatSnapshot.docs.forEach(doc => docs.set(doc.id, doc));
+            nestedSnapshot.docs.forEach(doc => docs.set(doc.id, doc));
+            return Array.from(docs.values()).map(doc => ({ ...unnestLogData(doc), pillar: collectionName }));
+        });
+
+        const coachAppointmentsPromise = adminDb.collection('coachCalendar').where('clientId', '==', userId).where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC)).get();
+        const clientCalendarEventsPromise = adminDb.collection('clientCalendar').where('userId', '==', userId).where('startTime', '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where('startTime', '<=', Timestamp.fromDate(firestoreQueryEndUTC)).get();
+
+        const [personalLogsNested, coachAppointmentsSnap, clientCalendarEventsSnap] = await Promise.all([
+            Promise.all(personalLogPromises),
+            coachAppointmentsPromise,
+            clientCalendarEventsPromise,
+        ]);
+
+        const coachAppointments = coachAppointmentsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id, pillar: 'appointment', entryDate: doc.data().start }));
+        const clientCalendarEvents = clientCalendarEventsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id, pillar: doc.data().type || 'live-event', entryDate: doc.data().startTime }));
+
+        const allEntriesRaw = (personalLogsNested as any).flat().concat(coachAppointments as any).concat(clientCalendarEvents as any).filter(Boolean);
+
+        const finalEntries = allEntriesRaw.filter(entry => {
+            const getJSDate = (d: any) => d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
+            if (entry.pillar === 'sleep') {
+                const wakeUpDay = getJSDate(entry.wakeUpDay);
+                if (wakeUpDay && wakeUpDay.getTime() >= filterRangeStart.getTime() && wakeUpDay.getTime() <= filterRangeEnd.getTime()) return true;
+                const entryDate = getJSDate(entry.entryDate);
+                return entry.isNap && entryDate && isWithinInterval(entryDate, { start: filterRangeStart, end: filterRangeEnd });
+            }
+            if (entry.pillar === 'planner') {
+                const indulgenceDate = getJSDate(entry.indulgenceDate);
+                return indulgenceDate && isWithinInterval(indulgenceDate, { start: filterRangeStart, end: filterRangeEnd });
+            }
+            const entryDate = getJSDate(entry.entryDate || entry.start || entry.startTime);
+            return entryDate && isWithinInterval(entryDate, { start: filterRangeStart, end: filterRangeEnd });
+        });
+        
+        finalEntries.sort((a: any, b: any) => {
+             const getJSDate = (d: any) => d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
+             const dateA = getJSDate(a.indulgenceDate || a.entryDate || a.wakeUpDay || a.start || a.startTime);
+             const dateB = getJSDate(b.indulgenceDate || b.entryDate || b.wakeUpDay || b.start || b.startTime);
+             return dateA.getTime() - dateB.getTime();
+        });
+
+        const displayEntries = finalEntries.map(entry => {
+            if (entry.title) return entry;
+            let newTitle = 'Logged Entry';
+            switch (entry.pillar) {
+                case 'nutrition': newTitle = entry.mealType || entry.name || 'Nutrition Entry'; break;
+                case 'activity': newTitle = entry.name || 'Activity'; break;
+                case 'sleep': newTitle = entry.isNap ? 'Nap' : 'Sleep'; break;
+                case 'hydration': newTitle = `Hydration: ${entry.amount}${entry.unit || 'oz'}`; break;
+                case 'stress': newTitle = 'Stress Log'; break;
+                case 'measurements': newTitle = 'Measurement'; break;
+                case 'planner': newTitle = entry.name || 'Planned Indulgence'; break;
+                case 'cravings': newTitle = 'Craving/Binge Log'; break;
+                default: if (entry.name) newTitle = entry.name; break;
+            }
+            return { ...entry, title: newTitle };
+        });
+
+        const serializableData = displayEntries.map(serializeTimestamps);
+        return { success: true, data: serializableData };
+
+    } catch (e: any) {
+        console.error("CRITICAL ERROR in getCalendarDataForRange: ", e);
+        return { success: false, data: [], error: e.message || "An unknown server error occurred." };
+    }
 }

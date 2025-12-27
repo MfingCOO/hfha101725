@@ -13,7 +13,7 @@ import type { ClientProfile, NutritionalGoals } from '@/types';
 import { DayView } from './day-view';
 import { WeekView } from './WeekView';
 import { MonthView } from './MonthView';
-import { getCalendarDataForDay, triggerSummaryRecalculation } from '@/app/calendar/actions';
+import { getCalendarDataForDay, getCalendarDataForRange, triggerSummaryRecalculation } from '@/app/calendar/actions';
 import { getScheduledEventsAction } from '@/app/client/actions';
 import { ScheduledEvent } from '@/types/event';
 import { UtensilsCrossed, Droplet, Moon, Flame, ShieldAlert, ClipboardList, Pencil } from 'lucide-react';
@@ -26,6 +26,7 @@ import { getClientByIdAction } from '@/app/coach/clients/actions';
 import { useToast } from '@/hooks/use-toast';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns';
 
 const NutrientRow = ({ name, value, unit, goal, isTrackOnly = false }: { name: string, value: number, unit: string, goal: number, isTrackOnly?: boolean }) => {
     const percentage = goal > 0 && !isTrackOnly ? (value / goal) * 100 : value > 0 ? 100 : 0;
@@ -183,6 +184,8 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
   const [settingsDefaultTab, setSettingsDefaultTab] = useState('account');
   const [settingsDefaultAccordion, setSettingsDefaultAccordion] = useState<string | undefined>(undefined);
   const [userTimezone, setUserTimezone] = useState<string>('');
+  
+  const [viewDateRange, setViewDateRange] = useState<{ start: Date, end: Date } | null>(null);
 
   useEffect(() => {
       setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -216,27 +219,38 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
       }
   }, [isSettingsOpen, fetchClientProfile]);
 
-  const dateString = useMemo(() => {
-    const year = selectedDate.getFullYear();
-    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
-    const day = String(selectedDate.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }, [selectedDate]);
+  useEffect(() => {
+      if (activeTab === 'week') {
+          setViewDateRange({ start: startOfWeek(selectedDate), end: endOfWeek(selectedDate) });
+      } else if (activeTab === 'month') {
+          setViewDateRange({ start: startOfMonth(selectedDate), end: endOfMonth(selectedDate) });
+      } else {
+          setViewDateRange(null);
+      }
+  }, [activeTab, selectedDate]);
   
   const timezoneOffset = selectedDate.getTimezoneOffset();
-  
+  const dateString = useMemo(() => format(selectedDate, 'yyyy-MM-dd'), [selectedDate]);
+  const rangeString = useMemo(() => viewDateRange ? `${format(viewDateRange.start, 'yyyy-MM-dd')}_${format(viewDateRange.end, 'yyyy-MM-dd')}` : '', [viewDateRange]);
+
   const { data: calendarData, isLoading: isLoadingCalendar } = useQuery({
-      queryKey: ['calendarData', dateString, initialClient.uid, userTimezone, timezoneOffset],
+      queryKey: ['calendarData', initialClient.uid, activeTab, dateString, rangeString],
       queryFn: async () => {
-          const result = await getCalendarDataForDay(initialClient.uid, dateString, userTimezone, timezoneOffset);
-          if ('error' in result) {
-              console.error("Failed to fetch calendar data:", result.error);
-              toast({ variant: 'destructive', title: 'Error', description: 'Could not load calendar data.' });
-              return { data: [], summary: null };
+          let result;
+          if (activeTab === 'day') {
+              result = await getCalendarDataForDay(initialClient.uid, dateString, userTimezone, timezoneOffset);
+          } else if (viewDateRange) {
+              result = await getCalendarDataForRange(initialClient.uid, format(viewDateRange.start, 'yyyy-MM-dd'), format(viewDateRange.end, 'yyyy-MM-dd'));
+          }
+
+          if (!result || ('error' in result && result.error)) {
+              console.error(`Failed to fetch calendar data for ${activeTab}:`, result?.error);
+              toast({ variant: 'destructive', title: 'Error', description: `Could not load calendar data for ${activeTab} view.` });
+              return { data: [], summary: null }; 
           }
           return result;
       },
-      enabled: isOpen && !!initialClient.uid && !!userTimezone
+      enabled: isOpen && !!initialClient.uid && !!userTimezone && (activeTab === 'day' || !!viewDateRange)
   });
 
   const { data: scheduledEvents, isLoading: isLoadingEvents } = useQuery({
@@ -259,7 +273,7 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
         ...event,
         start: new Date(event.startTime),
         end: new Date(event.endTime),
-        allDay: false, // Or determine based on event properties
+        allDay: false, 
         __TYPE: 'workout'
     }));
     return [...regularEntries, ...workoutEvents];
@@ -268,8 +282,10 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
   const isLoading = isLoadingCalendar || isLoadingEvents;
 
   const handleEntryChange = async () => {
-      await triggerSummaryRecalculation(initialClient.uid, dateString, userTimezone, timezoneOffset);
-      queryClient.invalidateQueries({ queryKey: ['calendarData', dateString, initialClient.uid, userTimezone, timezoneOffset] });
+      if (activeTab === 'day') {
+        await triggerSummaryRecalculation(initialClient.uid, dateString, userTimezone, timezoneOffset);
+      }
+      queryClient.invalidateQueries({ queryKey: ['calendarData', initialClient.uid, activeTab, dateString, rangeString] });
       queryClient.invalidateQueries({ queryKey: ['scheduledEvents', initialClient.uid]});
   };
 
