@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -11,7 +10,7 @@ import { Loader2, CheckCircle, ChevronLeft, ChevronRight, X, Trophy, Pencil, Inf
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/auth-provider';
 import { cn } from '@/lib/utils';
-import { Challenge, CustomHabit } from '@/services/firestore';
+import { Challenge } from '@/services/firestore';
 import { format, eachDayOfInterval, startOfDay, isSameDay, isToday, differenceInCalendarDays } from 'date-fns';
 import { logChallengeProgressAction, getAllDataForPeriod } from '@/services/firestore';
 import { pillarsAndTools } from '@/lib/pillars';
@@ -21,19 +20,15 @@ import { Card, CardContent } from '../ui/card';
 import { Flame, Star } from 'lucide-react';
 import { getCustomHabitsAction } from '@/app/coach/habits/actions';
 import { BaseModal } from '@/components/ui/base-modal';
-import { ChatView } from '../chats/chat-view';
-import { Input } from '../ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { GenerateChallengeInsightOutput } from '@/ai/flows/generate-challenge-insight';
 import { AppNumberInput } from '../ui/number-input';
-import { EmbeddedChatDialog } from '../coach/chats/embedded-chat-dialog';
+import { TROPHY_DEFINITIONS, TrophyDefinition } from '@/lib/trophies';
 
+// Locally defined type for CustomHabit to resolve import error
+interface CustomHabit {
+    id: string;
+    name: string;
+    description: string;
+}
 
 type SerializableChallenge = Omit<Challenge, 'dates' | 'createdAt' | 'progress'> & {
     dates: { from: string, to: string };
@@ -53,7 +48,8 @@ interface ClientChallengeDetailModalProps {
     onClose: () => void;
 }
 
-const ChallengeProgress = ({ challenge, userLogs, user }: { challenge: SerializableChallenge, userLogs: any[], user: any }) => {
+const ChallengeProgress = ({ challenge, user, customHabits, userLogs, isPillarTaskCompleteAutomatically }: { challenge: SerializableChallenge, user: any, customHabits: CustomHabit[], userLogs: any[], isPillarTaskCompleteAutomatically: (date: Date, pillarId: string) => boolean }) => {
+
     
     const allTasks = useMemo(() => {
         const tasks = [];
@@ -63,15 +59,35 @@ const ChallengeProgress = ({ challenge, userLogs, user }: { challenge: Serializa
         if (challenge.customTasks) {
             tasks.push(...challenge.customTasks.map(t => t.description));
         }
+        if (challenge.scheduledHabits) {
+            tasks.push(...challenge.scheduledHabits.map(h => customHabits.find(ch => ch.id === h.habitId)?.name || `Habit ${h.habitId}`));
+        }
         return tasks;
-    }, [challenge]);
+    }, [challenge, customHabits]);
 
     const streakData = useMemo(() => {
-        if (!user || !challenge.progress || !challenge.progress[user.uid]) {
+        if (!user) {
             return allTasks.map(task => ({ task, currentStreak: 0, bestStreak: 0 }));
         }
-
-        const userProgress = challenge.progress[user.uid];
+    
+        const userProgress = challenge.progress?.[user.uid] || {};
+    
+        const isTaskCompleteOnDate = (taskName: string, date: Date) => {
+            const dateStr = format(startOfDay(date), 'yyyy-MM-dd');
+            
+            // 1. Check for manual completion (checkbox checked)
+            if (userProgress[dateStr]?.[taskName]) {
+                return true;
+            }
+    
+            // 2. If not manual, check for automatic completion (for pillar tasks only)
+            const pillar = pillarsAndTools.find(p => `Log ${p.label}` === taskName);
+            if (pillar) {
+                return isPillarTaskCompleteAutomatically(date, pillar.id);
+            }
+            
+            return false;
+        };
         
         return allTasks.map(task => {
             let bestStreak = 0;
@@ -80,47 +96,65 @@ const ChallengeProgress = ({ challenge, userLogs, user }: { challenge: Serializa
             const today = startOfDay(new Date());
             const challengeStartDate = startOfDay(new Date(challenge.dates.from));
             
-            // Check for current streak
-            let checkDate = new Date(today);
-            while(checkDate >= challengeStartDate) {
-                const dateStr = format(checkDate, 'yyyy-MM-dd');
-                 if (userProgress[dateStr] && userProgress[dateStr][task]) {
+            // Calculate current streak
+            let dateForCurrentStreak = new Date(today);
+            while(dateForCurrentStreak >= challengeStartDate) {
+                if (isTaskCompleteOnDate(task, dateForCurrentStreak)) {
                     currentStreak++;
                 } else {
                     break;
                 }
-                checkDate.setDate(checkDate.getDate() - 1);
+                dateForCurrentStreak.setDate(dateForCurrentStreak.getDate() - 1);
             }
             
-            // Check for best streak
-            let dateIterator = new Date(challengeStartDate);
-            while(dateIterator <= today) {
-                 const dateStr = format(dateIterator, 'yyyy-MM-dd');
-                 if (userProgress[dateStr] && userProgress[dateStr][task]) {
+            // Calculate best streak
+            let dateForBestStreak = new Date(challengeStartDate);
+            while(dateForBestStreak <= today) {
+                 if (isTaskCompleteOnDate(task, dateForBestStreak)) {
                      tempStreak++;
                  } else {
                      bestStreak = Math.max(bestStreak, tempStreak);
                      tempStreak = 0;
                  }
-                 dateIterator.setDate(dateIterator.getDate() + 1);
+                 dateForBestStreak.setDate(dateForBestStreak.getDate() + 1);
             }
             bestStreak = Math.max(bestStreak, tempStreak);
-
-
+    
             return { task, currentStreak, bestStreak };
         });
+    
+    }, [challenge, user, allTasks, userLogs, isPillarTaskCompleteAutomatically]);
 
-    }, [challenge, user, allTasks]);
+    const overallBestStreak = useMemo(() => {
+        return streakData.reduce((max, current) => Math.max(max, current.bestStreak), 0);
+    }, [streakData]);
 
+    const earnedTrophies = useMemo(() => {
+        return TROPHY_DEFINITIONS.filter(trophy => trophy.isEarned({ bestStreak: overallBestStreak }));
+    }, [overallBestStreak]);
 
     return (
         <div className="p-4 space-y-4">
             <Card className="bg-amber-400/10 border-amber-400/30">
                 <CardContent className="p-3">
                     <h3 className="font-bold text-center text-amber-300 mb-2">Trophy Case</h3>
-                    <div className="flex justify-center items-center h-20">
-                        <p className="text-sm text-amber-300/70">Awards and trophies coming soon!</p>
-                    </div>
+                    {earnedTrophies.length > 0 ? (
+                        <div className="space-y-2">
+                            {earnedTrophies.map(trophy => (
+                                <div key={trophy.id} className="flex items-center space-x-2 text-amber-300/80">
+                                    <trophy.icon className="h-5 w-5" />
+                                    <div>
+                                        <p className="font-semibold text-sm">{trophy.name}</p>
+                                        <p className="text-xs">{trophy.description}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex justify-center items-center h-20">
+                            <p className="text-sm text-amber-300/70">No trophies earned... yet!</p>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
             
@@ -322,8 +356,6 @@ export function ClientChallengeDetailModal({ challenge: initialChallenge, isOpen
     const hasUnsavedChanges = Object.keys(unsavedProgress).length > 0;
     const [dataLoadError, setDataLoadError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState('tasks');
-    const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
-
 
     const fetchInitialData = useCallback(async () => {
         if (!user) return;
@@ -387,9 +419,10 @@ export function ClientChallengeDetailModal({ challenge: initialChallenge, isOpen
     const currentDay = days[currentDayIndex];
     
     const handleProgressChange = useCallback((taskDescription: string, value: boolean | number | '') => {
+        const progressValue = value === '' ? 0 : value;
         setUnsavedProgress(prev => ({
             ...prev,
-            [taskDescription]: value,
+            [taskDescription]: progressValue,
         }));
     }, []);
     
@@ -460,21 +493,11 @@ export function ClientChallengeDetailModal({ challenge: initialChallenge, isOpen
         
         if (pillarId === 'hydration') {
              const todaysHydration = dayLogs.filter(l => l.pillar === 'hydration').reduce((sum, l) => sum + (l.amount || 0), 0);
-             const goal = userProfile?.suggestedHydrationGoal || 64;
+             const goal = 64; // FIX: Removed reference to non-existent userProfile property
              return todaysHydration >= goal;
         }
         return dayLogs.some(log => log.pillar === pillarId);
-    }, [userLogs, userProfile?.suggestedHydrationGoal]);
-
-    const handleTabChange = (value: string) => {
-        if (value === 'chat') {
-            setIsChatDialogOpen(true);
-            // Immediately switch back to the tasks tab visually
-            setTimeout(() => setActiveTab('tasks'), 0);
-        } else {
-            setActiveTab(value);
-        }
-    }
+    }, [userLogs]);
 
     return (
         <>
@@ -491,7 +514,7 @@ export function ClientChallengeDetailModal({ challenge: initialChallenge, isOpen
                         </div>
                         <h2 className="text-base font-bold tracking-tight text-left flex-1">{initialChallenge.name}</h2>
                     </div>
-                    <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                    <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0 overflow-hidden">
                         <div className="flex-1 min-h-0">
                             <TabsContent value="tasks" className="m-0 h-full">
                                 <DailyTasks
@@ -513,32 +536,18 @@ export function ClientChallengeDetailModal({ challenge: initialChallenge, isOpen
                                 />
                             </TabsContent>
                             <TabsContent value="progress" className="m-0 h-full">
-                                <ChallengeProgress challenge={challenge} userLogs={userLogs} user={user} />
+                            <ChallengeProgress challenge={challenge} user={user} customHabits={customHabits} userLogs={userLogs} isPillarTaskCompleteAutomatically={isPillarTaskCompleteAutomatically} />
                             </TabsContent>
                         </div>
                         <div className="p-2 border-t">
-                            <TabsList className="grid w-full grid-cols-3 mx-auto max-w-sm mt-auto flex-shrink-0">
+                            <TabsList className="grid w-full grid-cols-2 mx-auto max-w-sm mt-auto flex-shrink-0">
                                 <TabsTrigger value="tasks">Daily Tasks</TabsTrigger>
                                 <TabsTrigger value="progress">Trophies</TabsTrigger>
-                                <TabsTrigger value="chat">Chat</TabsTrigger>
                             </TabsList>
                         </div>
                     </Tabs>
                 </div>
             </BaseModal>
-
-            {isChatDialogOpen && (
-                <EmbeddedChatDialog
-                    isOpen={isChatDialogOpen}
-                    onClose={() => setIsChatDialogOpen(false)}
-                    chatId={challenge.id}
-                    chatName={challenge.name}
-                />
-            )}
         </>
     );
 }
-
-    
-
-    
