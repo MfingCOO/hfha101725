@@ -1,18 +1,12 @@
 'use client';
 import React, { useState, useCallback, useEffect } from 'react';
-import { searchUSDA, checkCachedStatus } from '@/app/coach/food-cache/actions';
+import { hybridFoodSearch } from '@/app/coach/food-cache/actions';
 import { FoodCacheModal } from '@/components/coach/food-cache/food-cache-modal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { EnrichedFood } from '@/types';
-
-// This interface defines the strict shape of a search result on the client.
-interface SearchResult {
-  fdcId: number;
-  description: string;
-  brandOwner?: string;
-}
+// SURGICAL INSERTION & REMOVAL: Import the shared type, remove the local one.
+import { HybridFoodSearchResult } from '@/types';
 
 interface ManageFoodCacheDialogProps {
   open: boolean;
@@ -21,39 +15,25 @@ interface ManageFoodCacheDialogProps {
 
 export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDialogProps) {
   const [query, setQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  // SURGICAL UPDATE: Use the imported shared type.
+  const [searchResults, setSearchResults] = useState<HybridFoodSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cachedIds, setCachedIds] = useState<Set<number>>(new Set());
   
   const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
   const [selectedFdcId, setSelectedFdcId] = useState<number | null>(null);
+  const [modalMode, setModalMode] = useState<'create' | 'edit'>('edit');
 
   const performSearch = useCallback(async () => {
-    if (query.length < 3) {
+    if (query.length < 2) {
       setSearchResults([]);
       return;
     }
     setIsLoading(true);
     setError(null);
     try {
-      const results = await searchUSDA(query);
-      
-      const validResults = results.filter(
-        (item): item is SearchResult => 
-          item != null && 
-          typeof item.fdcId === 'number' && 
-          typeof item.description === 'string'
-      );
-      setSearchResults(validResults);
-
-      if (validResults.length > 0) {
-        const fdcIds = validResults.map(r => r.fdcId);
-        const cached = await checkCachedStatus(fdcIds);
-        setCachedIds(new Set(cached));
-      } else {
-        setCachedIds(new Set());
-      }
+      const results = await hybridFoodSearch(query);
+      setSearchResults(results);
     } catch (e) {
       setError('Failed to search for food items.');
       console.error(e);
@@ -65,38 +45,26 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
       if(open) performSearch();
-    }, 500);
+    }, 300);
     return () => clearTimeout(delayDebounceFn);
   }, [query, open, performSearch]);
 
   const handleOpenEditorModal = (fdcId: number) => {
     setSelectedFdcId(fdcId);
+    setModalMode('edit');
     setIsEditorModalOpen(true);
   };
 
-  const handleCloseEditorModal = (update: (EnrichedFood & { fdcId: number }) | { fdcId: number } | null) => {
+  const handleOpenCreatorModal = () => {
+      setSelectedFdcId(null);
+      setModalMode('create');
+      setIsEditorModalOpen(true);
+  }
+
+  const handleCloseEditorModal = () => {
     setIsEditorModalOpen(false);
     setSelectedFdcId(null);
-
-    if (update) {
-      if (!('description' in update)) {
-        setSearchResults(prev => prev.filter(item => item.fdcId !== update.fdcId));
-        setCachedIds(prev => {
-          const newIds = new Set(prev);
-          newIds.delete(update.fdcId);
-          return newIds;
-        });
-      } else {
-        setSearchResults(prev => 
-          prev.map(item => 
-            item.fdcId === update.fdcId
-              ? { ...item, description: update.description, brandOwner: update.brandOwner }
-              : item
-          )
-        );
-        setCachedIds(prev => new Set(prev).add(update.fdcId));
-      }
-    }
+    performSearch();
   };
 
   return (
@@ -111,7 +79,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search for a food item in USDA database..."
+              placeholder="Search local cache or USDA database..."
             />
           </div>
 
@@ -126,18 +94,19 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
                   <p className="text-sm text-muted-foreground">{food.brandOwner}</p>
                 </div>
                 <div className="flex items-center space-x-4 flex-shrink-0 ml-4">
-                  {cachedIds.has(food.fdcId) && <span className="text-sm font-semibold text-green-500">Cached</span>}
+                  {food.isCached && <span className="text-sm font-semibold text-green-500">In Cache</span>}
                   <Button 
-                      variant={cachedIds.has(food.fdcId) ? 'secondary' : 'default'}
+                      variant={food.isCached ? 'secondary' : 'default'}
                       onClick={() => handleOpenEditorModal(food.fdcId)}>
-                      {cachedIds.has(food.fdcId) ? 'Edit' : 'Add'}
+                      {food.isCached ? 'Edit' : 'Add'}
                   </Button>
                 </div>
               </div>
             ))}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="sm:justify-between">
+            <Button variant="secondary" onClick={handleOpenCreatorModal}>Create New Food</Button>
             <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
@@ -148,6 +117,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
           isOpen={isEditorModalOpen}
           onClose={handleCloseEditorModal}
           fdcId={selectedFdcId}
+          mode={modalMode}
         />
       )}
     </>

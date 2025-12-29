@@ -301,3 +301,19 @@ export interface LiveEvent {
     attendees: string[];
     createdAt: any;
 }
+
+// SURGICAL INSERTION: Add a single source of truth for the hybrid search result type.
+export interface HybridFoodSearchResult {
+  fdcId: number;
+  description: string;
+  brandOwner?: string;
+  isCached: boolean;
+}
+
+// SURGICAL INSERTION: Add a Zod schema for runtime validation.
+export const HybridFoodSearchResultSchema = z.array(z.object({
+    fdcId: z.number(),
+    description: z.string(),
+    brandOwner: z.string().optional(),
+    isCached: z.boolean(),
+}));

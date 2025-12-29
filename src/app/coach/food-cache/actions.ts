@@ -13,7 +13,8 @@ import {
   UpfAnalysisSchema,
   UpfPercentageSchema,
   GlutenAnalysisSchema,
-  PortionSizesSchema
+  PortionSizesSchema,
+  HybridFoodSearchResult
 } from '@/types';
 import { z } from 'zod';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
@@ -39,17 +40,13 @@ const convertTimestampsToISO = (data: any) => {
   return newData;
 }
 
-export async function searchUSDA(query: string): Promise<z.infer<typeof FoodSearchResultSchema>> {
+async function searchUSDA(query: string): Promise<z.infer<typeof FoodSearchResultSchema>> {
   const USDA_API_KEY = process.env.USDA_API_KEY;
-  // DEFINITIVE FIX 1: Add robust error handling and logging.
   if (!USDA_API_KEY) {
     console.error("[Food Cache] CRITICAL: USDA_API_KEY is not configured in environment variables. Search will not work.");
-    return []; // Return empty array to prevent UI crash.
+    return []; 
   }
-  
-  // DEFINITIVE FIX 2: Increase pageSize from 20 to 50 as requested.
   const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=50&dataType=Branded,SR%20Legacy,Foundation`;
-  
   try {
     const response = await fetch(url);
     if (!response.ok) {
@@ -65,11 +62,60 @@ export async function searchUSDA(query: string): Promise<z.infer<typeof FoodSear
     })));
   } catch (error) {
     console.error("[Food Cache] Failed to fetch or parse data from USDA API:", error);
-    return []; // Return empty array on other fetch/parse failures.
+    return [];
   }
 }
 
-// DEFINITIVE FIX for both the "0 kcal" bug and the silent save failure.
+export async function hybridFoodSearch(query: string): Promise<HybridFoodSearchResult[]> {
+    if (query.length < 2) return [];
+    
+    const lowercasedQuery = query.toLowerCase();
+
+    const usdaPromise = searchUSDA(query);
+    const localPromise = adminDb.collection('global-food-cache')
+        .where('searchableDescription', '>=', lowercasedQuery)
+        .where('searchableDescription', '<=', lowercasedQuery + '\uf8ff')
+        .limit(25)
+        .get();
+
+    const [usdaResults, localSnapshot] = await Promise.all([usdaPromise, localPromise]);
+
+    const resultsMap = new Map<number, HybridFoodSearchResult>();
+
+    localSnapshot.docs.forEach(doc => {
+        const food = doc.data() as EnrichedFood;
+        resultsMap.set(food.fdcId, {
+            fdcId: food.fdcId,
+            description: food.description,
+            brandOwner: food.brandOwner || '',
+            isCached: true,
+        });
+    });
+
+    if (usdaResults.length > 0) {
+        const usdaFdcIds = usdaResults.map(f => f.fdcId).filter(id => !resultsMap.has(id));
+        
+        if (usdaFdcIds.length > 0) {
+            const cachedIds = await checkCachedStatus(usdaFdcIds);
+            const cachedIdsSet = new Set(cachedIds);
+
+            usdaResults.forEach(food => {
+                if (!resultsMap.has(food.fdcId)) {
+                     resultsMap.set(food.fdcId, {
+                        fdcId: food.fdcId,
+                        description: food.description,
+                        brandOwner: food.brandOwner || '',
+                        isCached: cachedIdsSet.has(food.fdcId),
+                    });
+                }
+            });
+        }
+    }
+
+    return Array.from(resultsMap.values()).sort((a, b) => a.description.localeCompare(b.description));
+}
+
+
 export async function getFoodDetails(fdcId: number) {
     const USDA_API_KEY = process.env.USDA_API_KEY;
     if (!USDA_API_KEY) {
@@ -78,50 +124,25 @@ export async function getFoodDetails(fdcId: number) {
     const url = `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${USDA_API_KEY}`;
     try {
         const response = await fetch(url);
-        if (!response.ok) {
-            return null;
-        }
+        if (!response.ok) return null;
         const data: BrandedFoodItem = await response.json();
 
-        const keyNutrientIds = {
-            Calories: 1008,
-            Protein: 1003,
-            Fat: 1004,
-            Carbs: 1005,
-            Fiber: 1079,
-        };
-
+        const keyNutrientIds = { Calories: 1008, Protein: 1003, Fat: 1004, Carbs: 1005, Fiber: 1079 };
         const nutrientMap: Map<number, Nutrient> = new Map();
-
-        // Process all available nutrients from the API.
         data.foodNutrients.forEach(n => {
-            // Use a fallback for amount to prevent saving `undefined`.
             const amount = n.amount ?? 0;
-            nutrientMap.set(n.nutrient.id, {
-                id: n.nutrient.id,
-                name: n.nutrient.name,
-                amount: amount,
-                unitName: n.nutrient.unitName.toLowerCase(),
-            });
+            nutrientMap.set(n.nutrient.id, { id: n.nutrient.id, name: n.nutrient.name, amount: amount, unitName: n.nutrient.unitName.toLowerCase() });
         });
 
-        // Prioritize "Energy (Atwater General Factors)" (ID: 2047) if available.
         const atwaterEnergy = data.foodNutrients.find(n => n.nutrient.id === 2047);
         if (atwaterEnergy) {
-             nutrientMap.set(keyNutrientIds.Calories, {
-                id: keyNutrientIds.Calories,
-                name: 'Energy',
-                amount: atwaterEnergy.amount ?? 0,
-                unitName: 'kcal',
-            });
+             nutrientMap.set(keyNutrientIds.Calories, { id: keyNutrientIds.Calories, name: 'Energy', amount: atwaterEnergy.amount ?? 0, unitName: 'kcal' });
         } else if (!nutrientMap.has(keyNutrientIds.Calories)) {
-            // If no Atwater and no regular Energy, add a zero-value placeholder.
             nutrientMap.set(keyNutrientIds.Calories, { id: keyNutrientIds.Calories, name: 'Energy', amount: 0, unitName: 'kcal' });
         }
 
-        // Ensure all key nutrients have a default value if missing, preventing `undefined`.
         const finalNutrients: Nutrient[] = [];
-        const nutrientDefinitions = {
+        const nutrientDefinitions: { [key: number]: { name: string; unit: string } } = {
             [keyNutrientIds.Calories]: { name: 'Energy', unit: 'kcal' },
             [keyNutrientIds.Protein]: { name: 'Protein', unit: 'g' },
             [keyNutrientIds.Fat]: { name: 'Total lipid (fat)', unit: 'g' },
@@ -134,16 +155,10 @@ export async function getFoodDetails(fdcId: number) {
             if (nutrientMap.has(numId)) {
                 finalNutrients.push(nutrientMap.get(numId)!);
             } else {
-                finalNutrients.push({
-                    id: numId,
-                    name: nutrientDefinitions[id as any].name,
-                    amount: 0,
-                    unitName: nutrientDefinitions[id as any].unit,
-                });
+                finalNutrients.push({ id: numId, name: (nutrientDefinitions as any)[id].name, amount: 0, unitName: (nutrientDefinitions as any)[id].unit });
             }
         }
         
-        // Ensure `brandOwner` and `ingredients` are strings to prevent Firestore `undefined` error.
         return {
             fdcId: data.fdcId,
             description: data.description,
@@ -158,24 +173,16 @@ export async function getFoodDetails(fdcId: number) {
     }
 }
 
-
 export async function checkCachedStatus(fdcIds: number[]): Promise<number[]> {
-  if (fdcIds.length === 0) {
-    return [];
-  }
-
+  if (fdcIds.length === 0) return [];
   const foodCacheRef = adminDb.collection('global-food-cache');
   const cachedIds: number[] = [];
-  const CHUNK_SIZE = 30; // Firestore 'in' query limit
-
+  const CHUNK_SIZE = 30; 
   for (let i = 0; i < fdcIds.length; i += CHUNK_SIZE) {
     const chunk = fdcIds.slice(i, i + CHUNK_SIZE);
     const snapshot = await foodCacheRef.where('fdcId', 'in', chunk).get();
-    snapshot.forEach(doc => {
-      cachedIds.push(doc.data().fdcId);
-    });
+    snapshot.forEach(doc => { cachedIds.push(doc.data().fdcId); });
   }
-
   return cachedIds;
 }
 
@@ -183,34 +190,20 @@ export async function checkCachedStatus(fdcIds: number[]): Promise<number[]> {
 export async function getEnrichedFood(fdcId: number): Promise<EnrichedFood | null> {
     const foodDocRef = adminDb.collection('global-food-cache').doc(String(fdcId));
     const docSnap = await foodDocRef.get();
-
-    if (!docSnap.exists) {
-        return null;
-    }
-    
+    if (!docSnap.exists) return null;
     return convertTimestampsToISO(docSnap.data()) as EnrichedFood;
 }
 
 export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFood | null> {
   const cachedFood = await getEnrichedFood(fdcId);
-  if (cachedFood) {
-    return cachedFood;
-  }
+  if (cachedFood) return cachedFood;
 
   const foodDetails = await getFoodDetails(fdcId);
-  if (!foodDetails) {
-    return null;
-  }
+  if (!foodDetails) return null;
 
-  const aiInput = {
-    description: foodDetails.description,
-    ingredients: foodDetails.ingredients || '',
-  };
-
+  const aiInput = { description: foodDetails.description, ingredients: foodDetails.ingredients || '' };
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl) {
-    throw new Error("NEXT_PUBLIC_APP_URL is not set");
-  }
+  if (!appUrl) throw new Error("NEXT_PUBLIC_APP_URL is not set");
 
   let enrichedDetailsFromAI: any;
   try {
@@ -219,15 +212,11 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ input: aiInput }),
     });
-
-    if (!response.ok) {
-      throw new Error(`AI flow failed with status ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`AI flow failed with status ${response.status}`);
     enrichedDetailsFromAI = await response.json();
-
   } catch (error) {
     console.error('Calling the AI enrichment flow failed.', error);
-    enrichedDetailsFromAI = { result: {} }; // Ensure result property exists on failure
+    enrichedDetailsFromAI = { result: {} };
   }
 
   const fallbackUpfAnalysis: UpfAnalysis = { rating: NovaGroup.UNCLASSIFIED, justification: 'AI analysis failed.' };
@@ -241,8 +230,7 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
   const portionSizes = PortionSizesSchema.safeParse(aiResult?.portionSizes).data || [];
 
   const newEnrichedFood: EnrichedFood = {
-    ...foodDetails,
-    fdcId: fdcId,
+    ...(foodDetails as any),
     source: 'AI_ANALYSIS',
     analysisDate: new Date().toISOString(),
     upfAnalysis,
@@ -256,6 +244,7 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
     const { createdAt, updatedAt, ...restOfData } = newEnrichedFood;
     const dataToSave: any = {
         ...restOfData,
+        searchableDescription: newEnrichedFood.description.toLowerCase(),
         analysisDate: Timestamp.fromDate(new Date(newEnrichedFood.analysisDate)),
         updatedAt: FieldValue.serverTimestamp(),
     };
@@ -263,13 +252,12 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
     const docSnap = await foodDocRef.get();
     if (!docSnap.exists) {
       dataToSave.createdAt = FieldValue.serverTimestamp();
-        await foodDocRef.set(dataToSave);
+      await foodDocRef.set(dataToSave);
     } else {
-        await foodDocRef.update(dataToSave);
+      await foodDocRef.update(dataToSave);
     }
 
   } catch (error) {
-    // DEFINITIVE FIX: Prevent server crash by handling the error gracefully.
     console.error("CRITICAL: Failed to save AI-enriched food to Firestore:", error);
     return null; 
   }
@@ -279,29 +267,21 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
 
 export async function saveManualEnrichedFood(foodData: EnrichedFood): Promise<{ success: boolean, error?: string }> {
     const foodDocRef = adminDb.collection('global-food-cache').doc(String(foodData.fdcId));
-
     try {
         const { createdAt, updatedAt, ...restOfFoodData } = foodData;
-
         const dataToSave: any = {
             ...restOfFoodData,
-            analysisDate: Timestamp.fromDate(
-                foodData.analysisDate && !isNaN(new Date(foodData.analysisDate).getTime()) 
-                ? new Date(foodData.analysisDate) 
-                : new Date()
-            ),
+            searchableDescription: foodData.description.toLowerCase(),
+            analysisDate: Timestamp.fromDate(foodData.analysisDate && !isNaN(new Date(foodData.analysisDate).getTime()) ? new Date(foodData.analysisDate) : new Date()),
             updatedAt: FieldValue.serverTimestamp(),
         };
-
         const docSnap = await foodDocRef.get();
-
         if (docSnap.exists) {
             await foodDocRef.update(dataToSave);
         } else {
           dataToSave.createdAt = FieldValue.serverTimestamp();
-            await foodDocRef.set(dataToSave);
+            await foodDocRef.set(dataToSave, { merge: true });
         }
-        
         return { success: true };
     } catch(error) {
         console.error("CRITICAL ERROR: Failed to save enriched food to Firestore:", error);
@@ -320,4 +300,12 @@ export async function deleteFoodFromCache(fdcId: number): Promise<{ success: boo
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
         return { success: false, error: errorMessage };
     }
+}
+
+export async function generateNewFdcId(): Promise<number> {
+    const foodCacheRef = adminDb.collection('global-food-cache');
+    const snapshot = await foodCacheRef.orderBy('fdcId', 'asc').where('fdcId', '<', 0).limit(1).get();
+    if (snapshot.empty) return -1;
+    const lowestFdcId = snapshot.docs[0].data().fdcId;
+    return lowestFdcId - 1;
 }

@@ -11,32 +11,34 @@ const FoodSearchResultSchema = z.array(z.object({
 }));
 
 export async function searchUSDA(query: string): Promise<z.infer<typeof FoodSearchResultSchema>> {
-  const USDA_API_KEY = process.env.USDA_API_KEY;
-  if (!USDA_API_KEY) {
-    console.error("[USDA Lib] CRITICAL: USDA_API_KEY is not configured. Search will not work.");
-    return [];
-  }
-  
-  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=50&dataType=Branded,SR%20Legacy,Foundation`;
-  
+  // CORRECTED: Point to the internal API route that handles relevance scoring.
+  // Use the full URL for server-side fetch.
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const url = `${baseUrl}/api/search`;
+
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+
     if (!response.ok) {
-      console.error("[USDA Lib] USDA API Error:", response.status, response.statusText);
+      console.error("[USDA Lib] Internal search API Error:", response.status, response.statusText);
       return [];
     }
-    const data: FoodData = await response.json();
-    if (!data.foods) {
+    const data = await response.json();
+    
+    // The internal API returns a `results` property.
+    if (!data.results) {
         return [];
     }
-    return FoodSearchResultSchema.parse(data.foods.map((food) => ({
-      fdcId: food.fdcId,
-      description: food.description,
-      brandOwner: food.brandOwner,
-      ingredients: food.ingredients,
-    })));
+
+    // The data is already sorted by the backend, so we just need to parse it.
+    return FoodSearchResultSchema.parse(data.results);
+
   } catch (error) {
-    console.error("[USDA Lib] Failed to fetch or parse data from USDA API:", error);
+    console.error("[USDA Lib] Failed to fetch or parse data from internal search API:", error);
     return [];
   }
 }
