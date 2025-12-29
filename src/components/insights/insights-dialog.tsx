@@ -18,22 +18,22 @@ import { WthrTrendChartDialog } from './wthr-trend-chart';
 import { ScrollArea } from '../ui/scroll-area';
 import type { LucideIcon } from 'lucide-react';
 
-// Final, definitive component. Logic is rewritten based on user guidance.
-
 interface InsightsDialogProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-// Simplified data structure based on user feedback.
+// Corrected interface to handle nested nutrition data from individual meal logs
 interface ClientLog {
     entryDate: string;
     pillar: string;
     type: string;
-    totalCalories?: number; // From daily nutrition summary log
-    upfPercentage?: number; // From daily nutrition summary log
-    amount?: number;        // For Hydration
-    duration?: number;      // For Sleep and Activity
+    summary?: any; // Handles nested nutrition data, e.g., summary.nutrients.Energy.value
+    amount?: number;
+    duration?: number;
+    calories?: number;
+    upf?: number;
+
 }
 
 interface AggregatedSummaryData {
@@ -50,14 +50,14 @@ interface AggregatedSummaryData {
 
 const DataCard = ({ icon: Icon, title, value, unit, context }: { icon: LucideIcon, title: string, value: string, unit: string, context: string }) => (
     <div className="bg-neutral-800/80 border border-neutral-700/60 rounded-lg p-3 flex flex-col aspect-square justify-between shadow-md">
-        <div className="h-[40px]"> 
+        <div className="h-[40px]">
             <div className="flex justify-between items-start">
                 <span className="text-sm font-medium text-neutral-400 whitespace-pre-wrap">{title}</span>
                 <Icon className="h-4 w-4 text-neutral-500 shrink-0" />
             </div>
         </div>
         <div>
-            <p className="text-3xl font-bold text-white tracking-tighter">
+        <p className="text-2xl font-bold text-white tracking-tighter">
                 {value}
                 <span className="text-lg font-medium text-neutral-300 ml-1">{unit}</span>
             </p>
@@ -76,7 +76,7 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
     const [isWeightChartOpen, setIsWeightChartOpen] = useState(false);
     const [isWthrChartOpen, setIsWthrChartOpen] = useState(false);
 
-    // Definitive logic based on user's direct feedback.
+    // Definitive logic: Calculates nutrition from raw meal logs.
     const aggregateLogs = useCallback((logs: ClientLog[]): AggregatedSummaryData => {
         const dailyData = new Map<string, any>();
         let totalStressEvents = 0;
@@ -88,24 +88,32 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
             const date = log.entryDate.split('T')[0];
             if (!dailyData.has(date)) {
                 dailyData.set(date, {
-                    calories: 0, upf: 0, hydration: 0, sleep: 0, activity: 0,
+                    calories: 0,
+                    upf: 0,
+                    hydration: 0,
+                    sleep: 0,
+                    activity: 0,
                     hasData: new Set<string>()
                 });
             }
             const day = dailyData.get(date);
 
             switch (log.pillar) {
-                case 'nutrition':
-                    // Assign pre-calculated values from the daily summary log.
-                    if (typeof log.totalCalories === 'number') {
-                        day.calories = log.totalCalories;
-                        day.hasData.add('calories');
+                case 'dailySummaries':
+                    if (typeof log.calories === 'number') {
+                       day.calories = log.calories;
+                       day.hasData.add('calories');
                     }
-                    if (typeof log.upfPercentage === 'number') {
-                        day.upf = log.upfPercentage;
-                        day.hasData.add('upf');
+                    if (typeof log.upf === 'number') {
+                       day.upf = log.upf;
+                       day.hasData.add('upf');
                     }
                     break;
+                case 'nutrition':
+                    // This case is now intentionally empty.
+                    // All nutrition totals are sourced from 'dailySummaries' to prevent double-counting.
+                    break;
+
                 case 'hydration':
                     if (typeof log.amount === 'number') {
                         day.hydration += log.amount;
@@ -126,7 +134,7 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
                     break;
                 case 'stress':
                      if (log.type === 'event') totalStressEvents++;
-                     // Restored previously working logic for Stress Relief.
+                     // Preserved working logic for Stress Relief.
                      if (log.type === 'relief') totalStressReliefs++;
                     break;
                 case 'cravings':
@@ -143,8 +151,15 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
         let sumActivity = 0, activityDays = 0;
 
         for (const day of dailyData.values()) {
-            if (day.hasData.has('calories')) { sumCalories += day.calories; calorieDays++; }
-            if (day.hasData.has('upf')) { sumUpf += day.upf; upfDays++; }
+            if (day.hasData.has('calories') && day.calories > 0) { 
+                sumCalories += day.calories; 
+                calorieDays++; 
+            }
+            // Correctly calculate daily UPF average from all meal logs, then average those daily averages.
+            if (day.hasData.has('upf')) {
+                sumUpf += day.upf;
+                upfDays++;
+            }            
             if (day.hasData.has('hydration')) { sumHydration += day.hydration; hydrationDays++; }
             if (day.hasData.has('sleep')) { sumSleep += day.sleep; sleepDays++; }
             if (day.hasData.has('activity')) { sumActivity += day.activity; activityDays++; }

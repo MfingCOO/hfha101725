@@ -3,7 +3,7 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { differenceInCalendarDays, startOfDay, endOfDay as fnsEndOfDay, subDays, subHours, format } from 'date-fns';
 import type { UserTier, ClientProfile, UserProfile, SavedMeal, MealItem, RecentFood } from '@/types';
-import { calculateDailySummary } from './summary-calculator';
+import { calculateDailySummaryForUser } from './summary-calculator';
 import { FieldValue, Timestamp, FieldPath, Query } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
 /**
@@ -31,7 +31,7 @@ function triggerSummaryCalculation(userId: string, dateSource: Timestamp | Date)
             }
 
             // 2. Call the new summary calculator with the fetched data.
-            await calculateDailySummary(userId, dateString, dayDataResult.data);
+            await calculateDailySummaryForUser(userId, dateString, JSON.stringify(dayDataResult.data), 0);
 
         } catch (error) {
             console.error(`[triggerSummaryCalculation] CRITICAL background error for user ${userId}:`, error);
@@ -479,7 +479,22 @@ export async function getAllDataForPeriod(days: number, userId: string, fromDate
                 ...doc.data()
             })));
         });
-        
+        const startStr = format(startDate, 'yyyy-MM-dd');
+        const endStr = format(endDate, 'yyyy-MM-dd');
+
+        const dailySummariesPromise = adminDb.collection(`clients/${userId}/dailySummaries`)
+            .where(FieldPath.documentId(), '>=', startStr)
+            .where(FieldPath.documentId(), '<=', endStr)
+            .get()
+            .then(snapshot => snapshot.docs.map(doc => ({
+                id: doc.id,
+                pillar: 'dailySummaries',
+                entryDate: doc.id, // Use the document ID as the date for consistency
+                ...doc.data()
+            })));
+
+        promises.push(dailySummariesPromise);
+
         
         const [results] = await Promise.all([Promise.all(promises)]);
         
