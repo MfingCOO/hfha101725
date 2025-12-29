@@ -1,5 +1,7 @@
 
 import { NextResponse } from 'next/server';
+import { db as adminDb } from '@/lib/firebaseAdmin';
+import { EnrichedFood } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -184,6 +186,34 @@ function calculateRelevance(food: UsdaFoodItem, queryLower: string): number {
   return score;
 }
 
+async function searchLocalCache(query: string) {
+    if (query.length < 2) return [];
+    const lowercasedQuery = query.toLowerCase();
+    try {
+        const snapshot = await adminDb.collection('global-food-cache')
+            .where('searchableDescription', '>=', lowercasedQuery)
+            .where('searchableDescription', '<=', lowercasedQuery + '\uf8ff')
+            .limit(25)
+            .get();
+
+        if (snapshot.empty) return [];
+
+        return snapshot.docs.map(doc => {
+            const food = doc.data() as EnrichedFood;
+            return {
+                fdcId: food.fdcId,
+                description: food.description,
+                brandOwner: food.brandOwner || '',
+                isCached: true,
+                relevanceScore: 99999, // High score to boost to top
+            };
+        });
+    } catch (error) {
+        console.error('[API Search Route] Local cache search error:', error);
+        return [];
+    }
+}
+
 async function searchUSDA(query: string) {
   const apiKey = process.env.USDA_API_KEY;
   if (!apiKey) {
@@ -227,9 +257,8 @@ async function searchUSDA(query: string) {
       .map(food => ({
         ...food,
         relevanceScore: calculateRelevance(food, queryLower),
-      }))
-      .sort((a, b) => b.relevanceScore - a.relevanceScore)
-      .map(f => ({ fdcId: f.fdcId, description: f.description, brandOwner: f.brandOwner, ingredients: f.ingredients }));
+        isCached: false, // Default for USDA results
+      }));
 
     return { results: sortedFoods };
 
@@ -244,20 +273,43 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { query } = body;
 
-    if (!query) {
-      return new NextResponse(JSON.stringify({ message: 'Search query is required.' }), { status: 400 });
+    if (!query || query.length < 2) {
+      return new NextResponse(JSON.stringify({ message: 'Search query must be at least 2 characters.' }), { status: 400 });
     }
 
-    const searchResults = await searchUSDA(query);
+    const [localResults, usdaSearchOutput] = await Promise.all([
+        searchLocalCache(query),
+        searchUSDA(query)
+    ]);
 
-    if (searchResults.error === 'SERVER_NOT_READY') {
+    if (usdaSearchOutput.error === 'SERVER_NOT_READY') {
       return new NextResponse(
         JSON.stringify({ message: 'Server is warming up. Please try again in a moment.' }),
         { status: 503 }
       );
     }
+    
+    const usdaResults = usdaSearchOutput.results || [];
+    const resultsMap = new Map();
 
-    return NextResponse.json(searchResults);
+    localResults.forEach(food => resultsMap.set(food.fdcId, food));
+    usdaResults.forEach(food => {
+        if (!resultsMap.has(food.fdcId)) {
+            resultsMap.set(food.fdcId, food);
+        }
+    });
+
+    const combinedResults = Array.from(resultsMap.values());
+    combinedResults.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+    const finalResults = combinedResults.map(({ fdcId, description, brandOwner, isCached }) => ({
+        fdcId,
+        description,
+        brandOwner,
+        isCached
+    }));
+
+    return NextResponse.json({ results: finalResults });
 
   } catch (error: any) {
     console.error('[API Search Route] A truly unhandled error occurred:', error);
