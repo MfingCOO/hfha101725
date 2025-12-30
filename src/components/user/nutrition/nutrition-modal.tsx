@@ -4,12 +4,17 @@ import * as React from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { BaseModal } from '@/components/ui/base-modal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Star, Bookmark, Clock, Loader2 } from 'lucide-react';
+import { Search, Star, Bookmark, Clock, Loader2, Barcode, Crown } from 'lucide-react';
+import { useAuth } from '@/components/auth/auth-provider';
+import { UserTier } from '@/types';
+import { UpgradeModal } from '@/components/modals/upgrade-modal';
 import { SearchView } from './search-view';
 import { FavoritesView } from './favorites-view';
 import { SavedMealsView } from './saved-meals-view';
 import { CurrentMealView } from './current-meal-view';
 import { FoodDetailView } from './food-detail-view';
+import { BarcodeScannerView } from './barcode-scanner-view';
+import { ManualBarcodeInput } from '@/components/user/nutrition/manual-barcode-input';
 import { type EnrichedFood, type MealItem, NovaGroup, type Portion } from '@/types';
 import { Button } from '@/components/ui/button';
 import { FoodItemRow } from './food-item-row';
@@ -89,20 +94,25 @@ interface UIMealItem {
     portion: Portion;
 }
 
-const IconTab = ({ value, icon: Icon, label }: { value: string; icon: React.ElementType; label: string }) => (
-  <TabsTrigger value={value} className="flex-1 flex flex-col items-center gap-1 p-2 h-auto">
+const IconTab = ({ value, icon: Icon, label, onClick }: { value: string; icon: React.ElementType; label: string, onClick?: () => void; }) => (
+  <TabsTrigger value={value} onClick={onClick} className="flex-1 flex flex-col items-center gap-1 p-2 h-auto">
     <Icon className="h-5 w-5" />
     <span className="text-xs">{label}</span>
   </TabsTrigger>
 );
 
 export function NutritionModal({ isOpen, onClose, onAddItems, userId }: NutritionModalProps) {
+  const { userProfile } = useAuth();
   const [currentMealItems, setCurrentMealItems] = useState<MealItem[]>([]);
   const [activeTab, setActiveTab] = useState('search');
+  const [activeView, setActiveView] = useState<'tabs' | 'scanner' | 'manual'>('tabs');
   const [selectedFood, setSelectedFood] = useState<EnrichedFood | null>(null);
   const [favoriteFdcIds, setFavoriteFdcIds] = useState<Set<number>>(new Set());
   const [isLoadingFavorites, setIsLoadingFavorites] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+
+  const userCanScan = userProfile?.tier === UserTier.Premium || userProfile?.tier === UserTier.Coaching;
 
   const fetchFavorites = useCallback(async () => {
     if (!userId) return;
@@ -122,6 +132,7 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
       fetchFavorites();
       setCurrentMealItems([]);
       setActiveTab('search');
+      setActiveView('tabs');
       setSelectedFood(null);
     }
   }, [isOpen, fetchFavorites]);
@@ -129,6 +140,7 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
   const handleFoodSelected = async (food: SimpleFood | EnrichedFood) => {
     console.log(`[NutritionModal] Handling selection for ${food.fdcId}. Starting analysis.`);
     setIsAnalyzing(true);
+    setActiveView('tabs');
     setSelectedFood(null);
 
     try {
@@ -158,20 +170,14 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
     const newMealItems: MealItem[] = items.map(uiItem => {
         const { food, quantity, portion } = uiItem;
 
-        // Helper to find a nutrient from the 'nutrients' array by its name.
-        // The base nutrient values in EnrichedFood are per 100g.
         const getNutrientAmount = (nutrientName: string): number => {
-            // Standard names: 'Energy', 'Protein', 'Total lipid (fat)', 'Carbohydrate, by difference'
             const nutrient = food.nutrients?.find(n => n.name === nutrientName);
             return nutrient?.amount ?? 0;
         };
 
-        // Calculate final calories based on the selected portion and quantity
         const baseCalories = getNutrientAmount('Energy');
         const calories = (baseCalories / 100) * portion.gramWeight * quantity;
 
-        // The MealItem type expects the full EnrichedFood details, plus the specific
-        // quantity, unit, and calculated calories for this instance of the food.
         const mealItem: MealItem = {
             ...food,
             quantity,
@@ -179,7 +185,6 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
             calories,
         };
         
-        // Add the original, unmodified food to the user's recents list.
         addRecentFood(food);
         return mealItem;
     });
@@ -221,16 +226,96 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
         await toggleFavoriteFood(userId, foodToToggle.fdcId, newIsFavorite);
     } catch (error) {
         console.error('Failed to toggle favorite', error);
-        // Revert on failure
         setFavoriteFdcIds(new Set(favoriteFdcIds));
     }
   };
+
+  const handleScanClick = () => {
+      if (userCanScan) {
+          setActiveView('scanner');
+      } else {
+          setIsUpgradeModalOpen(true);
+      }
+  }
+
+  const renderPrimaryView = () => {
+    if (activeView === 'scanner') {
+      return (
+        <BarcodeScannerView 
+          onFoodScanned={handleFoodSelected} 
+          onClose={() => setActiveView('tabs')} 
+          onManualEntryClick={() => setActiveView('manual')}
+        />
+      );
+    }
+
+    if (activeView === 'manual') {
+        return (
+            <ManualBarcodeInput
+                onFoodScanned={handleFoodSelected}
+                onClose={() => setActiveView('tabs')}
+                onBackToScanClick={() => setActiveView('scanner')}
+            />
+        );
+    }
+    
+    if (selectedFood) {
+        return (
+            <FoodDetailView 
+              food={selectedFood}
+              onBack={() => setSelectedFood(null)}
+              onAddItem={handleAddItemToMeal}
+              isFavorite={favoriteFdcIds.has(selectedFood.fdcId)}
+              onToggleFavorite={handleToggleFavorite}
+            />
+        );
+    }
+
+    return (
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+            <TabsList className="grid w-full grid-cols-5 h-auto">
+                <IconTab value="search" icon={Search} label="Search" />
+                <IconTab value="recents" icon={Clock} label="Recents" />
+                <IconTab value="favorites" icon={Star} label="Favorites" />
+                <IconTab value="meals" icon={Bookmark} label="Saved" />
+                <IconTab 
+                    value="scan" 
+                    icon={userCanScan ? Barcode : Crown} 
+                    label={userCanScan ? "Scan" : "Upgrade"} 
+                    onClick={handleScanClick} 
+                />
+            </TabsList>
+            {isLoadingFavorites && !isAnalyzing ? (
+            <div className="flex-1 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground"/></div>
+            ) : (
+            <>
+                <TabsContent value="search" className="flex-1 overflow-auto">
+                <SearchView onFoodSelected={handleFoodSelected} />
+                </TabsContent>
+                <TabsContent value="recents" className="flex-1 overflow-auto">
+                <RecentsView onFoodSelected={handleFoodSelected} />
+                </TabsContent>
+                <TabsContent value="favorites" className="flex-1 overflow-auto">
+                <FavoritesView onFoodSelected={handleFoodSelected} userId={userId} />
+                </TabsContent>
+                <TabsContent value="meals" className="flex-1 overflow-auto">
+                    <SavedMealsView onAddItemsToMeal={handleAddMultipleItemsToMeal} userId={userId} />
+                </TabsContent>
+            </>
+            )}
+        </Tabs>
+    );
+  }
 
   return (
     <BaseModal
       isOpen={isOpen}
       onClose={onClose}
-      title={selectedFood ? 'Food Details' : 'Search & Add Food'}
+      title={
+        activeView === 'scanner' ? 'Scan Barcode' :
+        activeView === 'manual' ? 'Enter Barcode' :
+        selectedFood ? 'Food Details' : 'Search & Add Food'
+      }
       className="h-[90dvh] w-[95vw] sm:max-w-4xl flex flex-col"
       footer={
         currentMealItems.length > 0 ? (
@@ -249,42 +334,7 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
               <Loader2 className="h-12 w-12 animate-spin text-primary" />
             </div>
           )}
-          {selectedFood ? (
-            <FoodDetailView 
-              food={selectedFood}
-              onBack={() => setSelectedFood(null)}
-              onAddItem={handleAddItemToMeal}
-              isFavorite={favoriteFdcIds.has(selectedFood.fdcId)}
-              onToggleFavorite={handleToggleFavorite}
-            />
-          ) : (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-              <TabsList className="grid w-full grid-cols-4 h-auto">
-                <IconTab value="search" icon={Search} label="Search" />
-                <IconTab value="recents" icon={Clock} label="Recents" />
-                <IconTab value="favorites" icon={Star} label="Favorites" />
-                <IconTab value="meals" icon={Bookmark} label="Saved" />
-              </TabsList>
-              {isLoadingFavorites && !isAnalyzing ? (
-                <div className="flex-1 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground"/></div>
-              ) : (
-                <>
-                  <TabsContent value="search" className="flex-1 overflow-auto">
-                    <SearchView onFoodSelected={handleFoodSelected} />
-                  </TabsContent>
-                  <TabsContent value="recents" className="flex-1 overflow-auto">
-                    <RecentsView onFoodSelected={handleFoodSelected} />
-                  </TabsContent>
-                  <TabsContent value="favorites" className="flex-1 overflow-auto">
-                    <FavoritesView onFoodSelected={handleFoodSelected} userId={userId} />
-                  </TabsContent>
-                  <TabsContent value="meals" className="flex-1 overflow-auto">
-                     <SavedMealsView onAddItemsToMeal={handleAddMultipleItemsToMeal} userId={userId} />
-                  </TabsContent>
-                </>
-              )}
-            </Tabs>
-          )}
+          {renderPrimaryView()}
         </div>
 
         <div className="flex flex-col min-h-0 bg-background/50 rounded-lg p-4">
@@ -296,6 +346,13 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
            />
         </div>
       </div>
+      <UpgradeModal 
+        isOpen={isUpgradeModalOpen} 
+        onClose={() => setIsUpgradeModalOpen(false)} 
+        requiredTier={UserTier.Premium}
+        featureName="Barcode Scanner"
+        reason="Upgrade to a Premium or Coaching plan to get instant food details by scanning barcodes. Fast, easy, and accurate logging is just an upgrade away."
+        />
     </BaseModal>
   );
 }
