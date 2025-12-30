@@ -103,6 +103,7 @@ export interface UserProfile {
     hasLoggedInBefore?: boolean; // STEP 1: ADDED 'FIRST-LOGIN' FLAG
     timezone?: string; // ADDED TO FIX REGRESSION
     timezoneOffset?: number; // ADDED TO FIX REGRESSION
+    unitSystem?: 'metric' | 'imperial'; // ADDED
 }
 
 export type ClientProfile = UserProfile;

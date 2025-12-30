@@ -37,7 +37,7 @@ const setSchema = z.object({
   id: z.string().optional(),
   metric: z.string().optional(),
   value: z.string().optional(),
-  weight: z.string().optional(),
+  rpe: z.preprocess((val) => (val ? parseInt(String(val), 10) : undefined), z.number().optional()),
 });
 
 const exerciseBlockSchema = z.object({
@@ -153,7 +153,7 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, workoutTo
             toast.error("You must have at least one exercise in your library.");
             return;
         }
-        append({ id: uuidv4(), type: 'exercise', exerciseId: availableExercises[0].id, sets: [{ id: uuidv4(), metric: 'reps', value: '10', weight: '' }], restBetweenSets: '60' });
+        append({ id: uuidv4(), type: 'exercise', exerciseId: availableExercises[0].id, sets: [{ id: uuidv4(), metric: 'reps', value: '10', rpe: 7 }], restBetweenSets: '60' });
     };
 
     const addRestBlock = () => {
@@ -174,7 +174,7 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, workoutTo
                 id: uuidv4(),
                 type: 'exercise',
                 exerciseId: availableExercises[0].id,
-                sets: [{ id: uuidv4(), metric: 'reps', value: '10', weight: '' }],
+                sets: [{ id: uuidv4(), metric: 'reps', value: '10', rpe: 7 }],
                 restBetweenSets: '60'
             }]
         });

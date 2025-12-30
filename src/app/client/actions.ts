@@ -36,6 +36,22 @@ export async function getClientProgramsAction(): Promise<ActionResponse<Program[
   }
 }
 
+export async function setClientProgramAction(userId: string, programId: string): Promise<ActionResponse<{}>> {
+    if (!userId || !programId) {
+        return { success: false, error: "User ID and Program ID are required." };
+    }
+    try {
+        const userRef = firestore.collection('users').doc(userId);
+        await userRef.update({ activeProgramId: programId });
+
+        revalidatePath('/client/dashboard');
+        return { success: true, data: {} };
+    } catch (error: any) {
+        console.error("Error setting client program:", error);
+        return { success: false, error: "Failed to set new active program." };
+    }
+}
+
 export async function getProgramDetailsAction(programId: string): Promise<ActionResponse<Program>> {
   if (!programId) {
     return { success: false, error: "Program ID is required." };

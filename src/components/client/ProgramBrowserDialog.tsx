@@ -157,7 +157,7 @@ export function ProgramBrowserDialog({ isOpen, onClose, userProfile }: ProgramBr
         {viewingProgram ? renderProgramDetailView() : renderProgramListView()}
 
         <DialogFooter className="pt-4 border-t mt-4">
-          <Button variant="outline" onClick={handleClose}>Cancel</Button>
+          <Button variant="outline" onClick={handleClose}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

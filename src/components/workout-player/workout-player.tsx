@@ -1,47 +1,39 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Workout, ExerciseBlock, RestBlock, Exercise } from '@/types/workout-program';
+import { useForm, FormProvider } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { Workout, ExerciseBlock, RestBlock, Exercise, Set } from '@/types/workout-program';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { Clock, SkipForward, X, CheckCircle } from 'lucide-react';
-import { useWorkoutEngine } from '@/hooks/useWorkoutEngine';
+import { Input } from "@/components/ui/input";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Clock, CheckCircle, Play, Pause, SkipForward } from 'lucide-react';
+import { useWorkoutEngine } from '@/hooks/use-workout-engine';
 import { formatTime, extractExerciseIds } from '@/lib/utils';
 import { getExercisesByIdsAction } from '@/app/exercises/actions';
-import { completeWorkoutAction } from '@/app/calendar/actions';
 import { UserProfile } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
+import { RPE_SCALE } from '@/lib/rpe-scale';
+
+const KG_TO_LBS = 2.20462;
+const convertKgToLbs = (kg: number) => Math.round((kg * KG_TO_LBS) * 2) / 2;
+const convertLbsToKg = (lbs: number) => lbs / KG_TO_LBS;
 
 interface WorkoutPlayerProps {
     isOpen: boolean;
     onClose: () => void;
     workout: Workout | null;
     userProfile: UserProfile | null;
-    calendarEventId?: string;
-    programId?: string; 
+    programId?: string;
 }
 
-export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, calendarEventId, programId }: WorkoutPlayerProps) {
+export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId }: WorkoutPlayerProps) {
     const { toast } = useToast();
-    const {
-        status,
-        currentBlock,
-        nextBlock,
-        currentSetIndex,
-        timer,
-        workoutProgress,
-        startWorkout,
-        completeSet,
-        skipRest,
-    } = useWorkoutEngine(workout);
-
+    const engine = useWorkoutEngine(workout, userProfile?.uid, programId);
     const [exercises, setExercises] = useState<Map<string, Exercise>>(new Map());
-    const [reps, setReps] = useState('');
-    const [weight, setWeight] = useState('');
-    const [startTime, setStartTime] = useState<Date | null>(null);
 
     useEffect(() => {
         if (!workout) return;
@@ -59,214 +51,187 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, calendarE
         fetchExercises();
     }, [workout, toast]);
 
-    useEffect(() => {
-        if (isOpen && workout && status === 'idle') {
-            setStartTime(new Date());
-            startWorkout();
-        }
-    }, [isOpen, workout, status, startWorkout]);
-
-    const handleWorkoutCompletion = useCallback(async () => {
-        if (!workout || !userProfile || !startTime) return;
-
-        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const timezoneOffset = new Date().getTimezoneOffset();
-
-        const result = await completeWorkoutAction({
-            userId: userProfile.uid,
-            workoutId: workout.id,
-            startTime: startTime,
-            duration: workout.duration || 60, 
-            programId,
-            calendarEventId,
-            timezone, 
-            timezoneOffset,
-        });
-
-        if (result.success === false) {
-            toast({ variant: 'destructive', title: 'Logging Failed', description: result.error || 'Could not save workout progress.' });
-        } else {
-            toast({ title: 'Workout Complete!', description: 'Great job! Your progress has been saved.' });
-        }
+    const handleClose = useCallback(() => {
+        engine.endWorkout();
         onClose();
-    }, [workout, userProfile, startTime, toast, calendarEventId, programId, onClose]);
-
-    
-    useEffect(() => {
-        if (status === 'finished') {
-            handleWorkoutCompletion();
-        }
-    }, [status, handleWorkoutCompletion]);
-    
-    const currentExerciseBlock = useMemo(() => 
-        currentBlock?.type === 'exercise' ? (currentBlock as ExerciseBlock) : null, 
-    [currentBlock]);
-
-    const currentExercise = useMemo(() => 
-        currentExerciseBlock ? exercises.get(currentExerciseBlock.exerciseId) : null, 
-    [currentExerciseBlock, exercises]);
-    
-    const currentSet = useMemo(() => 
-        currentExerciseBlock ? currentExerciseBlock.sets[currentSetIndex] : null, 
-    [currentExerciseBlock, currentSetIndex]);
-
-    const upNextText = useMemo(() => {
-        if (!nextBlock) return "Nothing. You're all done!";
-        if (nextBlock.type === 'rest') return `Rest: ${nextBlock.duration}s`;
-        if (nextBlock.type === 'exercise'){
-            const nextExercise = exercises.get(nextBlock.exerciseId);
-            return nextExercise?.name || "Next exercise";
-        }
-        return "Get ready!";
-    }, [nextBlock, exercises]); 
+    }, [engine, onClose]);
 
     useEffect(() => {
-        if (currentSet) {
-            setReps(String(currentSet.value || ''));
-            setWeight(String(currentSet.weight || ''));
+        if (isOpen && workout && engine.status === 'idle') {
+            engine.startWorkout();
         }
-    }, [currentSet]);
+    }, [isOpen, workout, engine.status, engine.startWorkout]);
 
-    const handleCompleteSet = () => {
-        if (!currentExerciseBlock) return;
-        const repsAsNum = parseInt(reps, 10);
-        const weightAsNum = parseFloat(weight);
-        if (!isNaN(repsAsNum)) {
-            completeSet(repsAsNum, isNaN(weightAsNum) ? undefined : weightAsNum);
+    useEffect(() => {
+        if (engine.status === 'finished') {
+            toast({ title: 'Workout Complete!', description: 'Great job! Your performance has been logged.' });
+            const timer = setTimeout(() => handleClose(), 2000);
+            return () => clearTimeout(timer);
         }
-    };
+    }, [engine.status, handleClose, toast]);
+
+    const currentExerciseBlock = useMemo(() => engine.currentBlock?.type === 'exercise' ? (engine.currentBlock as ExerciseBlock) : null, [engine.currentBlock]);
+    const currentExercise = useMemo(() => currentExerciseBlock ? exercises.get(currentExerciseBlock.exerciseId) : null, [currentExerciseBlock, exercises]);
 
     const renderContent = () => {
         if (!workout) return <p>Loading workout...</p>;
-        switch (status) {
-            case 'resting':
-                const restBlock = currentBlock as RestBlock;
-                return <RestView timer={timer} onSkip={skipRest} duration={restBlock.duration} />;
+        switch (engine.status) {
+            case 'resting': return <RestView timer={engine.timer} onSkip={engine.skipRest} />;
             case 'exercising':
-                if (!currentExercise || !currentSet) return <p>Loading exercise...</p>;
-                return (
-                    <ExerciseView 
-                        exercise={currentExercise}
-                        set={currentSet}
-                        setIndex={currentSetIndex}
-                        totalSets={currentExerciseBlock?.sets.length || 0}
-                        reps={reps}
-                        weight={weight}
-                        onRepsChange={setReps}
-                        onWeightChange={setWeight}
-                        onComplete={handleCompleteSet}
-                    />
-                );
-            case 'finished':
-                return <FinishedView onClose={onClose} workoutName={workout.name} />;
-            default:
-                return <p>Preparing your workout...</p>;
+                if (!currentExercise || !engine.currentSet) return <p>Loading exercise...</p>;
+                return <TimedExerciseView exercise={currentExercise} timer={engine.timer} />;
+            case 'rep_based_pause':
+                if (!currentExercise || !engine.currentSet || !userProfile) return <p>Loading exercise...</p>;
+                return <RepBasedView exercise={currentExercise} set={engine.currentSet} onComplete={engine.completeSet} unitSystem={userProfile.unitSystem || 'metric'} />;
+            case 'paused': return <PausedView onResume={engine.resumeWorkout} />;
+            case 'finished': return <FinishedView workoutName={workout.name} />;
+            default: return <p>Preparing your workout...</p>;
         }
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-4xl w-full h-full max-h-[95vh] flex flex-col p-0">
-                <DialogHeader className="p-4 border-b">
+        <Dialog open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
+            <DialogContent className="max-w-md w-full h-full max-h-[95vh] flex flex-col p-0">
+                <DialogHeader className="p-4 border-b flex-row items-center justify-between">
                     <DialogTitle>{workout?.name || 'Workout'}</DialogTitle>
-                    <VisuallyHidden>
-                        <DialogDescription>An interactive player to guide you through your workout, set by set.</DialogDescription>
-                    </VisuallyHidden>
+                    <div className="flex items-center space-x-2">
+                        {engine.status !== 'idle' && engine.status !== 'finished' && (
+                            engine.status === 'paused' ? (
+                                <Button variant="ghost" size="icon" onClick={engine.resumeWorkout}><Play className="h-5 w-5"/></Button>
+                            ) : (
+                                <Button variant="ghost" size="icon" onClick={engine.pauseWorkout}><Pause className="h-5 w-5"/></Button>
+                            )
+                        )}
+                    </div>
                 </DialogHeader>
-                
-                <div className="flex-shrink-0 flex flex-row items-center justify-between sr-only">
-                    <h2 className="truncate pr-4 font-bold text-xl">{workout?.name || 'Workout'}</h2>
-                    <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5"/></Button>
-                </div>
+                <DialogDescription className="sr-only">An interactive player to guide you through your workout, set by set.</DialogDescription>
 
                 <div className="flex-1 flex flex-col gap-4 p-4 overflow-y-auto">
-                    <WorkoutProgressBar progress={workoutProgress} />
-                    <div className="flex flex-col items-center justify-center text-center bg-muted/30 dark:bg-muted/50 rounded-lg p-4 min-h-[300px]">
+                    <WorkoutProgressBar progress={engine.workoutProgress} />
+                    <div className="flex flex-col items-center justify-center text-center bg-muted/30 dark:bg-muted/50 rounded-lg p-4 flex-1">
                         {renderContent()}
                     </div>
-                </div>
-
-                <div className="flex-shrink-0 border-t p-4">
-                    <p className="w-full text-center text-muted-foreground text-sm">Up Next: {upNextText}</p>
                 </div>
             </DialogContent>
         </Dialog>
     );
 }
 
-// Sub-components for different states
-const RestView = ({ timer, onSkip, duration }: { timer: number, onSkip: () => void, duration: number }) => (
+const RestView = ({ timer, onSkip }: { timer: number, onSkip: () => void }) => (
     <div className="flex flex-col items-center justify-center h-full w-full">
         <p className="text-3xl font-medium text-muted-foreground mb-4">REST</p>
         <h2 className="text-8xl font-bold font-mono tracking-tighter mb-8">{formatTime(timer)}</h2>
-        <Button size="lg" variant="secondary" onClick={onSkip}>
-            <SkipForward className="mr-2 h-5 w-5"/>
+        <Button onClick={onSkip} variant="ghost">
+            <SkipForward className="mr-2 h-4 w-4" />
             Skip Rest
         </Button>
     </div>
 );
 
-const ExerciseView = ({ exercise, set, setIndex, totalSets, reps, weight, onRepsChange, onWeightChange, onComplete }: any) => (
-    <div className="w-full h-full flex flex-col">
-        <div className="text-center">
-            <h2 className="text-3xl sm:text-4xl font-bold truncate">{exercise.name}</h2>
-            <p className="text-xl text-muted-foreground">Set {setIndex + 1} of {totalSets}</p>
-        </div>
-        
-        {exercise.mediaUrl && (
-            <div className="w-full aspect-video bg-gray-900 rounded-md my-4 overflow-hidden">
-                 <iframe
-                    className="w-full h-full"
-                    src={exercise.mediaUrl.replace("watch?v=", "embed/")}
-                    title="Exercise video player"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                ></iframe>
-            </div>
-        )}
-
-        <form onSubmit={(e) => { e.preventDefault(); onComplete(); }} className="space-y-4 mt-auto">
-            <div className="grid grid-cols-5 gap-3">
-                <div className='col-span-2'>
-                    <label className='text-xs text-muted-foreground ml-1'>Reps</label>
-                    <Input 
-                        type="number" 
-                        value={reps} 
-                        onChange={e => onRepsChange(e.target.value)} 
-                        placeholder={`${set.value || '-'}`}
-                        className="text-center text-2xl h-16 w-full"
-                    />
-                </div>
-                <div className='col-span-3'>
-                    <label className='text-xs text-muted-foreground ml-1'>Weight (kg)</label>
-                     <Input 
-                        type="number" 
-                        value={weight} 
-                        onChange={e => onWeightChange(e.target.value)} 
-                        placeholder={`${set.weight || '-'}`}
-                        className="text-center text-2xl h-16 w-full"
-                    />
-                </div>
-            </div>
-            <Button size="lg" className="w-full h-14 text-xl font-bold">
-                <CheckCircle className="mr-3 h-6 w-6" />
-                Complete Set
-            </Button>
-        </form>
+const TimedExerciseView = ({ exercise, timer }: { exercise: Exercise, timer: number }) => (
+    <div className="flex flex-col items-center justify-center h-full w-full">
+        <h2 className="text-3xl sm:text-4xl font-bold truncate mb-2">{exercise.name}</h2>
+        <p className="text-muted-foreground text-sm max-w-md mb-4"> {exercise.description} </p>
+        <h2 className="text-8xl font-bold font-mono tracking-tighter">{formatTime(timer)}</h2>
     </div>
 );
 
-const FinishedView = ({ onClose, workoutName }: { onClose: () => void, workoutName: string }) => (
+const performanceLogSchema = z.object({
+  reps: z.preprocess((val) => parseInt(String(val), 10), z.number().min(0, "Reps must be positive")),
+  weight: z.preprocess((val) => parseFloat(String(val)), z.number().min(0, "Weight must be positive")),
+});
+
+type PerformanceLogValues = z.infer<typeof performanceLogSchema>;
+
+const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exercise, set: Set, onComplete: (log: PerformanceLogValues) => void, unitSystem: 'metric' | 'imperial' }) => {
+    const defaultWeightKg = parseFloat(String(set.weight || 0));
+    const displayWeight = unitSystem === 'imperial' ? convertKgToLbs(defaultWeightKg) : defaultWeightKg;
+    const targetReps = parseInt(set.value, 10) || 0;
+
+    const form = useForm<PerformanceLogValues>({
+        resolver: zodResolver(performanceLogSchema),
+        defaultValues: { reps: targetReps, weight: displayWeight },
+    });
+
+    useEffect(() => {
+        const newDefaultWeightKg = parseFloat(String(set.weight || 0));
+        const newDisplayWeight = unitSystem === 'imperial' ? convertKgToLbs(newDefaultWeightKg) : newDefaultWeightKg;
+        const newTargetReps = parseInt(set.value, 10) || 0;
+        form.reset({ reps: newTargetReps, weight: newDisplayWeight });
+    }, [set, unitSystem, form]);
+
+    const onSubmit = (data: PerformanceLogValues) => {
+        const weightInKg = unitSystem === 'imperial' ? convertLbsToKg(data.weight) : data.weight;
+        onComplete({ ...data, weight: weightInKg });
+    };
+
+    const rpeInfo = RPE_SCALE.find(r => r.value === set.rpe);
+    const isLifting = set.metric === 'reps';
+    const rpeDescription = rpeInfo ? (isLifting ? rpeInfo.lifting : rpeInfo.running) : 'No RPE specified';
+
+    return (
+        <FormProvider {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col items-center justify-between h-full w-full space-y-3">
+                <div className="text-center">
+                    <h2 className="text-2xl sm:text-3xl font-bold truncate">{exercise.name}</h2>
+                    <p className="text-muted-foreground text-xs max-w-md mt-1 mb-3">{exercise.description}</p>
+                    <div className="text-base space-y-1 bg-background/50 p-3 rounded-md">
+                         <p><span className="font-semibold">Target:</span> {set.value} {set.metric}</p>
+                         {set.rpe && <p className="text-sm text-muted-foreground"><span className="font-semibold">RPE {set.rpe}:</span> {rpeDescription}</p>}
+                    </div>
+                </div>
+                <div className="w-full max-w-sm p-2">
+                    <div className="grid grid-cols-2 gap-4">
+                        <FormField control={form.control} name="reps" render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="text-sm">Actual Reps</FormLabel>
+                                <FormControl>
+                                    <Input type="number" placeholder="0" {...field} className="h-12 text-center text-xl" />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )} />
+                        <FormField control={form.control} name="weight" render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="text-sm">Weight ({unitSystem === 'imperial' ? 'lbs' : 'kg'})</FormLabel>
+                                <FormControl>
+                                    <Input type="number" step="0.5" placeholder="0" {...field} className="h-12 text-center text-xl" />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )} />
+                    </div>
+                </div>
+                <Button type="submit" size="lg" className="h-14 text-xl font-bold w-full max-w-sm">
+                    <CheckCircle className="mr-3 h-6 w-6" />
+                    Complete Set
+                </Button>
+            </form>
+        </FormProvider>
+    );
+};
+
+const PausedView = ({ onResume }: { onResume: () => void }) => (
+    <div className="flex flex-col items-center justify-center h-full w-full space-y-4">
+        <h2 className="text-4xl font-bold">Workout Paused</h2>
+        <Button size="lg" onClick={onResume} className="h-14 text-xl font-bold">
+            <Play className="mr-3 h-6 w-6" />
+            Resume
+        </Button>
+    </div>
+);
+
+const FinishedView = ({ workoutName }: { workoutName: string }) => (
     <div className="flex flex-col items-center justify-center h-full text-center">
         <CheckCircle className="h-20 w-20 text-green-500 mb-6" />
         <h2 className="text-4xl font-bold mb-2">Workout Complete!</h2>
         <p className="text-lg text-muted-foreground mb-8">You crushed the <span className='font-semibold'>{workoutName}</span> workout.</p>
-        <Button size="lg" onClick={onClose}>Done</Button>
+        <p className='text-sm text-muted-foreground'>Your performance has been logged.</p>
     </div>
 );
 
 const WorkoutProgressBar = ({ progress }: { progress: number }) => (
-    <div>
+    <div className="px-4">
         <Progress value={progress} className="w-full h-2" />
         <p className="text-sm text-muted-foreground mt-1 text-center">{Math.round(progress)}% Complete</p>
     </div>

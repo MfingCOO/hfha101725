@@ -1,13 +1,15 @@
 'use client';
 
-import { useFormContext, useFieldArray } from 'react-hook-form';
+import { useFormContext, useFieldArray, useWatch } from 'react-hook-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FormField, FormControl, FormItem, FormMessage } from '@/components/ui/form';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Trash2, PlusCircle } from 'lucide-react';
 import { Exercise } from '@/types/workout-program';
+import { RPE_SCALE } from '@/lib/rpe-scale';
 import { v4 as uuidv4 } from 'uuid';
 
 interface ExerciseBlockEditorProps {
@@ -18,6 +20,28 @@ interface ExerciseBlockEditorProps {
 
 const METRIC_OPTIONS = ['reps', 'time', 'distance'];
 
+const RpeSelectItem = ({ rpe, fieldPrefix, setIndex }: { rpe: any, fieldPrefix: string, setIndex: number }) => {
+    const { control } = useFormContext();
+    const metric = useWatch({ control, name: `${fieldPrefix}.sets.${setIndex}.metric` });
+    const isLifting = metric === 'reps';
+
+    return (
+        <SelectItem key={rpe.value} value={String(rpe.value)}>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <div className="flex items-center w-full">
+                        <span className="font-bold mr-2">{rpe.value}:</span>
+                        <span>{isLifting ? rpe.lifting : rpe.running}</span>
+                    </div>
+                </TooltipTrigger>
+                <TooltipContent side="right" align="start">
+                    <p>{isLifting ? rpe.lifting : rpe.running}</p>
+                </TooltipContent>
+            </Tooltip>
+        </SelectItem>
+    );
+}
+
 export function ExerciseBlockEditor({ fieldPrefix, removeBlock, availableExercises }: ExerciseBlockEditorProps) {
   const { control } = useFormContext();
 
@@ -27,7 +51,7 @@ export function ExerciseBlockEditor({ fieldPrefix, removeBlock, availableExercis
   });
 
   const addSet = () => {
-    append({ id: uuidv4(), metric: 'reps', value: '10', weight: '' });
+    append({ id: uuidv4(), metric: 'reps', value: '10', rpe: 7 });
   };
 
   return (
@@ -80,50 +104,71 @@ export function ExerciseBlockEditor({ fieldPrefix, removeBlock, availableExercis
             <div className="col-span-1">Set</div>
             <div className="col-span-4">Metric</div>
             <div className="col-span-3">Value</div>
-            <div className="col-span-3">Weight</div>
+            <div className="col-span-3">RPE</div>
             <div className="col-span-1"></div>
         </div>
 
-        <div className="space-y-1">
-          {fields.map((set, setIndex) => (
-            <div key={set.id} className="grid grid-cols-12 items-center gap-x-2">
-              <p className="text-center font-bold col-span-1">{setIndex + 1}</p>
+        <TooltipProvider>
+            <div className="space-y-1">
+            {fields.map((set, setIndex) => (
+                <div key={set.id} className="grid grid-cols-12 items-start gap-x-2">
+                <p className="text-center font-bold col-span-1 pt-2">{setIndex + 1}</p>
 
-              <div className="col-span-4">
-                <FormField
-                  control={control}
-                  name={`${fieldPrefix}.sets.${setIndex}.metric`}
-                  render={({ field }) => (
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                              <SelectTrigger className="h-8 text-xs">
-                                  <SelectValue placeholder="Metric" />
-                              </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                              {METRIC_OPTIONS.map(opt => <SelectItem key={opt} value={opt} className="capitalize text-xs">{opt}</SelectItem>)}
-                          </SelectContent>
-                      </Select>
-                  )}
-                />
-              </div>
+                <div className="col-span-4">
+                    <FormField
+                    control={control}
+                    name={`${fieldPrefix}.sets.${setIndex}.metric`}
+                    render={({ field }) => (
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                                <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder="Metric" />
+                                </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                {METRIC_OPTIONS.map(opt => <SelectItem key={opt} value={opt} className="capitalize text-xs">{opt}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    )}
+                    />
+                </div>
 
-              <div className="col-span-3">
-                 <FormField control={control} name={`${fieldPrefix}.sets.${setIndex}.value`} render={({ field }) => <Input {...field} className="h-8 text-center" />} />
-              </div>
+                <div className="col-span-3">
+                    <FormField control={control} name={`${fieldPrefix}.sets.${setIndex}.value`} render={({ field }) => <Input {...field} className="h-8 text-center" />} />
+                </div>
 
-              <div className="col-span-3">
-                 <FormField control={control} name={`${fieldPrefix}.sets.${setIndex}.weight`} render={({ field }) => <Input {...field} placeholder="e.g., 50 or 80%" className="h-8 text-center" />} />
-              </div>
-              
-              <div className="col-span-1">
-                <Button type="button" variant="ghost" size="icon" onClick={() => remove(setIndex)} className="h-8 w-8">
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
+                <div className="col-span-3">
+                    <FormField
+                        control={control}
+                        name={`${fieldPrefix}.sets.${setIndex}.rpe`}
+                        render={({ field }) => (
+                            <FormItem>
+                                <Select onValueChange={field.onChange} defaultValue={String(field.value)}>
+                                    <FormControl>
+                                        <SelectTrigger className="h-8 text-xs">
+                                            <SelectValue placeholder="RPE..." />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        {RPE_SCALE.map(rpe => (
+                                           <RpeSelectItem key={rpe.value} rpe={rpe} fieldPrefix={fieldPrefix} setIndex={setIndex} />
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </FormItem>
+                        )}
+                    />
+                </div>
+                
+                <div className="col-span-1">
+                    <Button type="button" variant="ghost" size="icon" onClick={() => remove(setIndex)} className="h-8 w-8">
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                </div>
+                </div>
+            ))}
             </div>
-          ))}
-        </div>
+        </TooltipProvider>
         
          <Button type="button" variant="outline" size="sm" onClick={addSet} className="mt-2 w-full h-8">
             <PlusCircle className="h-4 w-4 mr-2" /> Add Set

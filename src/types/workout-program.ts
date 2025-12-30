@@ -21,8 +21,9 @@ export interface BaseBlock {
 export interface Set {
     id: string;
     metric?: 'reps' | 'time' | 'distance';
-    value?: string;  
-    weight?: string; 
+    value?: string;
+    rpe?: number;
+    weight?: string;
 }
 
 export interface ExerciseBlock extends BaseBlock {
@@ -40,7 +41,7 @@ export interface RestBlock extends BaseBlock {
 
 export interface GroupBlock extends BaseBlock {
   type: 'group';
-  name: string; 
+  name: string;
   rounds: number;
   blocks: ExerciseBlock[];
   restBetweenRounds?: number;
@@ -54,7 +55,7 @@ export interface Workout {
   description: string;
   blocks: WorkoutBlock[];
   duration?: number; // Estimated duration in minutes
-  programId?: string; // CORRECTED: Added programId to the workout type
+  programId?: string;
 }
 
 // --- Program Structures ---
@@ -77,10 +78,26 @@ export interface Program {
 export interface UserProgram {
   userId: string;
   programId: string;
-  startDate: string; 
+  startDate: string;
   completedWorkouts: {
     weekId: string;
     workoutId: string;
-    completedAt: string; 
+    completedAt: string;
+  }[];
+}
+
+// --- Performance Logging ---
+export interface PerformanceLog {
+  id?: string;
+  userId: string;
+  workoutId: string;
+  programId: string | null;
+  completedAt: Date;
+  duration: number; // in seconds
+  performance: {
+      blockId: string;
+      setIndex: number;
+      reps: number;
+      weight: number;
   }[];
 }
