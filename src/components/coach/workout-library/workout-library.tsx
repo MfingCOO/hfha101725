@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { getWorkoutsAction, deleteWorkoutAction, ActionResponse } from '@/app/coach/actions/workout-actions';
+import { getWorkoutsAction, deleteWorkoutAction, duplicateWorkoutAction } from '@/app/coach/actions/workout-actions';
 import { CreateWorkoutDialog } from '@/components/coach/workout-library/create-workout-dialog';
 import { Workout } from '@/types/workout-program';
-import { Loader2, PlusCircle, MoreVertical, Edit, Trash2, Clock } from 'lucide-react';
+import { Loader2, PlusCircle, MoreVertical, Edit, Trash2, Clock, Copy } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from 'sonner';
 
@@ -56,6 +56,18 @@ export function WorkoutLibrary() {
             return;
         }
         toast.success("Workout deleted successfully.");
+        fetchWorkouts();
+    };
+
+    const handleDuplicate = async (workoutId: string) => {
+        const result = await duplicateWorkoutAction(workoutId);
+        if (!result.success) {
+            if ('error' in result) {
+                toast.error(result.error || 'Failed to duplicate workout.');
+            }
+            return;
+        }
+        toast.success("Workout duplicated successfully.");
         fetchWorkouts();
     };
 
@@ -114,6 +126,10 @@ export function WorkoutLibrary() {
                                     <DropdownMenuItem onClick={() => handleOpenDialogForEdit(workout)}>
                                         <Edit className="h-4 w-4 mr-2" />
                                         Edit
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleDuplicate(workout.id)}>
+                                        <Copy className="h-4 w-4 mr-2" />
+                                        Duplicate
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onClick={() => handleDelete(workout.id)} className="text-red-500">
                                         <Trash2 className="h-4 w-4 mr-2" />

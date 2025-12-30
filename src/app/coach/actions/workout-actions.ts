@@ -149,3 +149,29 @@ export async function deleteWorkoutAction(workoutId: string): Promise<ActionResp
         return { success: false, error: "Failed to delete workout." };
     }
 }
+
+export async function duplicateWorkoutAction(workoutId: string): Promise<ActionResponse<Workout>> {
+    try {
+        const workoutRef = firestore.collection('workouts').doc(workoutId);
+        const workoutSnap = await workoutRef.get();
+
+        if (!workoutSnap.exists) {
+            return { success: false, error: "Workout not found." };
+        }
+
+        const originalWorkout = workoutSnap.data() as Workout;
+
+        const newWorkoutRef = firestore.collection('workouts').doc();
+        const newWorkout: Workout = {
+            ...originalWorkout,
+            id: newWorkoutRef.id,
+            name: `${originalWorkout.name} (Copy)`,
+        };
+
+        await newWorkoutRef.set(newWorkout);
+
+        return { success: true, data: newWorkout };
+    } catch (error: any) {
+        return { success: false, error: "Failed to duplicate workout." };
+    }
+}
