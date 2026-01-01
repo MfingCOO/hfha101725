@@ -36,7 +36,7 @@ const pillarColors: Record<string, string> = {
     habit: 'bg-yellow-500 border-yellow-700',
     appointment: 'bg-purple-500 border-purple-700',
     'live-event': 'bg-rose-500 border-rose-700',
-    workout: 'bg-green-600 border-green-800',
+    workout: 'bg-green-600 border-green-800','scheduled-workout': 'bg-slate-500 border-slate-700',
     default: 'bg-gray-500 border-gray-700',
 };
 
@@ -163,7 +163,20 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
 
 const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEntry, onSelect: (entry: any) => void, isHighlighted: boolean }) => {
 const original = entry.originalData;
-let pillarKey = original.pillar === 'activity' && original.type === 'workout' ? 'workout' : original.pillar || 'default';
+let pillarKey;
+if (original.type === 'workout') {
+  // If the workout's 'isCompleted' flag is false, it's a scheduled event.
+  if (original.isCompleted === false) {
+    pillarKey = 'scheduled-workout'; // Use the new gray color.
+  } else {
+    // Otherwise, it's a completed workout from the activity log.
+    pillarKey = 'workout'; // Use the existing green color.
+  }
+} else {
+  // For all other event types, use their original pillar for color.
+  pillarKey = original.pillar || 'default';
+}
+
 let displayName = original.title || original.name;
 
 // This new logic explicitly checks the event `type` to override defaults.

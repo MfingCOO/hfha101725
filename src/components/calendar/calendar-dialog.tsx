@@ -253,40 +253,20 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
       enabled: isOpen && !!initialClient.uid && !!userTimezone && (activeTab === 'day' || !!viewDateRange)
   });
 
-  const { data: scheduledEvents, isLoading: isLoadingEvents } = useQuery({
-    queryKey: ['scheduledEvents', initialClient.uid],
-    queryFn: async () => {
-        const result = await getScheduledEventsAction(initialClient.uid);
-        if ('error' in result) {
-            console.error("Failed to fetch scheduled events:", result.error);
-            toast({ variant: 'destructive', title: 'Error', description: 'Could not load scheduled workouts.' });
-            return [];
-        } 
-        return result.data;
-    },
-    enabled: isOpen && !!initialClient.uid
-  });
+  const allEntries = useMemo(() => {
+    // This now correctly uses the single source of truth for all calendar data.
+    return calendarData?.data || [];
+}, [calendarData]);
 
- const allEntries = useMemo(() => {
-    const regularEntries = calendarData?.data || [];
-    const workoutEvents = (scheduledEvents || []).map((event: ScheduledEvent) => ({
-        ...event,
-        start: new Date(event.startTime),
-        end: new Date(event.endTime),
-        allDay: false, 
-        __TYPE: 'workout'
-    }));
-    return [...regularEntries, ...workoutEvents];
-}, [calendarData, scheduledEvents]);
 
-  const isLoading = isLoadingCalendar || isLoadingEvents;
+  const isLoading = isLoadingCalendar;
+
 
   const handleEntryChange = async () => {
       if (activeTab === 'day') {
         await triggerSummaryRecalculation(initialClient.uid, dateString, userTimezone, timezoneOffset);
       }
       queryClient.invalidateQueries({ queryKey: ['calendarData', initialClient.uid, activeTab, dateString, rangeString] });
-      queryClient.invalidateQueries({ queryKey: ['scheduledEvents', initialClient.uid]});
   };
 
   const handleEditGoals = () => {
