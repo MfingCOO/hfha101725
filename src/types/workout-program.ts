@@ -20,9 +20,10 @@ export interface BaseBlock {
 
 export interface Set {
     id: string;
-    metric?: 'reps' | 'time' | 'distance';
+    metric?: 'reps' | 'time' | 'distance' | 'weight';
     value?: string;
     rpe?: number;
+    targetWeight?: string;
     weight?: string;
 }
 

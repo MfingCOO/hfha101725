@@ -177,6 +177,7 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
                     <p className="text-muted-foreground text-xs max-w-md mt-1 mb-3">{exercise.description}</p>
                     <div className="text-base space-y-1 bg-background/50 p-3 rounded-md">
                          <p><span className="font-semibold">Target:</span> {set.value} {set.metric}</p>
+                         {set.targetWeight && <p><span className="font-semibold">Target Weight:</span> {set.targetWeight}</p>}
                          {set.rpe && <p className="text-sm text-muted-foreground"><span className="font-semibold">RPE {set.rpe}:</span> {rpeDescription}</p>}
                     </div>
                 </div>
