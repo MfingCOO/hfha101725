@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import { db as firestore } from '@/lib/firebaseAdmin';
-import { Workout, ExerciseBlock, Set, PerformanceLog } from '@/types/workout-program';
-import { ActionResponse } from '@/types/action-response';
+import { type Workout, type ExerciseBlock, type Set, type PerformanceLog, type Exercise } from '@/types/workout-program';
+import { type ActionResponse } from '@/types/action-response';
 import { v4 as uuidv4 } from 'uuid';
 
 
@@ -88,18 +88,30 @@ export async function listWorkoutsAction(): Promise<ActionResponse<Workout[]>> {
     }
 }
 
-// Action to get a single workout by its ID - RESTORED
-export async function getWorkoutByIdAction(workoutId: string): Promise<ActionResponse<Workout>> {
+// Action to get a single workout by its ID, now also fetches associated exercises
+export async function getWorkoutByIdAction(workoutId: string): Promise<ActionResponse<{ workout: Workout, exercises: Exercise[] }>> {
     try {
-        const doc = await firestore.collection('workouts').doc(workoutId).get();
-        if (!doc.exists) {
+        const workoutDoc = await firestore.collection('workouts').doc(workoutId).get();
+        if (!workoutDoc.exists) {
             return { success: false, error: 'Workout not found.' };
         }
-        const workout = doc.data() as Workout;
-        const migratedWorkout = migrateWorkoutSets(workout);
-        return { success: true, data: migratedWorkout };
+        const workout = migrateWorkoutSets(workoutDoc.data() as Workout);
+
+        // Extract unique exercise IDs from the workout
+        const exerciseIds = [...new Set(workout.blocks
+            .filter(block => block.type === 'exercise')
+            .map(block => (block as ExerciseBlock).exerciseId))];
+
+        let exercises: Exercise[] = [];
+        if (exerciseIds.length > 0) {
+            const exercisesSnapshot = await firestore.collection('exercises').where('id', 'in', exerciseIds).get();
+            exercises = exercisesSnapshot.docs.map(doc => doc.data() as Exercise);
+        }
+
+        return { success: true, data: { workout, exercises } };
     } catch (error: any) {
-        return { success: false, error: 'Failed to fetch workout.' };
+        console.error("Failed to fetch workout with exercises:", error);
+        return { success: false, error: 'Failed to fetch workout with exercises.' };
     }
 }
 
@@ -152,6 +164,20 @@ export async function getWorkoutHistoryAction(userId: string, workoutId: string)
     } catch (error: any) {
         console.error("Error fetching workout history:", error);
         return { success: false, error: "Failed to fetch workout history." };
+    }
+}
+
+export async function getPerformanceLogByIdAction(logId: string): Promise<ActionResponse<PerformanceLog>> {
+    try {
+        const doc = await firestore.collection('workout_logs').doc(logId).get();
+        if (!doc.exists) {
+            return { success: false, error: 'Performance log not found.' };
+        }
+        const log = doc.data() as PerformanceLog;
+        return { success: true, data: log };
+    } catch (error: any) {
+        console.error("Error fetching performance log:", error);
+        return { success: false, error: 'Failed to fetch performance log.' };
     }
 }
 

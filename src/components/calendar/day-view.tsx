@@ -18,7 +18,7 @@ import { WorkoutActionDialog } from './WorkoutActionDialog'; // UPDATED IMPORT
 import { EditWorkoutDialog } from './EditWorkoutDialog';
 import { getWorkoutByIdAction } from '@/app/workouts/actions';
 import { ActiveWorkoutDialog } from '../client/ActiveWorkoutDialog';
-import type { Workout } from '@/types/workout-program';
+import type { Workout, Exercise } from '@/types/workout-program';
 
 const pillarColors: Record<string, string> = {
     nutrition: 'bg-amber-500 border-amber-700',
@@ -254,6 +254,7 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [isPreparingWorkout, setIsPreparingWorkout] = useState(false);
     const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
+    const [activeWorkoutExercises, setActiveWorkoutExercises] = useState<Exercise[]>([]);
 
     useEffect(() => {
         setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -381,7 +382,8 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
             if (workoutResult.success === false) { 
                 throw new Error(workoutResult.error);
             }
-            setActiveWorkout(workoutResult.data);
+            setActiveWorkout(workoutResult.data.workout);
+            setActiveWorkoutExercises(workoutResult.data.exercises);
         } catch (error: any) {
             toast({
                 variant: 'destructive',
