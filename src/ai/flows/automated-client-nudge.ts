@@ -1,4 +1,3 @@
-
 'use server';
 /**
  * @fileOverview This function automatically nudges clients who have not interacted in a while.
@@ -30,17 +29,29 @@ export type NudgeOutput = z.infer<typeof NudgeOutputSchema>;
 export async function automatedClientNudge(input: NudgeInput): Promise<NudgeOutput> {
     const { dryRun = false } = input;
     console.log('Starting automated client nudge function...');
+
+    // 1. Get all active coaching clients
+    const clientsRef = adminDb.collection('clients');
+    const coachingClientsSnapshot = await clientsRef.where('tier', '==', 'coaching').get();
+    if (coachingClientsSnapshot.empty) {
+        console.log("No active coaching clients found.");
+        return { nudgedClients: [], totalNudged: 0 };
+    }
+    const coachingClientUids = coachingClientsSnapshot.docs.map(doc => doc.id);
+
+    // 2. Find MIA chats for ONLY those coaching clients
     const now = Timestamp.now();
     const fortyEightHoursAgo = Timestamp.fromMillis(now.toMillis() - 48 * 60 * 60 * 1000);
 
     const chatsRef = adminDb.collection('chats');
     const q = chatsRef
       .where('type', '==', 'coaching')
+      .where('participants', 'array-contains-any', coachingClientUids)
       .where('lastClientMessage', '<=', fortyEightHoursAgo);
 
     const snapshot = await q.get();
     if (snapshot.empty) {
-        console.log("No clients need nudging.");
+        console.log("No coaching clients need nudging.");
         return { nudgedClients: [], totalNudged: 0 };
     }
 
@@ -50,13 +61,15 @@ export async function automatedClientNudge(input: NudgeInput): Promise<NudgeOutp
     ];
 
     const nudgedClients: NudgeOutput['nudgedClients'] = [];
+    let coachIndex = 0; // Initialize coach index for alternation
 
     for (const chatDoc of snapshot.docs) {
         const chatData = chatDoc.data();
         const chatId = chatDoc.id;
 
         const lastClientMsgTimestamp = (chatData.lastClientMessage as Timestamp);
-        const lastAutomatedMsgTimestamp = chatДata.lastAutomatedMessage as Timestamp | undefined;
+        // CORRECTED TYPO: chatДata -> chatData
+        const lastAutomatedMsgTimestamp = chatData.lastAutomatedMessage as Timestamp | undefined;
 
         if (lastAutomatedMsgTimestamp) {
             const clientHasRepliedSinceLastNudge = lastClientMsgTimestamp.toMillis() > lastAutomatedMsgTimestamp.toMillis();
@@ -78,7 +91,10 @@ export async function automatedClientNudge(input: NudgeInput): Promise<NudgeOutp
             continue;
         }
 
-        const sendingCoach = coaches[Math.floor(Math.random() * coaches.length)];
+        // CORRECTED LOGIC: Alternate coaches
+        const sendingCoach = coaches[coachIndex % coaches.length];
+        coachIndex++; // Increment for next loop
+
         const nudgeTemplate = nudges[Math.floor(Math.random() * nudges.length)];
         const messageText = nudgeTemplate
             .replace('{clientName}', chatData.name)
@@ -91,7 +107,7 @@ export async function automatedClientNudge(input: NudgeInput): Promise<NudgeOutp
         });
 
         if (!dryRun) {
-            console.log(`Sending nudge to ${chatData.name} in chat ${chatId}`);
+            console.log(`Sending nudge to ${chatData.name} in chat ${chatId} from ${sendingCoach.name}`);
             await postMessageAction({
                 chatId: chatId,
                 text: messageText,

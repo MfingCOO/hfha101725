@@ -1,9 +1,7 @@
-
 'use client';
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
 import { Button } from "@/components/ui/button";
-import { useEffect, useState, useCallback, useMemo } from "react";
-import type { Chat, ClientProfile } from "@/services/firestore";
+import { useEffect, useState, useCallback } from "react";
 import { Loader2, MessageSquare, MoreVertical, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -29,13 +27,24 @@ import { differenceInHours } from 'date-fns';
 import { useAuth } from '@/components/auth/auth-provider';
 import { createChatAction, deleteChatAction, getChatsAndClientsForCoach } from '@/app/chats/actions';
 import { CreateChatDialog } from './create-chat-dialog';
+import type { Chat as OriginalChat, ClientProfile as OriginalClientProfile } from "@/types";
 
-type SerializableChat = Omit<Chat, 'createdAt' | 'lastClientMessage' | 'lastCoachMessage' | 'lastAutomatedMessage'> & {
+// Helper to convert string dates from server into sortable numbers
+const toTimestamp = (date: string | undefined | null): number => {
+    return date ? new Date(date).getTime() : 0;
+};
+
+// These types correctly represent the data shape after it's been serialized by the server action.
+// All Firestore Timestamps have been converted to ISO strings.
+type SerializableChat = Omit<OriginalChat, 'createdAt' | 'lastClientMessage' | 'lastCoachMessage' | 'lastAutomatedMessage' | 'lastMessage'> & {
     createdAt?: string;
     lastClientMessage?: string;
     lastCoachMessage?: string;
     lastAutomatedMessage?: string;
+    lastMessage?: string;
 };
+type SerializableClientProfile = Omit<OriginalClientProfile, 'createdAt'> & { createdAt?: string };
+
 
 interface ManageChatsDialogProps {
   open: boolean;
@@ -46,19 +55,16 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     const { toast } = useToast();
     const { user } = useAuth();
     const [allChats, setAllChats] = useState<SerializableChat[]>([]);
-    const [allClients, setAllClients] = useState<ClientProfile[]>([]);
+    const [allClients, setAllClients] = useState<SerializableClientProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     
-    // This state holds the sorted chats and prevents hydration errors.
     const [sortedChats, setSortedChats] = useState<{
         activeCoachingChats: SerializableChat[],
         miaCoachingChats: SerializableChat[],
         groupChats: SerializableChat[]
     }>({ activeCoachingChats: [], miaCoachingChats: [], groupChats: [] });
 
-    // This controls the visibility of the lists to prevent hydration mismatch.
     const [isClientReady, setIsClientReady] = useState(false);
-
     const [detailDialogState, setDetailDialogState] = useState<{ open: boolean, chatInfo: {id: string, name: string} | null }>({ open: false, chatInfo: null });
     const [deleteAlertState, setDeleteAlertState] = useState<{ open: boolean, chat: SerializableChat | null }>({ open: false, chat: null });
     const [isDeleting, setIsDeleting] = useState(false);
@@ -69,7 +75,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         const result = await getChatsAndClientsForCoach();
         if (result.success && result.data) {
             setAllChats(result.data.chats as SerializableChat[]);
-            setAllClients(result.data.clients as ClientProfile[]);
+            setAllClients(result.data.clients as SerializableClientProfile[]);
         } else {
             toast({
                 variant: 'destructive',
@@ -86,7 +92,6 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
       }
     }, [open, fetchChats]);
 
-    // This effect runs only on the client, after initial render, to prevent hydration errors.
     useEffect(() => {
         if (isLoading) return;
 
@@ -108,53 +113,43 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         const mia: SerializableChat[] = [];
 
         coaching.forEach(chat => {
-            const lastClientMsg = chat.lastClientMessage ? new Date(chat.lastClientMessage).getTime() : 0;
-            if (lastClientMsg > 0 && differenceInHours(now, lastClientMsg) < miaThresholdHours) {
+            const lastClientMsgTime = toTimestamp(chat.lastClientMessage);
+            if (lastClientMsgTime > 0 && differenceInHours(now, lastClientMsgTime) < miaThresholdHours) {
                 active.push(chat);
             } else {
                 mia.push(chat);
             }
         });
 
-        // Sort ACTIVE list: oldest un-answered client messages at the top.
         active.sort((a, b) => {
-            const a_client = a.lastClientMessage ? new Date(a.lastClientMessage).getTime() : 0;
-            const a_coach = a.lastCoachMessage ? new Date(a.lastCoachMessage).getTime() : 0;
-            const b_client = b.lastClientMessage ? new Date(b.lastClientMessage).getTime() : 0;
-            const b_coach = b.lastCoachMessage ? new Date(b.lastCoachMessage).getTime() : 0;
+            const a_client = toTimestamp(a.lastClientMessage);
+            const a_coach = toTimestamp(a.lastCoachMessage);
+            const b_client = toTimestamp(b.lastClientMessage);
+            const b_coach = toTimestamp(b.lastCoachMessage);
             
-            // Prioritize chats where coach has never replied
             if (a_client > a_coach && b_client <= b_coach) return -1;
             if (a_client <= a_coach && b_client > b_coach) return 1;
-
-            // If both need replies, oldest client message first
             if (a_client > a_coach && b_client > b_coach) return a_client - b_client;
-
-            // If both are answered, most recent coach reply last
             return a_coach - b_coach;
         });
         
-        // Sort MIA list: the one who is next in line for a nudge is at the top.
+        // CORRECTED SORT LOGIC FOR MIA LIST
         mia.sort((a, b) => {
-            const a_last_nudge = a.lastAutomatedMessage ? new Date(a.lastAutomatedMessage).getTime() : 0;
-            const a_last_client = a.lastClientMessage ? new Date(a.lastClientMessage).getTime() : 0;
-            const a_effective_time = Math.max(a_last_nudge, a_last_client);
-
-            const b_last_nudge = b.lastAutomatedMessage ? new Date(b.lastAutomatedMessage).getTime() : 0;
-            const b_last_client = b.lastClientMessage ? new Date(b.lastClientMessage).getTime() : 0;
-            const b_effective_time = Math.max(b_last_nudge, b_last_client);
-
-            return a_effective_time - b_effective_time; // Oldest effective time first
+            const a_last_client = toTimestamp(a.lastClientMessage);
+            const b_last_client = toTimestamp(b.lastClientMessage);
+            // DESCENDING order: most recent message time at the top.
+            // This places the longest-inactive clients at the BOTTOM of the list.
+            return b_last_client - a_last_client;
         });
 
         group.sort((a,b) => {
-            const dateA = new Date(a.lastMessage || a.createdAt || 0).getTime();
-            const dateB = new Date(b.lastMessage || b.createdAt || 0).getTime();
+            const dateA = toTimestamp(a.lastMessage || a.createdAt);
+            const dateB = toTimestamp(b.lastMessage || b.createdAt);
             return dateB - dateA;
         });
 
         setSortedChats({ activeCoachingChats: active, miaCoachingChats: mia, groupChats: group });
-        setIsClientReady(true); // Mark that client-side logic is complete.
+        setIsClientReady(true); 
 
     }, [allChats, allClients, isLoading]);
 
@@ -163,6 +158,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         if (!deleteAlertState.chat || !user) return;
         setIsDeleting(true);
         try {
+            // Use the original requesterId from the user object
             const result = await deleteChatAction(deleteAlertState.chat.id, user.uid);
             if (result.success) {
                 toast({ title: "Success", description: "The chat has been deleted." });
@@ -255,7 +251,6 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                         <TabsTrigger value="group">Group ({sortedChats.groupChats.length})</TabsTrigger>
                     </TabsList>
                     <div className="flex-1 min-h-0 mt-2">
-                        {/* Only render lists when client-side sorting is complete */}
                         {!isClientReady ? (
                              <div className="flex items-center justify-center h-full">
                                 <Loader2 className="h-8 w-8 animate-spin" />
@@ -264,7 +259,8 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                             <>
                                 <TabsContent value="active" className="h-full m-0"><ChatList list={sortedChats.activeCoachingChats} /></TabsContent>
                                 <TabsContent value="mia" className="h-full m-0"><ChatList list={sortedChats.miaCoachingChats} /></TabsContent>
-                                <TabsContent value="group" className="h-full m-0"><ChatList list={sortedChats.groupChats} /></TabsContent>
+                                <TabsContent value="group" className="h-full m-0
+                                "><ChatList list={sortedChats.groupChats} /></TabsContent>
                             </>
                         )}
                     </div>

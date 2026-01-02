@@ -143,8 +143,6 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
             const profileSnapshots = await Promise.all(profilePromises);
             profileSnapshots.forEach(snap => {
                 if (snap.exists) {
-                    // *** THIS IS THE FIX ***
-                    // We must serialize the user profile data to convert Timestamps.
                     participants[snap.id] = serializeTimestamps(snap.data()) as UserProfile;
                 }
             });
@@ -252,8 +250,13 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 let tokens: string[] = [];
                 profilesSnap.forEach(doc => {
                     const profile = doc.data() as UserProfile;
-                    if (profile.fcmTokens && Array.isArray(profile.fcmTokens)) {
-                        tokens.push(...profile.fcmTokens);
+                    const isRecipientCoach = COACH_UIDS.includes(doc.id);
+                    
+                    // THIS IS THE FIX: Only send notifications to coaches and paying clients.
+                    if (isRecipientCoach || profile.tier === 'coaching' || profile.tier === 'premium') {
+                        if (profile.fcmTokens && Array.isArray(profile.fcmTokens)) {
+                            tokens.push(...profile.fcmTokens);
+                        }
                     }
                 });
                 
