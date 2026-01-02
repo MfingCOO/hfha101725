@@ -85,7 +85,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
                     userId: userProfile.uid,
                     workoutId: workout.id,
                     startTime: engine.startTime ? new Date(engine.startTime) : new Date(),
-                    duration: Math.round(engine.elapsedTime / 60), // Duration in minutes
+                    duration: workout.duration, // THIS IS THE FIX: Use the coach's planned duration
                     performanceLog: performanceLog,
                     programId: programId,
                     calendarEventId: calendarEventId,
@@ -182,10 +182,10 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
     const form = useForm<PerformanceLogValues>({
         resolver: zodResolver(performanceLogSchema),
         defaultValues: {
-            reps: parseInt(set.value || '0', 10),
-            weight: unitSystem === 'imperial' 
-                ? convertKgToLbs(parseFloat(String(set.weight || 0))) 
-                : parseFloat(String(set.weight || 0)),
+            reps: parseInt(set.value || '0', 10) || 0,
+            weight: (unitSystem === 'imperial' 
+                ? convertKgToLbs(parseFloat(String(set.weight || 0)))
+                : parseFloat(String(set.weight || 0))) || 0,
         }
     });
 
@@ -193,7 +193,7 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
         const defaultWeightKg = parseFloat(String(set.weight || 0));
         const displayWeight = unitSystem === 'imperial' ? convertKgToLbs(defaultWeightKg) : defaultWeightKg;
         const targetReps = parseInt(set.value || '0', 10);
-        form.reset({ reps: targetReps, weight: displayWeight });
+        form.reset({ reps: targetReps || 0, weight: displayWeight || 0 });
     }, [set, unitSystem, form]);
 
     const onSubmit = (data: PerformanceLogValues) => {
@@ -220,7 +220,7 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
                             <FormItem>
                                 <FormLabel className="text-sm">Actual Reps</FormLabel>
                                 <FormControl>
-                                    <Input type="number" placeholder="0" {...field} className="h-12 text-center text-xl" />
+                                    <Input type="number" placeholder="0" {...field} onChange={e => field.onChange(parseInt(e.target.value) || 0)} value={field.value || ''} className="h-12 text-center text-xl" />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -229,7 +229,7 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
                             <FormItem>
                                 <FormLabel className="text-sm">Weight ({unitSystem === 'imperial' ? 'lbs' : 'kg'})</FormLabel>
                                 <FormControl>
-                                    <Input type="number" step="0.5" placeholder="0" {...field} className="h-12 text-center text-xl" />
+                                    <Input type="number" step="0.5" placeholder="0" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} value={field.value || ''} className="h-12 text-center text-xl" />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>

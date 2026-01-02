@@ -355,8 +355,9 @@ export async function completeWorkoutAction(data: {
             type: 'workout',
             duration: duration,    
             calories: (workout as any).calories || null,
-            relatedId: workoutId,
+            relatedId: logRef.id, // Corrected from workoutId
             programId: effectiveProgramId || null,
+            workoutId: workoutId, // Added to preserve the original workout template ID
             logId: logRef.id,
         });
 
