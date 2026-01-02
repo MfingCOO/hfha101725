@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Workout, ExerciseBlock, RestBlock, Exercise, Set } from '@/types/workout-program';
+import { completeWorkoutAction } from '@/app/calendar/actions';
+import { Workout, ExerciseBlock, Exercise, Set, PerformanceLog } from '@/types/workout-program';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Clock, CheckCircle, Play, Pause, SkipForward } from 'lucide-react';
+import { CheckCircle, Play, Pause, SkipForward } from 'lucide-react';
 import { useWorkoutEngine } from '@/hooks/use-workout-engine';
 import { formatTime, extractExerciseIds } from '@/lib/utils';
 import { getExercisesByIdsAction } from '@/app/exercises/actions';
@@ -28,12 +29,14 @@ interface WorkoutPlayerProps {
     workout: Workout | null;
     userProfile: UserProfile | null;
     programId?: string;
+    calendarEventId?: string;
 }
 
-export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId }: WorkoutPlayerProps) {
+export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId, calendarEventId }: WorkoutPlayerProps) {
     const { toast } = useToast();
-    const engine = useWorkoutEngine(workout, userProfile?.uid, programId);
+    const engine = useWorkoutEngine(workout);
     const [exercises, setExercises] = useState<Map<string, Exercise>>(new Map());
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         if (!workout) return;
@@ -52,9 +55,11 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
     }, [workout, toast]);
 
     const handleClose = useCallback(() => {
-        engine.endWorkout();
+        if (engine.status !== 'finished') {
+            engine.endWorkout();
+        }
         onClose();
-    }, [engine, onClose]);
+    }, [engine.status, engine.endWorkout, onClose]);
 
     useEffect(() => {
         if (isOpen && workout && engine.status === 'idle') {
@@ -63,25 +68,55 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
     }, [isOpen, workout, engine.status, engine.startWorkout]);
 
     useEffect(() => {
-        if (engine.status === 'finished') {
-            toast({ title: 'Workout Complete!', description: 'Great job! Your performance has been logged.' });
-            const timer = setTimeout(() => handleClose(), 2000);
-            return () => clearTimeout(timer);
-        }
-    }, [engine.status, handleClose, toast]);
+        const completeAndLogWorkout = async () => {
+            if (engine.status === 'finished' && workout && userProfile && !isSubmitting) {
+                setIsSubmitting(true);
+
+                const performanceLog: PerformanceLog = {
+                    userId: userProfile.uid,
+                    workoutId: workout.id,
+                    programId: programId || null,
+                    completedAt: new Date(),
+                    duration: engine.elapsedTime,
+                    performance: engine.performanceData,
+                };
+
+                const result = await completeWorkoutAction({
+                    userId: userProfile.uid,
+                    workoutId: workout.id,
+                    startTime: engine.startTime ? new Date(engine.startTime) : new Date(),
+                    duration: Math.round(engine.elapsedTime / 60), // Duration in minutes
+                    performanceLog: performanceLog,
+                    programId: programId,
+                    calendarEventId: calendarEventId,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    timezoneOffset: new Date().getTimezoneOffset(),
+                });
+
+                if (result.success) {
+                    toast({ title: 'Workout Complete!', description: 'Great job! Your performance has been logged.' });
+                } else {
+                    toast({ variant: 'destructive', title: 'Logging Failed', description: result.error || 'Could not save your workout performance.' });
+                }
+                setTimeout(handleClose, 1000);
+            }
+        };
+
+        completeAndLogWorkout();
+    }, [engine.status, engine.elapsedTime, engine.performanceData, engine.startTime, workout, userProfile, programId, calendarEventId, isSubmitting, handleClose, toast]);
 
     const currentExerciseBlock = useMemo(() => engine.currentBlock?.type === 'exercise' ? (engine.currentBlock as ExerciseBlock) : null, [engine.currentBlock]);
     const currentExercise = useMemo(() => currentExerciseBlock ? exercises.get(currentExerciseBlock.exerciseId) : null, [currentExerciseBlock, exercises]);
 
     const renderContent = () => {
-        if (!workout) return <p>Loading workout...</p>;
+        if (!workout || !userProfile) return <p>Loading workout...</p>;
         switch (engine.status) {
             case 'resting': return <RestView timer={engine.timer} onSkip={engine.skipRest} />;
             case 'exercising':
-                if (!currentExercise || !engine.currentSet) return <p>Loading exercise...</p>;
+                if (!currentExercise) return <p>Loading exercise...</p>;
                 return <TimedExerciseView exercise={currentExercise} timer={engine.timer} />;
             case 'rep_based_pause':
-                if (!currentExercise || !engine.currentSet || !userProfile) return <p>Loading exercise...</p>;
+                if (!currentExercise || !engine.currentSet) return <p>Loading exercise...</p>;
                 return <RepBasedView exercise={currentExercise} set={engine.currentSet} onComplete={engine.completeSet} unitSystem={userProfile.unitSystem || 'metric'} />;
             case 'paused': return <PausedView onResume={engine.resumeWorkout} />;
             case 'finished': return <FinishedView workoutName={workout.name} />;
@@ -131,7 +166,7 @@ const RestView = ({ timer, onSkip }: { timer: number, onSkip: () => void }) => (
 const TimedExerciseView = ({ exercise, timer }: { exercise: Exercise, timer: number }) => (
     <div className="flex flex-col items-center justify-center h-full w-full">
         <h2 className="text-3xl sm:text-4xl font-bold truncate mb-2">{exercise.name}</h2>
-        <p className="text-muted-foreground text-sm max-w-md mb-4"> {exercise.description} </p>
+        <p className="text-muted-foreground text-sm max-w-md mb-4">{exercise.description}</p>
         <h2 className="text-8xl font-bold font-mono tracking-tighter">{formatTime(timer)}</h2>
     </div>
 );
@@ -144,20 +179,21 @@ const performanceLogSchema = z.object({
 type PerformanceLogValues = z.infer<typeof performanceLogSchema>;
 
 const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exercise, set: Set, onComplete: (log: PerformanceLogValues) => void, unitSystem: 'metric' | 'imperial' }) => {
-    const defaultWeightKg = parseFloat(String(set.weight || 0));
-    const displayWeight = unitSystem === 'imperial' ? convertKgToLbs(defaultWeightKg) : defaultWeightKg;
-    const targetReps = parseInt(set.value, 10) || 0;
-
     const form = useForm<PerformanceLogValues>({
         resolver: zodResolver(performanceLogSchema),
-        defaultValues: { reps: targetReps, weight: displayWeight },
+        defaultValues: {
+            reps: parseInt(set.value || '0', 10),
+            weight: unitSystem === 'imperial' 
+                ? convertKgToLbs(parseFloat(String(set.weight || 0))) 
+                : parseFloat(String(set.weight || 0)),
+        }
     });
 
     useEffect(() => {
-        const newDefaultWeightKg = parseFloat(String(set.weight || 0));
-        const newDisplayWeight = unitSystem === 'imperial' ? convertKgToLbs(newDefaultWeightKg) : newDefaultWeightKg;
-        const newTargetReps = parseInt(set.value, 10) || 0;
-        form.reset({ reps: newTargetReps, weight: newDisplayWeight });
+        const defaultWeightKg = parseFloat(String(set.weight || 0));
+        const displayWeight = unitSystem === 'imperial' ? convertKgToLbs(defaultWeightKg) : defaultWeightKg;
+        const targetReps = parseInt(set.value || '0', 10);
+        form.reset({ reps: targetReps, weight: displayWeight });
     }, [set, unitSystem, form]);
 
     const onSubmit = (data: PerformanceLogValues) => {
@@ -166,18 +202,15 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
     };
 
     const rpeInfo = RPE_SCALE.find(r => r.value === set.rpe);
-    const isLifting = set.metric === 'reps';
-    const rpeDescription = rpeInfo ? (isLifting ? rpeInfo.lifting : rpeInfo.running) : 'No RPE specified';
+    const rpeDescription = rpeInfo ? (rpeInfo.lifting) : 'No RPE specified';
 
     return (
         <FormProvider {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col items-center justify-between h-full w-full space-y-3">
                 <div className="text-center">
                     <h2 className="text-2xl sm:text-3xl font-bold truncate">{exercise.name}</h2>
-                    <p className="text-muted-foreground text-xs max-w-md mt-1 mb-3">{exercise.description}</p>
-                    <div className="text-base space-y-1 bg-background/50 p-3 rounded-md">
+                    <div className="text-base space-y-1 bg-background/50 p-3 rounded-md mt-2">
                          <p><span className="font-semibold">Target:</span> {set.value} {set.metric}</p>
-                         {set.targetWeight && <p><span className="font-semibold">Target Weight:</span> {set.targetWeight}</p>}
                          {set.rpe && <p className="text-sm text-muted-foreground"><span className="font-semibold">RPE {set.rpe}:</span> {rpeDescription}</p>}
                     </div>
                 </div>
@@ -227,7 +260,7 @@ const FinishedView = ({ workoutName }: { workoutName: string }) => (
         <CheckCircle className="h-20 w-20 text-green-500 mb-6" />
         <h2 className="text-4xl font-bold mb-2">Workout Complete!</h2>
         <p className="text-lg text-muted-foreground mb-8">You crushed the <span className='font-semibold'>{workoutName}</span> workout.</p>
-        <p className='text-sm text-muted-foreground'>Your performance has been logged.</p>
+        <p className='text-sm text-muted-foreground'>Your performance is being logged.</p>
     </div>
 );
 

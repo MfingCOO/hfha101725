@@ -1,203 +1,251 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Workout, WorkoutBlock, ExerciseBlock, RestBlock, Set, PerformanceLog } from '@/types/workout-program';
-import { logWorkoutPerformanceAction } from '@/app/workouts/actions';
+import { useReducer, useEffect, useCallback, useMemo } from 'react';
+import { Workout, WorkoutBlock, ExerciseBlock, Set } from '@/types/workout-program';
+
+// --- STATE, ACTIONS, and REDUCER ---
 
 type WorkoutStatus = 'idle' | 'exercising' | 'resting' | 'paused' | 'rep_based_pause' | 'finished';
 
-export function useWorkoutEngine(workout: Workout | null, userId: string | undefined, programId: string | undefined) {
-    const [status, setStatus] = useState<WorkoutStatus>('idle');
-    const [currentBlockIndex, setCurrentBlockIndex] = useState(0);
-    const [currentSetIndex, setCurrentSetIndex] = useState(0);
-    const [timer, setTimer] = useState(0);
-    const [workoutProgress, setWorkoutProgress] = useState(0);
-    const [performanceLogs, setPerformanceLogs] = useState<any[]>([]);
-    const [startTime, setStartTime] = useState<Date | null>(null);
+interface WorkoutEngineState {
+  status: WorkoutStatus;
+  workout: Workout | null;
+  currentBlockIndex: number;
+  currentSetIndex: number;
+  timer: number;
+  startTime: number | null;
+  elapsedTime: number;
+  performanceData: any[];
+}
 
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+type Action = 
+  | { type: 'START_WORKOUT'; workout: Workout } 
+  | { type: 'PAUSE' }
+  | { type: 'RESUME' }
+  | { type: 'END_WORKOUT' }
+  | { type: 'SKIP_REST' }
+  | { type: 'TICK' }
+  | { type: 'COMPLETE_SET'; log?: { reps: number; weight: number } };
 
-    useEffect(() => {
-        audioRef.current = new Audio('/beep.mp3');
-    }, []);
+const initialState: WorkoutEngineState = {
+  status: 'idle',
+  workout: null,
+  currentBlockIndex: 0,
+  currentSetIndex: 0,
+  timer: 0,
+  startTime: null,
+  elapsedTime: 0,
+  performanceData: [],
+};
 
-    const currentBlock: WorkoutBlock | null = useMemo(() => workout?.blocks[currentBlockIndex] || null, [workout, currentBlockIndex]);
-    const currentSet: Set | null = useMemo(() => {
-        if (currentBlock?.type === 'exercise') {
-            return (currentBlock as ExerciseBlock).sets[currentSetIndex] || null;
+function workoutEngineReducer(state: WorkoutEngineState, action: Action): WorkoutEngineState {
+  const getCurrentBlock = () => state.workout?.blocks[state.currentBlockIndex] || null;
+
+  switch (action.type) {
+    case 'START_WORKOUT': {
+      const firstBlock = action.workout.blocks[0];
+      if (!firstBlock) return { ...initialState, workout: action.workout, status: 'finished' };
+
+      let status: WorkoutStatus = 'rep_based_pause';
+      let timer = 0;
+
+      if (firstBlock.type === 'rest') {
+        status = 'resting';
+        timer = firstBlock.duration;
+      } else if (firstBlock.type === 'exercise') {
+        const firstSet = firstBlock.sets[0];
+        if (firstSet?.metric === 'time') {
+          status = 'exercising';
+          timer = parseInt(String(firstSet.value) || '0', 10);
         }
-        return null;
-    }, [currentBlock, currentSetIndex]);
+      }
+      return { ...initialState, workout: action.workout, status, timer, startTime: Date.now() };
+    }
 
-    const advanceToNextBlock = useCallback(() => {
-        if (!workout) return;
-        const nextBlockIndex = currentBlockIndex + 1;
+    case 'PAUSE':
+      if (['exercising', 'resting', 'rep_based_pause'].includes(state.status)) {
+        return { ...state, status: 'paused' };
+      }
+      return state;
 
-        if (nextBlockIndex >= workout.blocks.length) {
-            setStatus('finished');
-        } else {
-            setCurrentBlockIndex(nextBlockIndex);
-            setCurrentSetIndex(0);
-            const nextBlock = workout.blocks[nextBlockIndex];
-            if(nextBlock.type === 'rest') {
-                setStatus('resting');
-                setTimer(nextBlock.duration);
-            } else {
-                 startNextSet(nextBlockIndex, 0);
-            }
+    case 'RESUME': {
+        if (state.status !== 'paused') return state;
+        const block = getCurrentBlock();
+        if(!block) return state;
+
+        if (block.type === 'rest') return { ...state, status: 'resting' };
+        if (block.type === 'exercise') {
+            const set = (block as ExerciseBlock).sets[state.currentSetIndex];
+            return { ...state, status: set?.metric === 'time' ? 'exercising' : 'rep_based_pause' };
         }
-    }, [currentBlockIndex, workout]);
+        return state;
+    }
 
-
-    const startNextSet = useCallback((blockIndex: number, setIndex: number) => {
-        if (!workout) return;
-        const block = workout.blocks[blockIndex];
-        if (block?.type === 'exercise') {
-            const exerciseBlock = block as ExerciseBlock;
-            const nextSet = exerciseBlock.sets[setIndex];
-            if (nextSet) {
-                if (nextSet.metric === 'time') {
-                    setTimer(parseInt(nextSet.value || '0', 10));
-                    setStatus('exercising');
-                } else {
-                    setStatus('rep_based_pause');
-                }
-            }
+    case 'TICK': {
+        if (!['exercising', 'resting'].includes(state.status) || state.timer <= 0) {
+            return state;
         }
-    }, [workout]);
-
-    const completeSet = useCallback((log?: { reps: number, weight: number }) => {
-        if (status !== 'rep_based_pause' && status !== 'exercising') return;
-
-        if (log && currentBlock?.type === 'exercise') {
-            const newLog = { blockId: currentBlock.id, setIndex: currentSetIndex, ...log };
-            setPerformanceLogs(prev => [...prev, newLog]);
-        }
-
-        const isLastSet = currentBlock?.type === 'exercise' && currentSetIndex >= (currentBlock as ExerciseBlock).sets.length - 1;
-        const restDuration = parseInt((currentBlock as ExerciseBlock)?.restBetweenSets || '0', 10);
         
-        if (isLastSet) {
-            advanceToNextBlock();
-        } else {
-            const nextSetIndex = currentSetIndex + 1;
-            setCurrentSetIndex(nextSetIndex);
-            if (restDuration > 0) {
-                setStatus('resting');
-                setTimer(restDuration);
-            } else {
-                startNextSet(currentBlockIndex, nextSetIndex);
+        const newElapsedTime = state.startTime ? Math.round((Date.now() - state.startTime) / 1000) : state.elapsedTime;
+        const newTimer = state.timer - 1;
+
+        if (newTimer > 0) {
+            return { ...state, timer: newTimer, elapsedTime: newElapsedTime };
+        }
+
+        // Timer finished. Create a temporary state and then call the reducer again with the appropriate action
+        // to reuse the advancement logic without duplicating it here.
+        const tempState = { ...state, timer: 0, elapsedTime: newElapsedTime };
+
+        if (state.status === 'resting') {
+            const currentBlock = getCurrentBlock();
+            // If we were resting before a set in an exercise block
+            if (currentBlock?.type === 'exercise') {
+                const nextSet = (currentBlock as ExerciseBlock).sets[state.currentSetIndex];
+                if (nextSet) {
+                    return {
+                        ...tempState,
+                        status: nextSet.metric === 'time' ? 'exercising' : 'rep_based_pause',
+                        timer: nextSet.metric === 'time' ? parseInt(String(nextSet.value) || '0', 10) : 0,
+                    };
+                } 
+            }
+            // If it was a standalone rest block, advance by treating it as a completed set of a block.
+            return workoutEngineReducer(tempState, { type: 'COMPLETE_SET' });
+        } else { // Timed exercise finished
+            return workoutEngineReducer(tempState, { type: 'COMPLETE_SET' });
+        }
+    }
+
+    case 'COMPLETE_SET': {
+        let newState = { ...state };
+        if (action.log) {
+            const block = getCurrentBlock();
+            if (block) {
+                const newLog = { blockId: block.id, setIndex: state.currentSetIndex, ...action.log };
+                newState.performanceData = [...state.performanceData, newLog];
             }
         }
-    }, [status, currentBlock, currentSetIndex, advanceToNextBlock, startNextSet, currentBlockIndex]);
 
-    useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if ((status === 'exercising' || status === 'resting') && timer > 0) {
-            interval = setInterval(() => setTimer(prev => prev - 1), 1000);
-        } else if (timer <= 0) {
-            if (status === 'exercising') {
-                completeSet();
-            } else if (status === 'resting') {
-                const nextSetIndex = currentSetIndex + 1;
-                 if (currentBlock?.type === 'exercise' && nextSetIndex < currentBlock.sets.length) {
-                    setCurrentSetIndex(nextSetIndex);
-                    startNextSet(currentBlockIndex, nextSetIndex);
-                } else {
-                    advanceToNextBlock();
+        const currentBlock = getCurrentBlock();
+        
+        // This condition handles advancing to the next block. It triggers if:
+        // 1. The current block is a standalone rest block.
+        // 2. We just finished the last set of an exercise block.
+        if (!currentBlock || currentBlock.type === 'rest' || newState.currentSetIndex >= (currentBlock as ExerciseBlock).sets.length - 1) {
+            const nextBlockIndex = newState.currentBlockIndex + 1;
+            const nextBlock = newState.workout?.blocks[nextBlockIndex];
+
+            // No next block? Workout is finished.
+            if (!nextBlock) return { ...newState, status: 'finished' };
+
+            let nextStatus: WorkoutStatus = 'rep_based_pause';
+            let nextTimer = 0;
+            if (nextBlock.type === 'rest') {
+                nextStatus = 'resting';
+                nextTimer = nextBlock.duration;
+            } else if (nextBlock.type === 'exercise') {
+                const nextSet = nextBlock.sets[0];
+                if (nextSet?.metric === 'time') {
+                    nextStatus = 'exercising';
+                    nextTimer = parseInt(String(nextSet.value) || '0', 10);
                 }
             }
+            return { ...newState, currentBlockIndex: nextBlockIndex, currentSetIndex: 0, status: nextStatus, timer: nextTimer };
         }
-        return () => clearInterval(interval);
-    }, [status, timer, completeSet, currentBlock, currentSetIndex, startNextSet, currentBlockIndex, advanceToNextBlock]);
+        
+        // Not the last set, so move to rest period before the next set.
+        const restBetweenSets = parseInt(String((currentBlock as ExerciseBlock).restBetweenSets) || '0', 10);
+        const nextSetIndex = newState.currentSetIndex + 1;
 
-
-    useEffect(() => {
-        if (status === 'finished' && workout && userId && startTime) {
-            const finalLog: PerformanceLog = {
-                userId,
-                workoutId: workout.id,
-                programId: programId || null,
-                completedAt: new Date(),
-                duration: Math.round((new Date().getTime() - startTime.getTime()) / 1000),
-                performance: performanceLogs,
-            };
-            logWorkoutPerformanceAction(finalLog);
-        }
-    }, [status, workout, userId, programId, performanceLogs, startTime]);
-
-    const startWorkout = useCallback(() => {
-        if (!workout || workout.blocks.length === 0) return;
-        setCurrentBlockIndex(0);
-        setCurrentSetIndex(0);
-        setPerformanceLogs([]);
-        setStartTime(new Date());
-        const firstBlock = workout.blocks[0];
-        if(firstBlock.type === 'rest') {
-            setStatus('resting');
-            setTimer(firstBlock.duration);
+        if (restBetweenSets > 0) {
+            return { ...newState, status: 'resting', timer: restBetweenSets, currentSetIndex: nextSetIndex };
         } else {
-            startNextSet(0, 0);
+             // No rest, go straight to the next set.
+            const nextSet = (currentBlock as ExerciseBlock).sets[nextSetIndex];
+            return {
+                ...newState,
+                currentSetIndex: nextSetIndex,
+                status: nextSet.metric === 'time' ? 'exercising' : 'rep_based_pause',
+                timer: nextSet.metric === 'time' ? parseInt(String(nextSet.value) || '0', 10) : 0,
+            };
         }
-    }, [workout, startNextSet]);
+    }
 
-    const pauseWorkout = () => {
-        if (status === 'exercising' || status === 'resting' || status === 'rep_based_pause') {
-            setStatus('paused');
+    case 'SKIP_REST':
+        if (state.status === 'resting') {
+            // Set timer to 1 and let the TICK logic handle the advancement. This is safer
+            // than calling the reducer directly and prevents race conditions or loops.
+            return { ...state, timer: 1 };
         }
-    };
+        return state;
 
-    const resumeWorkout = () => {
-        if (status !== 'paused') return;
-        const block = currentBlock;
-        if (!block) return;
+    case 'END_WORKOUT':
+      return { ...state, status: 'finished' };
 
-        if (block.type === 'rest') {
-            setStatus('resting');
-        } else if (block.type === 'exercise') {
-            const set = block.sets[currentSetIndex];
-            setStatus(set.metric === 'time' ? 'exercising' : 'rep_based_pause');
-        } 
-    };
+    default:
+      return state;
+  }
+}
 
-    const endWorkout = () => {
-        setStatus('finished');
-    };
+// --- HOOK ---
 
-    const skipRest = () => {
-        if (status === 'resting') {
-            setTimer(0);
-        }
-    };
+export function useWorkoutEngine(workout: Workout | null) {
+  const [state, dispatch] = useReducer(workoutEngineReducer, initialState);
 
-    useEffect(() => {
-        if (!workout) {
-            setWorkoutProgress(0);
-            return;
-        }
-        const totalSets = workout.blocks.reduce((acc, block) => {
-            if (block.type === 'exercise') return acc + block.sets.length;
-            return acc;
-        }, 0);
+  useEffect(() => {
+    let interval: NodeJS.Timeout | undefined;
+    if (state.timer > 0 && (state.status === 'exercising' || state.status === 'resting')) {
+        interval = setInterval(() => dispatch({ type: 'TICK' }), 1000);
+    }
+    return () => clearInterval(interval);
+  }, [state.timer, state.status]);
 
-        const completedSets = performanceLogs.length;
+  const startWorkout = useCallback(() => {
+      if(workout) dispatch({ type: 'START_WORKOUT', workout });
+  }, [workout]);
 
-        const progress = totalSets > 0 ? (completedSets / totalSets) * 100 : 0;
-        setWorkoutProgress(progress > 100 ? 100 : progress);
+  const pauseWorkout = useCallback(() => dispatch({ type: 'PAUSE' }), []);
+  const resumeWorkout = useCallback(() => dispatch({ type: 'RESUME' }), []);
+  const endWorkout = useCallback(() => dispatch({ type: 'END_WORKOUT' }), []);
+  const skipRest = useCallback(() => dispatch({ type: 'SKIP_REST' }), []);
+  const completeSet = useCallback((log?: { reps: number; weight: number }) => {
+      dispatch({ type: 'COMPLETE_SET', log });
+  }, []);
 
-    }, [performanceLogs, workout]);
+  const currentBlock = useMemo(() => state.workout?.blocks[state.currentBlockIndex] || null, [state.workout, state.currentBlockIndex]);
+  const currentSet = useMemo(() => {
+    if (currentBlock?.type === 'exercise') {
+        return (currentBlock as ExerciseBlock).sets[state.currentSetIndex] || null;
+    }
+    return null;
+  }, [currentBlock, state.currentSetIndex]);
 
-    return {
-        status,
-        currentBlock,
-        currentSet,
-        timer,
-        workoutProgress,
-        startWorkout,
-        pauseWorkout,
-        resumeWorkout,
-        completeSet,
-        endWorkout,
-        skipRest,
-    };
+  const workoutProgress = useMemo(() => {
+    if (!state.workout) return 0;
+    const totalSets = state.workout.blocks.reduce((acc, block) => {
+        if (block.type === 'exercise') return acc + block.sets.length;
+        return acc;
+    }, 0);
+    if (totalSets === 0) return 100;
+    const completedSets = state.performanceData.length;
+    return Math.min(100, (completedSets / totalSets) * 100);
+  }, [state.workout, state.performanceData]);
+
+  return {
+    status: state.status,
+    timer: state.timer,
+    workoutProgress,
+    currentBlock,
+    currentSet,
+    startTime: state.startTime,
+    elapsedTime: state.elapsedTime,
+    performanceData: state.performanceData,
+    startWorkout,
+    pauseWorkout,
+    resumeWorkout,
+    completeSet,
+    endWorkout,
+    skipRest,
+  };
 }

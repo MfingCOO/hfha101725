@@ -5,7 +5,7 @@ import { Timestamp, DocumentSnapshot } from 'firebase-admin/firestore';
 import { subDays, addDays, isWithinInterval, format, startOfDay, endOfDay } from 'date-fns';
 import { calculateDailySummaryForUser } from '@/services/summary-calculator'; 
 import { revalidatePath } from 'next/cache';
-import { Program, Workout } from '@/types/workout-program';
+import { Program, Workout, PerformanceLog } from '@/types/workout-program';
 import { ScheduledEvent } from '@/types/event';
 
 const ALL_DATA_COLLECTIONS = ['nutrition', 'hydration', 'activity', 'sleep', 'stress', 'measurements', 'protocol', 'planner', 'cravings'];
@@ -317,13 +317,14 @@ export async function completeWorkoutAction(data: {
     workoutId: string;
     startTime: Date;
     duration: number;
+    performanceLog: PerformanceLog;
     programId?: string;
     calendarEventId?: string;
     timezone?: string; 
     timezoneOffset?: number; 
 }) {
-    const { userId, workoutId, startTime, duration, calendarEventId, timezone, timezoneOffset } = data;
-    if (!userId || !workoutId || !startTime) return { success: false, error: "Missing user ID, workout ID, or start time." };
+    const { userId, workoutId, startTime, duration, calendarEventId, timezone, timezoneOffset, performanceLog } = data;
+    if (!userId || !workoutId || !startTime || !performanceLog) return { success: false, error: "Missing required workout completion data." };
 
     const batch = adminDb.batch();
 
@@ -343,6 +344,9 @@ export async function completeWorkoutAction(data: {
 
         const finalName = (weekName && dayNumber) ? `${weekName}, Day ${dayNumber}: ${workout.name}` : workout.name;
         
+        const logRef = adminDb.collection('workout_logs').doc();
+        batch.set(logRef, { ...performanceLog, id: logRef.id });
+        
         const activityRef = adminDb.collection(`clients/${userId}/activity`).doc();
         batch.set(activityRef, {
             id: activityRef.id,
@@ -353,6 +357,7 @@ export async function completeWorkoutAction(data: {
             calories: (workout as any).calories || null,
             relatedId: workoutId,
             programId: effectiveProgramId || null,
+            logId: logRef.id,
         });
 
         if (calendarEventId) {
