@@ -1,0 +1,15 @@
+[
+  {
+    "origin": [
+      "https://9000-firebase-103125-1761919991969.cluster-zsqzu5kebnaemxbyqrvoim2lxo.cloudworkstations.dev",
+      "http://localhost:3000"
+    ],
+    "method": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Access-Control-Allow-Origin",
+      "Authorization"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

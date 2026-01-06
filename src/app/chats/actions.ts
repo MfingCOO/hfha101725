@@ -5,6 +5,8 @@ import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';
 import { FieldValue, FieldPath } from 'firebase-admin/firestore';
+import { initializeApp, getApps, App, cert, getApp } from 'firebase-admin/app';
+import { getStorage } from 'firebase-admin/storage';
 
 
 function serializeTimestamps(docData: any) {
@@ -158,26 +160,60 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
 
 
 export async function getSignedUrlAction(fileName: string, path: string, contentType: string): Promise<{ success: boolean, signedUrl?: string, publicUrl?: string, error?: string }> {
-  try {
-    const bucket = admin.storage().bucket('gs://hunger-free-and-happy-app.firebasestorage.app');
-    const uniqueFileName = `${path}/${Date.now()}-${fileName.replace(/\s+/g, '_')}`;
-    const file = bucket.file(uniqueFileName);
+    try {
+      // --- START SURGICAL FIX ---
+      
+      // Define a unique name for a dedicated storage admin app instance to avoid conflicts.
+      const STORAGE_ADMIN_APP_NAME = 'storage-admin-app-instance';
+  
+      // This function gets or creates our dedicated, authenticated app instance.
+      const getStorageAdminApp = (): App => {
+          // If our dedicated app already exists, just return it.
+          if (getApps().some(app => app.name === STORAGE_ADMIN_APP_NAME)) {
+              return getApp(STORAGE_ADMIN_APP_NAME);
+          }
+  
+          // Otherwise, initialize it for the first time with the service account key.
+          const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+          if (!serviceAccountKey) {
+              throw new Error('CRITICAL: FIREBASE_SERVICE_ACCOUNT_KEY is not set for signed URL generation.');
+          }
+          const serviceAccount = JSON.parse(serviceAccountKey);
+  
+          return initializeApp({
+              credential: cert(serviceAccount),
+              storageBucket: 'hunger-free-and-happy-app.firebasestorage.app',
+          }, STORAGE_ADMIN_APP_NAME);
+      };
+  
+      // Get the dedicated, authenticated app and its storage service.
+      const storageAdminApp = getStorageAdminApp();
+      const authenticatedStorage = getStorage(storageAdminApp);
+      
+      // --- END SURGICAL FIX ---
+  
+      // Now, use the fully authenticated storage service to get the URL.
+      const bucket = authenticatedStorage.bucket();
+      const uniqueFileName = `${path}/${Date.now()}-${fileName.replace(/\s+/g, '_')}`;
+      const file = bucket.file(uniqueFileName);
+  
+      const [signedUrl] = await file.getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+      });
 
-    const [signedUrl] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'write',
-      expires: Date.now() + 15 * 60 * 1000, // 15 minutes
-      contentType: contentType,
-    });
-
-    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${uniqueFileName}`;
-
-    return { success: true, signedUrl, publicUrl };
-  } catch (error: any) {
-    console.error("Error generating signed URL via server action: ", error);
-    return { success: false, error: error.message || 'Failed to generate signed URL.' };
+  
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${uniqueFileName}`;
+  
+      return { success: true, signedUrl, publicUrl };
+  
+    } catch (error: any) {
+      console.error("Error generating signed URL with surgical fix: ", error);
+      return { success: false, error: error.message || 'Failed to generate signed URL.' };
+    }
   }
-}
+  
 
 
 const PostMessageInputSchema = z.object({

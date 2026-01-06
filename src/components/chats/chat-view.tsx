@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Send, Paperclip, XCircle, FileText, Trash2 } from 'lucide-react';
 import { ChatMessage, UserProfile } from '@/types';
-import { postMessageAction, deleteMessageAction, getChatMessagesAction, getSignedUrlAction } from '@/app/chats/actions';
+import { postMessageAction, deleteMessageAction, getChatMessagesAction } from '@/app/chats/actions';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -23,7 +23,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { onSnapshot, collection, query, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { v4 as uuidv4 } from 'uuid';
 import { ScrollArea } from '../ui/scroll-area';
 
 function LinkifiedText({ text }: { text: string }) {
@@ -175,23 +177,11 @@ export function ChatView({ chatId }: ChatViewProps) {
             let uploadedFileName: string | undefined = undefined;
 
             if (selectedFile) {
-                const signedUrlResult = await getSignedUrlAction(selectedFile.name, `chats/${chatId}`, selectedFile.type);
-                if (!signedUrlResult.success || !signedUrlResult.signedUrl || !signedUrlResult.publicUrl) {
-                    throw new Error(signedUrlResult.error || 'Could not get an upload URL.');
-                }
-                
-                const uploadResponse = await fetch(signedUrlResult.signedUrl, {
-                    method: 'PUT',
-                    body: selectedFile,
-                    headers: { 'Content-Type': selectedFile.type },
-                });
-
-                if (!uploadResponse.ok) {
-                    throw new Error('File upload failed.');
-                }
-
-                uploadedFileUrl = signedUrlResult.publicUrl;
-                uploadedFileName = selectedFile.name;
+                 const fileId = uuidv4();
+                 const storageRef = ref(storage, `chats/${chatId}/${fileId}-${selectedFile.name}`);
+                 await uploadBytes(storageRef, selectedFile);
+                 uploadedFileUrl = await getDownloadURL(storageRef);
+                 uploadedFileName = selectedFile.name;
             }
             
             await postMessageAction({

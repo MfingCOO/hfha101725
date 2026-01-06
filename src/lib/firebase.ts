@@ -10,7 +10,7 @@ import { getMessaging } from "firebase/messaging";
 const firebaseConfig = {
   "projectId": "hunger-free-and-happy-app",
   "appId": "1:1002580546718:web:a8574bfc3732c7c137978f",
-  "storageBucket": "hunger-free-and-happy-app.appspot.com",
+  "storageBucket": "hunger-free-and-happy-app.firebasestorage.app",
   "apiKey": "AIzaSyAk8vuQj8JfEyweNdtK9en9uUk6amEblYo",
   "authDomain": "hunger-free-and-happy-app.firebaseapp.com",
   "measurementId": "",
