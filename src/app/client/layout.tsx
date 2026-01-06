@@ -22,24 +22,6 @@ import { Loader2 } from 'lucide-react';
 import { differenceInMilliseconds } from 'date-fns';
 import { StickyPopups } from '@/components/dashboard/sticky-popups';
 
-// Development-only cron job simulator
-const useDevCron = () => {
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Starting development cron job simulator...');
-      // Immediately trigger once on start
-      fetch('/api/cron/process-events'); 
-
-      const intervalId = setInterval(() => {
-        console.log('DEV CRON: Triggering scheduled event processing...');
-        fetch('/api/cron/process-events');
-      }, 60000); // Every 60 seconds
-
-      return () => clearInterval(intervalId);
-    }
-  }, []);
-};
-
 interface ErrorBoundaryProps {
   children: React.ReactNode;
   router: { push: (path: string) => void; };
@@ -141,8 +123,6 @@ export default function ClientLayout({
   const [reminder, setReminder] = useState<(Reminder & { id: string }) | null>(null);
   const [isReminderOpen, setIsReminderOpen] = useState(false);
   const [nextCheckTimeout, setNextCheckTimeout] = useState<NodeJS.Timeout | null>(null);
-  
-  useDevCron(); // Activate the development-only cron simulator
 
   useEffect(() => {
     if (!loading && user && isCoach) {
