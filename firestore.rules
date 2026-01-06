@@ -25,6 +25,11 @@ service cloud.firestore {
     match /popups/{popupId} {
       allow read, write: if isCoach(request.auth.uid);
     }
+
+    // Users can read and write their own sticky-popups
+    match /sticky-popups/{popupId} {
+      allow read, write: if request.auth.uid == resource.data.userId;
+    }
     
     // User profiles can be read by their owner or any coach
     // They can only be created/updated by their owner.

@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -23,10 +22,9 @@ import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { savePopupAction } from '@/app/coach/popups/actions';
 import { TIER_ACCESS, UserProfile } from '@/types';
-import { getAllAppUsers } from '@/app/coach/dashboard/actions'; // FIX: Import the new authoritative function
+import { getAllAppUsers } from '@/app/coach/dashboard/actions';
 import { Combobox } from '@/components/ui/combobox';
 import { BaseModal } from '@/components/ui/base-modal';
-
 
 const popupSchema = z.object({
     id: z.string().optional(),
@@ -48,7 +46,6 @@ const popupSchema = z.object({
     message: "A target value is required for this target type.",
     path: ["targetValue"],
 });
-
 
 type PopupFormValues = z.infer<typeof popupSchema>;
 
@@ -84,7 +81,6 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
 
     useEffect(() => {
         const fetchAllUsers = async () => {
-            // FIX: Call the new authoritative function to get ALL users
             const result = await getAllAppUsers();
             if (result.success && result.users) {
                 setClients(result.users);
@@ -128,12 +124,8 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
     
     const onSubmit = async (data: PopupFormValues) => {
         try {
-            // FIX: Round minutes to the nearest 15-min interval and clear seconds/ms
-            const roundedDate = new Date(data.scheduledAt);
-            const minutes = roundedDate.getMinutes();
-            const roundedMinutes = Math.floor(minutes / 15) * 15;
-            roundedDate.setMinutes(roundedMinutes, 0, 0);
-            data.scheduledAt = roundedDate;
+            // Ensure seconds and milliseconds are zeroed out for clean scheduling
+            data.scheduledAt.setSeconds(0, 0);
 
             const result = await savePopupAction(data);
 
@@ -238,7 +230,6 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
                                 <FormControl>
                                      <Input
                                         type="time"
-                                        step="900"
                                         value={field.value instanceof Date && !isNaN(field.value.getTime()) ? format(field.value, 'HH:mm') : ''}
                                         onChange={e => {
                                             const [hours, minutes] = e.target.value.split(':').map(Number);
@@ -287,7 +278,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
                                     name="targetValue"
                                     render={({ field }) => (
                                     <FormItem><FormLabel>Select Tier</FormLabel>
-                                        <Select onValuechange={field.onChange} value={field.value}>
+                                        <Select onValueChange={field.onChange} value={field.value}>
                                             <FormControl><SelectTrigger><SelectValue placeholder="Select a tier" /></SelectTrigger></FormControl>
                                             <SelectContent>
                                                 {TIER_ACCESS.map(tier => <SelectItem key={tier} value={tier}>{tier.charAt(0).toUpperCase() + tier.slice(1)}</SelectItem>)}

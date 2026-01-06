@@ -85,6 +85,8 @@ export interface UserProfile {
     hydrationSettings?: {
         target: number;
         unit: 'oz' | 'ml';
+        remindersEnabled?: boolean;
+        reminderTimes?: string[];
     };
     rda?: {
         [key: string]: number | null;

@@ -20,6 +20,7 @@ import type { ClientProfile, MealItem, Nutrient } from '@/types';
 import { updateClientWthr } from '@/app/coach/clients/actions';
 import { getTodaysContextualData, triggerSummaryRecalculation } from '@/app/calendar/actions';
 import { BaseModal } from '@/components/ui/base-modal';
+import { scheduleHydrationRemindersAction } from '@/app/client/reminders/actions';
 import InsightPopup from '@/components/app/InsightPopup';
 // import { runProactiveCoachAction } from "@/app/client/actions";
 import { NutritionContent } from './nutrition-content';
@@ -148,9 +149,9 @@ export function DataEntryDialog({
         setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
     }, []);
  
-    const onFormStateChange = useCallback((newState: any) => {
+    const onFormStateChange = (newState: any) => {
         setFormState(prevState => ({ ...prevState, ...newState }));
-    }, []);
+    };    
 
 
     const getInitialFormState = useCallback((pillarId: string, initialData: any, contextData: any, clientData: ClientProfile | null) => {
@@ -163,6 +164,8 @@ export function DataEntryDialog({
                     notes: initialData?.notes || '',
                     target: initialData?.target || clientData?.hydrationSettings?.target || 0,
                     unit: initialData?.unit || clientData?.hydrationSettings?.unit || 'oz',
+                    remindersEnabled: initialData?.remindersEnabled || clientData?.hydrationSettings?.remindersEnabled || false,
+                    reminderTimes: initialData?.reminderTimes || clientData?.hydrationSettings?.reminderTimes || [],
                 };
             case 'sleep':
                 return {
@@ -326,15 +329,22 @@ export function DataEntryDialog({
 
         switch (pillar.id) {
             case 'hydration':
-                dataToSave = {
+                const logData = {
                     amount: formState.amount || 0,
                     hunger: formState.hunger,
                     notes: formState.notes || '',
-                    target: formState.target,
-                    unit: formState.unit,
                     entryDate: entryDate,
                 };
+                const settingsData = {
+                    target: formState.target,
+                    unit: formState.unit,
+                    remindersEnabled: formState.remindersEnabled,
+                    reminderTimes: formState.reminderTimes,
+                };
+                // We will pass both objects to the save action below
+                dataToSave = { log: logData, settings: settingsData };
                 break;
+            
             
             case 'sleep':
                 const wakeUpDateTime = new Date(entryDate);
@@ -486,13 +496,18 @@ export function DataEntryDialog({
         }
 
         try {
-            const result = await saveDataAction(pillar.id, { log: dataToSave }, currentUserId, logId);
+            const payload = pillar.id === 'hydration' ? dataToSave : { log: dataToSave };
+            const result = await saveDataAction(pillar.id, payload, currentUserId, logId);
             if (result.success) {
                 toast({ title: `Entry ${logId ? 'Updated' : 'Saved'}!`, description: `${pillar.label} data has been successfully saved.`});
                 if (userTimezone && currentUserId) {
                     await triggerSummaryRecalculation(currentUserId, format(entryDate, 'yyyy-MM-dd'), userTimezone, entryDate.getTimezoneOffset());
                 }
                 router.refresh();
+                if (pillar.id === 'hydration' && currentUserId && userTimezone) {
+                    const timesToSchedule = formState.remindersEnabled ? formState.reminderTimes : [];
+                    await scheduleHydrationRemindersAction(currentUserId, timesToSchedule, userTimezone);
+                }              
                 const responseType = pillar.id === 'cravings'
 
                     ? formState.activeTab // This will be 'craving' or 'binge'
@@ -612,7 +627,7 @@ export function DataEntryDialog({
                     </div>
                 )}
                 {pillar.id === 'planner' && (
-                    <div className="flex-shrink-0 flex justify-center py-1">
+                    <div className="flex-shrink-0 flex justify-center pyy-1">
                         <Label className="text-xs mr-2">Date of Indulgence</Label>
                         <DateTimePicker date={entryDate} setDate={setEntryDate} />
                     </div>

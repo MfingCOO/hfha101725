@@ -59,7 +59,6 @@ export function HydrationContent({ clientProfile, formState, onFormStateChange }
         onFormStateChange({ [field]: value });
     };
 
-    // Correctly identifies if the REMINDERS feature should be locked.
     const isRemindersLocked = clientProfile?.tier === 'free' || clientProfile?.tier === 'ad-free';
 
     const handleReminderToggle = (checked: boolean) => {
@@ -67,29 +66,28 @@ export function HydrationContent({ clientProfile, formState, onFormStateChange }
             setIsUpgradeModalOpen(true);
             return;
         }
-        handleFieldChange('remindersEnabled', checked);
+        onFormStateChange({ remindersEnabled: checked });
         if (checked && (!formState.reminderTimes || formState.reminderTimes.length === 0)) {
-            handleFieldChange('reminderTimes', ['09:00', '12:00', '15:00']);
-        }
-        if (checked && Notification.permission !== "granted") {
-            Notification.requestPermission();
+            onFormStateChange({ reminderTimes: ['09:00', '12:00', '15:00'] });
         }
     };
     
-    const addReminderTime = () => handleFieldChange('reminderTimes', [...(formState.reminderTimes || []), '17:00']);
+    const addReminderTime = () => {
+        const newTimes = [...(formState.reminderTimes || []), '17:00'];
+        onFormStateChange({ reminderTimes: newTimes });
+    };
     
     const removeReminderTime = (index: number) => {
         const newTimes = (formState.reminderTimes || []).filter((_: any, i: number) => i !== index);
-        handleFieldChange('reminderTimes', newTimes);
+        onFormStateChange({ reminderTimes: newTimes });
     };
     
     const updateReminderTime = (index: number, value: string) => {
         const newTimes = [...(formState.reminderTimes || [])];
         newTimes[index] = value;
-        handleFieldChange('reminderTimes', newTimes);
+        onFormStateChange({ reminderTimes: newTimes });
     };
     
-    // **THE FIX**: Use the ideal protein goal (which equals ideal weight in lbs) as the suggested hydration goal in oz.
     const suggestedGoal = clientProfile?.customGoals?.protein;
 
     return (
@@ -193,7 +191,6 @@ export function HydrationContent({ clientProfile, formState, onFormStateChange }
              <UpgradeModal
                 isOpen={isUpgradeModalOpen}
                 onClose={() => setIsUpgradeModalOpen(false)}
-                // **THE FIX**: Use the correct enum syntax for the tier.
                 requiredTier={UserTier.Basic}
                 featureName="Hydration Reminders"
                 reason="Build consistent hydration habits with gentle reminders."

@@ -1,13 +1,9 @@
-
 'use server';
 /**
- * @fileOverview A unified Genkit flow to manage the lifecycle of scheduled pop-up campaigns.
+ * @fileOverview A unified Genkit flow to manage the lifecycle of scheduled pop-up campaigns and user reminders.
  * This flow is designed to be run by a recurring cron job.
  */
 
-
-import { defineFlow } from '@genkit-ai/core';
-import { z } from 'zod';
 import { db } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { sendScheduledPopupNotification } from '@/services/reminders';
@@ -16,28 +12,47 @@ import { sendScheduledPopupNotification } from '@/services/reminders';
 interface Popup {
   id: string;
   name: string;
-  [key: string]: any; // Allows for other properties we don't need to name explicitly
+  scheduledAt: Timestamp;
+  [key: string]: any; 
 }
-// This flow processes all scheduled pop-up events.
-export const processScheduledEventsFlow = async (dryRun: boolean = false) => {
 
-    console.log(`Running scheduled pop-up processing... ${dryRun ? '[DRY RUN]' : ''}`);
+// This is the NEW, UNIFIED flow that processes all scheduled events.
+export const processScheduledEventsFlow = async (dryRun: boolean = false) => {
+    console.log(`Running scheduled event processing... ${dryRun ? '[DRY RUN]' : ''}`);
     const now = Timestamp.now();
     const twentyFourHoursAgo = Timestamp.fromMillis(now.toMillis() - 24 * 60 * 60 * 1000);
+    
     let activatedPopups = 0;
     let completedPopups = 0;
-    
+    let processedUserReminders = 0; 
 
     const masterBatch = db.batch();
-    
-    // --- 2. Process Pop-up Campaigns ---
-    const scheduledPopupsQuery = db.collection('popups')
-      .where('status', '==', 'scheduled')
-      .where('scheduledAt', '<=', now);
-    
-    const activePopupsQuery = db.collection('popups')
-      .where('status', '==', 'active')
-      .where('scheduledAt', '<=', twentyFourHoursAgo);
+
+    // --- 1. Process User-Scheduled Reminders ---
+    const userRemindersQuery = db.collection('userScheduledReminders').where('scheduledAt', '<=', now);
+    const userRemindersSnapshot = await userRemindersQuery.get();
+
+    if (!userRemindersSnapshot.empty) {
+        userRemindersSnapshot.docs.forEach(doc => {
+            const reminderData = doc.data();
+            console.log(`Processing user reminder for user ${reminderData.userId}`);
+            const stickyPopupRef = db.collection('stickyPopups').doc();
+            masterBatch.set(stickyPopupRef, {
+                userId: reminderData.userId,
+                message: reminderData.message,
+                type: reminderData.type || 'info',
+                createdAt: Timestamp.now(),
+                seen: false,
+            });
+            masterBatch.delete(doc.ref);
+            processedUserReminders++;
+        });
+    }
+
+    // --- 2. Process Coach-Sent Pop-up Campaigns ---
+    // ROBUSTNESS FIX: Fetch all scheduled popups and check the time in the code to avoid timezone query bugs.
+    const scheduledPopupsQuery = db.collection('popups').where('status', '==', 'scheduled');
+    const activePopupsQuery = db.collection('popups').where('status', '==', 'active').where('scheduledAt', '<=', twentyFourHoursAgo);
 
     const [scheduledPopupsSnapshot, activePopupsSnapshot] = await Promise.all([
         scheduledPopupsQuery.get(),
@@ -47,12 +62,15 @@ export const processScheduledEventsFlow = async (dryRun: boolean = false) => {
     // Process and deliver scheduled pop-ups
     if (!scheduledPopupsSnapshot.empty) {
         const deliveryPromises = scheduledPopupsSnapshot.docs.map(async (doc) => {
-          const popupData = { id: doc.id, ...doc.data() } as Popup;
-            console.log(`Delivering scheduled pop-up: ${popupData.name} (ID: ${popupData.id})`);
-            // This is the critical missing line that actually delivers the notification.
-            await sendScheduledPopupNotification(popupData);
-            masterBatch.update(doc.ref, { status: 'active' });
-            activatedPopups++;
+            const popupData = { id: doc.id, ...doc.data() } as Popup;
+
+            // Manual, robust time check.
+            if (popupData.scheduledAt.toMillis() <= now.toMillis()) {
+                console.log(`Delivering scheduled pop-up: ${popupData.name} (ID: ${popupData.id})`);
+                await sendScheduledPopupNotification(popupData);
+                masterBatch.update(doc.ref, { status: 'active' });
+                activatedPopups++;
+            }
         });
         await Promise.all(deliveryPromises);
     }
@@ -71,13 +89,13 @@ export const processScheduledEventsFlow = async (dryRun: boolean = false) => {
         await masterBatch.commit();
     }
     
-    const processedPopups = activatedPopups + completedPopups;
-console.log(`Processed ${processedPopups} pop-ups.`);
-
+    const processedItems = activatedPopups + completedPopups + processedUserReminders;
+    console.log(`Processed ${processedItems} total items.`);
     
     return {
-      processedPopups,
-      activatedPopups,
-      completedPopups
+      totalProcessed: processedItems,
+      activatedCoachPopups: activatedPopups,
+      completedCoachPopups: completedPopups,
+      processedUserReminders: processedUserReminders,
     };    
-  }
+}
