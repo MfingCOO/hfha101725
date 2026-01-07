@@ -38,30 +38,34 @@ const initialState: WorkoutEngineState = {
   performanceData: [],
 };
 
-// --- FINAL FIX: Flattens the workout structure to handle supersets (groups) ---
 const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | RestBlock> => {
     const flow: Array<ExerciseBlock | RestBlock> = [];
 
     for (const block of blocks) {
         if (block.type === 'group') {
             const groupBlock = block as GroupBlock;
-            const rounds = Number(groupBlock.rounds) || 1; // Ensure rounds is a number
-            const restDuration = Number(groupBlock.restBetweenRounds) || 0;
+            const rounds = Number(groupBlock.rounds) || 1;
+            const restBetweenRounds = Number(groupBlock.restBetweenRounds) || 0;
+            const exercisesInGroup = groupBlock.blocks;
 
             for (let i = 0; i < rounds; i++) {
-                // Create unique instances of each block for every round to avoid key conflicts
-                const exerciseBlocksInRound = groupBlock.blocks.map(b => ({ 
-                    ...b, 
-                    id: `${b.id}-round-${i}` 
-                }));
-                flow.push(...exerciseBlocksInRound);
+                for (const exercise of exercisesInGroup) {
+                    if (i < exercise.sets.length) {
+                        const singleSetExerciseBlock: ExerciseBlock = {
+                            ...exercise,
+                            id: `${exercise.id}-round-${i}`,
+                            sets: [exercise.sets[i]],
+                            restBetweenSets: '0',
+                        };
+                        flow.push(singleSetExerciseBlock);
+                    }
+                }
 
-                // Add rest between rounds, if applicable
-                if (restDuration > 0 && i < rounds - 1) {
+                if (restBetweenRounds > 0 && i < rounds - 1) {
                     const restBlock: RestBlock = {
                         id: `${groupBlock.id}-round-rest-${i}`,
                         type: 'rest',
-                        duration: restDuration,
+                        duration: restBetweenRounds,
                     };
                     flow.push(restBlock);
                 }
