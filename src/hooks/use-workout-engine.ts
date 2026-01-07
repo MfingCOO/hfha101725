@@ -38,6 +38,7 @@ const initialState: WorkoutEngineState = {
   performanceData: [],
 };
 
+// FINAL FIX PART 1: This function correctly prepares the data for the engine.
 const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | RestBlock> => {
     const flow: Array<ExerciseBlock | RestBlock> = [];
 
@@ -50,11 +51,15 @@ const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | Rest
 
             for (let i = 0; i < rounds; i++) {
                 for (const exercise of exercisesInGroup) {
-                    if (i < exercise.sets.length) {
+                    // Robustly select the set to use for the current round,
+                    // defaulting to the first set if no specific set is defined for this round.
+                    const setToUse = exercise.sets[i] || exercise.sets[0];
+
+                    if (setToUse) {
                         const singleSetExerciseBlock: ExerciseBlock = {
                             ...exercise,
                             id: `${exercise.id}-round-${i}`,
-                            sets: [exercise.sets[i]],
+                            sets: [setToUse],
                             restBetweenSets: '0',
                         };
                         flow.push(singleSetExerciseBlock);
@@ -71,12 +76,14 @@ const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | Rest
                 }
             }
         } else if (block.type === 'exercise' || block.type === 'rest') {
+            // Pass standard blocks through unchanged to preserve their behavior.
             flow.push(block as ExerciseBlock | RestBlock);
         }
     }
     return flow;
 };
 
+// FINAL FIX PART 2: The rewritten reducer and ADVANCE logic.
 function workoutEngineReducer(state: WorkoutEngineState, action: Action): WorkoutEngineState {
   const { status, executionFlow, currentBlockIndex, currentSetIndex } = state;
 
@@ -150,61 +157,54 @@ function workoutEngineReducer(state: WorkoutEngineState, action: Action): Workou
         const currentBlock = executionFlow[currentBlockIndex];
         if (!currentBlock) return { ...state, status: 'finished' };
 
-        if (status === 'resting') {
-             const nextBlock = executionFlow[currentBlockIndex];
-             const nextSet = (nextBlock as ExerciseBlock)?.sets?.[currentSetIndex];
-              if (!nextSet) {
-                 const finalElapsedTime = state.startTime ? Math.floor((Date.now() - state.startTime) / 1000) : state.elapsedTime;
-                 return { ...state, status: 'finished', elapsedTime: finalElapsedTime };
-             }
- 
-             return {
-                 ...state,
-                 status: nextSet.metric === 'time' ? 'exercising' : 'rep_based_pause',
-                 timer: nextSet.metric === 'time' ? parseInt(String(nextSet.value) || '0', 10) : 0,
-             };
-        }
-        
-        if (currentBlock.type === 'exercise') {
-            const isLastSet = currentSetIndex >= currentBlock.sets.length - 1;
-            if (!isLastSet) {
-                const restTime = parseInt(String(currentBlock.restBetweenSets) || '0', 10);
-                const nextSetIndex = currentSetIndex + 1;
+        // SCENARIO 1: We are in a standard multi-set block and it's not the last set yet.
+        // This logic handles advancing WITHIN the same block.
+        if (currentBlock.type === 'exercise' && currentSetIndex < currentBlock.sets.length - 1) {
+            const restTime = parseInt(String(currentBlock.restBetweenSets) || '0', 10);
+            const nextSetIndex = currentSetIndex + 1;
 
-                if (restTime > 0) {
-                    return { ...state, status: 'resting', timer: restTime, currentSetIndex: nextSetIndex };
-                }
-
-                const nextSet = currentBlock.sets[nextSetIndex];
-                return {
-                    ...state,
-                    currentSetIndex: nextSetIndex,
-                    status: nextSet.metric === 'time' ? 'exercising' : 'rep_based_pause',
-                    timer: nextSet.metric === 'time' ? parseInt(String(nextSet.value) || '0', 10) : 0,
-                };
+            // If there's rest, start resting. The engine will call ADVANCE again when the timer finishes.
+            if (restTime > 0 && status !== 'resting') {
+                 return { ...state, status: 'resting', timer: restTime, currentSetIndex: nextSetIndex };
             }
+            
+            // If there's no rest (or we just finished resting), start the next set.
+            const nextSet = currentBlock.sets[nextSetIndex];
+            return {
+                ...state,
+                currentSetIndex: nextSetIndex,
+                status: nextSet.metric === 'time' ? 'exercising' : 'rep_based_pause',
+                timer: nextSet.metric === 'time' ? parseInt(String(nextSet.value) || '0', 10) : 0,
+            };
         }
 
+        // SCENARIO 2: We finished the last set of ANY block (standard or superset) OR a RestBlock.
+        // This logic handles advancing BETWEEN blocks in the execution flow.
         const nextBlockIndex = currentBlockIndex + 1;
         const nextBlock = executionFlow[nextBlockIndex];
 
+        // If there is no next block, the workout is complete.
         if (!nextBlock) {
             const finalElapsedTime = state.startTime ? Math.floor((Date.now() - state.startTime) / 1000) : state.elapsedTime;
             return { ...state, status: 'finished', elapsedTime: finalElapsedTime };
         }
 
+        // Set up the state for the new block.
         let nextStatus: WorkoutStatus = 'rep_based_pause';
         let nextTimer = 0;
+
         if (nextBlock.type === 'rest') {
             nextStatus = 'resting';
             nextTimer = nextBlock.duration;
         } else if (nextBlock.type === 'exercise') {
-            const nextSet = nextBlock.sets[0];
-            if (nextSet?.metric === 'time') {
+            const firstSet = nextBlock.sets[0];
+            if (firstSet?.metric === 'time') {
                 nextStatus = 'exercising';
-                nextTimer = parseInt(String(nextSet.value) || '0', 10);
+                nextTimer = parseInt(String(firstSet.value) || '0', 10);
             }
         }
+
+        // Point the engine to the new block and reset the set index.
         return { ...state, currentBlockIndex: nextBlockIndex, currentSetIndex: 0, status: nextStatus, timer: nextTimer };
     }
 
