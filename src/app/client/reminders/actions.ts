@@ -2,6 +2,7 @@
 
 import { db } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
+// SIMPLIFIED: Using only the functions that are confirmed to work.
 import { toZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 /**
@@ -19,33 +20,41 @@ export const scheduleHydrationRemindersAction = async (userId: string, times: st
   }
 
   const batch = db.batch();
-  const now = new Date();
+  const now = new Date(); // Current time in UTC.
 
-  // 1. Delete all existing, pending hydration reminders for this user to prevent duplicates.
+  // 1. Delete all existing, pending hydration reminders for this user.
   const remindersQuery = db.collection('userScheduledReminders').where('userId', '==', userId).where('type', '==', 'hydration');
   
   try {
     const snapshot = await remindersQuery.get();
     snapshot.docs.forEach(doc => {
-      console.log(`Deleting old hydration reminder: ${doc.id}`);
       batch.delete(doc.ref);
     });
 
-    // 2. Create new reminders based on the provided times.
+    // 2. Create new reminders with a robust timezone conversion method.
     for (const time of times) {
-      const [hour, minute] = time.split(':').map(Number);
       
+      // A) Get today's date string (e.g., "2024-07-21") in the user's timezone.
+      const todayInUserTz = formatInTimeZone(now, timezone, 'yyyy-MM-dd');
+      
+      // B) Create a full date-time string (e.g., "2024-07-21T16:59:00") for the desired time.
+      const dateTimeStringInUserTz = `${todayInUserTz}T${time}:00`;
+      
+      // C) Use `toZonedTime` to correctly parse that string into a Date object that represents
+      //    the exact moment in the user's timezone.
+      let reminderDate = toZonedTime(dateTimeStringInUserTz, timezone);
+      
+      // D) Get the current time in the user's timezone for comparison.
       const userTimeNow = toZonedTime(now, timezone);
-      
-      let reminderTimeInUserTz = new Date(userTimeNow.getFullYear(), userTimeNow.getMonth(), userTimeNow.getDate(), hour, minute);
 
-      if (reminderTimeInUserTz < userTimeNow) {
-        reminderTimeInUserTz.setDate(reminderTimeInUserTz.getDate() + 1);
+      // E) If the reminder time has already passed today, schedule it for tomorrow.
+      if (reminderDate < userTimeNow) {
+        reminderDate.setDate(reminderDate.getDate() + 1);
       }
       
-      // THIS IS THE CORRECTED LINE - No longer using the non-existent function.
-      // We create a valid UTC date object directly.
-      const scheduledAtUtc = new Date(reminderTimeInUserTz);
+      // F) `reminderDate` is now the correct Date object. Firestore's `Timestamp.fromDate`
+      //    will correctly convert this to a UTC timestamp for storage.
+      const scheduledAtUtc = reminderDate;
 
       const reminderRef = db.collection('userScheduledReminders').doc();
       batch.set(reminderRef, {

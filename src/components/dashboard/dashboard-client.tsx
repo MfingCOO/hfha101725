@@ -513,7 +513,6 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
       <ProgramHubDialog
         isOpen={isProgramHubOpen}
         onClose={() => setIsProgramHubOpen(false)}
-        userProfile={userProfile}
       />
 
       {activePillar && (

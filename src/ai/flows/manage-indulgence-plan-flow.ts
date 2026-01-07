@@ -16,7 +16,7 @@ interface Popup {
   [key: string]: any; 
 }
 
-// This is the NEW, UNIFIED flow that processes all scheduled events.
+// This is the UNIFIED flow that processes all scheduled events.
 export const processScheduledEventsFlow = async (dryRun: boolean = false) => {
     console.log(`Running scheduled event processing... ${dryRun ? '[DRY RUN]' : ''}`);
     const now = Timestamp.now();
@@ -29,23 +29,28 @@ export const processScheduledEventsFlow = async (dryRun: boolean = false) => {
     const masterBatch = db.batch();
 
     // --- 1. Process User-Scheduled Reminders ---
-    const userRemindersQuery = db.collection('userScheduledReminders').where('scheduledAt', '<=', now);
+    // FINAL ROBUSTNESS FIX: Fetch all pending reminders and check time in code, with added safety checks.
+    const userRemindersQuery = db.collection('userScheduledReminders');
     const userRemindersSnapshot = await userRemindersQuery.get();
 
     if (!userRemindersSnapshot.empty) {
         userRemindersSnapshot.docs.forEach(doc => {
             const reminderData = doc.data();
-            console.log(`Processing user reminder for user ${reminderData.userId}`);
-            const stickyPopupRef = db.collection('stickyPopups').doc();
-            masterBatch.set(stickyPopupRef, {
-                userId: reminderData.userId,
-                message: reminderData.message,
-                type: reminderData.type || 'info',
-                createdAt: Timestamp.now(),
-                seen: false,
-            });
-            masterBatch.delete(doc.ref);
-            processedUserReminders++;
+
+            // SUPER-ROBUSTNESS FIX: Check for existence AND correct type of 'scheduledAt' before processing.
+            if (reminderData.scheduledAt && reminderData.scheduledAt instanceof Timestamp && reminderData.scheduledAt.toMillis() <= now.toMillis()) {
+                console.log(`Processing user reminder for user ${reminderData.userId}`);
+                const stickyPopupRef = db.collection('stickyPopups').doc();
+                masterBatch.set(stickyPopupRef, {
+                    userId: reminderData.userId,
+                    message: reminderData.message,
+                    type: reminderData.type || 'info',
+                    createdAt: Timestamp.now(),
+                    seen: false,
+                });
+                masterBatch.delete(doc.ref);
+                processedUserReminders++;
+            }
         });
     }
 
@@ -64,8 +69,8 @@ export const processScheduledEventsFlow = async (dryRun: boolean = false) => {
         const deliveryPromises = scheduledPopupsSnapshot.docs.map(async (doc) => {
             const popupData = { id: doc.id, ...doc.data() } as Popup;
 
-            // Manual, robust time check.
-            if (popupData.scheduledAt.toMillis() <= now.toMillis()) {
+            // THE FINAL FIX: Apply the same super-robust check here to prevent crashes from bad coach-set popups.
+            if (popupData.scheduledAt && popupData.scheduledAt instanceof Timestamp && popupData.scheduledAt.toMillis() <= now.toMillis()) {
                 console.log(`Delivering scheduled pop-up: ${popupData.name} (ID: ${popupData.id})`);
                 await sendScheduledPopupNotification(popupData);
                 masterBatch.update(doc.ref, { status: 'active' });

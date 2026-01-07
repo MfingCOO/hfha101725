@@ -24,6 +24,7 @@ export function ProgramBrowserDialog({ isOpen, onClose, userProfile }: ProgramBr
 
   useEffect(() => {
     const fetchPrograms = async () => {
+      if (!isOpen) return;
       setIsLoading(true);
       try {
         const result = await getClientProgramsAction();
@@ -38,10 +39,7 @@ export function ProgramBrowserDialog({ isOpen, onClose, userProfile }: ProgramBr
         setIsLoading(false);
       }
     };
-
-    if (isOpen) {
-      fetchPrograms();
-    }
+    fetchPrograms();
   }, [isOpen, toast]);
 
   const handleSelectProgram = async (programId: string) => {
@@ -51,7 +49,7 @@ export function ProgramBrowserDialog({ isOpen, onClose, userProfile }: ProgramBr
       const result = await setClientProgramAction(userProfile.uid, programId);
       if (result.success) {
         toast({ title: 'Success!', description: 'Your active program has been updated.' });
-        onClose(true);
+        onClose(true); // Signal to the parent component that a refetch is needed.
       } else {
         throw new Error('Failed to set program.');
       }
@@ -64,7 +62,7 @@ export function ProgramBrowserDialog({ isOpen, onClose, userProfile }: ProgramBr
 
   const handleClose = () => {
     setViewingProgram(null);
-    onClose(false);
+    onClose(false); // Do not refetch if the user just closes the dialog.
   }
 
   const renderProgramListView = () => (

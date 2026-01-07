@@ -115,16 +115,26 @@ export async function getWorkoutByIdAction(workoutId: string): Promise<ActionRes
     }
 }
 
-// Action to get multiple workouts by their IDs - RESTORED
+// CORRECTED function name
 export async function getWorkoutsByIdsAction(workoutIds: string[]): Promise<ActionResponse<Workout[]>> {
     if (!workoutIds || workoutIds.length === 0) {
         return { success: true, data: [] };
     }
 
     try {
-        const snapshot = await firestore.collection('workouts').where('id', 'in', workoutIds).get();
-        const workouts = snapshot.docs.map(doc => doc.data() as Workout);
-        
+        const uniqueWorkoutIds = [...new Set(workoutIds)];
+        const chunks: string[][] = [];
+        for (let i = 0; i < uniqueWorkoutIds.length; i += 10) {
+            chunks.push(uniqueWorkoutIds.slice(i, i + 10));
+        }
+
+        const fetchPromises = chunks.map(chunk => 
+            firestore.collection('workouts').where('id', 'in', chunk).get()
+        );
+
+        const snapshots = await Promise.all(fetchPromises);
+        const workouts = snapshots.flatMap(snapshot => snapshot.docs.map(doc => doc.data() as Workout));
+
         const workoutMap = new Map(workouts.map(w => [w.id, w]));
 
         const orderedAndMigratedWorkouts = workoutIds.map(id => {

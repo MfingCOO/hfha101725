@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { db as firestore } from '@/lib/firebaseAdmin';
-import { Program, UserProgram } from '@/types/workout-program';
+import { Program, UserProgram, ProgramWeek, ClientProfile } from '@/types/workout-program';
 import { ScheduledEvent } from '@/types/event';
 import { ActionResponse } from '@/types/action-response';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -41,7 +41,22 @@ export async function setClientProgramAction(userId: string, programId: string):
         return { success: false, error: "User ID and Program ID are required." };
     }
     try {
-        const userRef = firestore.collection('users').doc(userId);
+        const userRef = firestore.collection('clients').doc(userId);
+        const userProgramRef = firestore.collection('userPrograms').doc(userId);
+
+        const userProgramDoc = await userProgramRef.get();
+        if (!userProgramDoc.exists) {
+            const newUserProgram: UserProgram = {
+                userId: userId,
+                programId: programId,
+                startDate: new Date().toISOString(),
+                completedWorkouts: [],
+            };
+            await userProgramRef.set(newUserProgram);
+        } else {
+            await userProgramRef.update({ programId: programId });
+        }
+
         await userRef.update({ activeProgramId: programId });
 
         revalidatePath('/client/dashboard');
@@ -63,8 +78,30 @@ export async function getProgramDetailsAction(programId: string): Promise<Action
     }
     const program = doc.data() as Program;
     program.id = doc.id;
+
+    let weeksArray: ProgramWeek[] = [];
+    if (program.weeks) {
+        if (Array.isArray(program.weeks)) {
+            weeksArray = program.weeks;
+        } else if (typeof program.weeks === 'object') {
+            weeksArray = Object.entries(program.weeks).map(([id, weekData]) => ({
+                ...(weekData as any),
+                id: id,
+            }));
+        }
+    }
+
+    program.weeks = weeksArray.map((week, index) => ({
+        ...week,
+        id: week.id || `${program.id}-week-${index}`,
+        weekNumber: week.weekNumber || index + 1,
+        name: week.name || `Week ${index + 1}`,
+        workoutIds: week.workoutIds || []
+    }));
+
     return { success: true, data: program };
   } catch (error: any) {
+    console.error("Error fetching program details:", error);
     return { success: false, error: "Failed to fetch program details." };
   }
 }
@@ -170,4 +207,32 @@ export async function deleteCalendarEventAction(eventId: string): Promise<Action
         console.error("Error deleting calendar event:", error);
         return { success: false, error: "Failed to delete the calendar event." };
     }
+}
+
+export async function getClientProfileAction(userId: string): Promise<ActionResponse<ClientProfile>> {
+  if (!userId) {
+    return { success: false, error: "User ID is required." };
+  }
+
+  try {
+    const docRef = firestore.collection('clients').doc(userId);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      return { success: false, error: "Client profile not found." };
+    }
+
+    const clientProfile = docSnap.data() as ClientProfile;
+    clientProfile.uid = userId;
+
+    // THE FIX: Convert Timestamp to a serializable ISO string
+    if (clientProfile.createdAt && (clientProfile.createdAt as any).toDate) {
+      clientProfile.createdAt = (clientProfile.createdAt as any).toDate().toISOString();
+    }
+
+    return { success: true, data: clientProfile };
+  } catch (error: any) {
+    console.error("Error fetching client profile:", error);
+    return { success: false, error: "Failed to fetch client profile." };
+  }
 }
