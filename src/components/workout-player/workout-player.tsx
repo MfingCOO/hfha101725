@@ -128,7 +128,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
         <Dialog open={isOpen} onOpenChange={(open) => { if (!open) handleClose(); }}>
             <DialogContent className="max-w-md w-full h-full max-h-[95vh] flex flex-col p-0">
                 <DialogHeader className="p-4 border-b flex-row items-center justify-between">
-                    <DialogTitle>{workout?.name || 'Workout'}</DialogTitle>
+                    <DialogTitle className="truncate">{workout?.name || 'Workout'}</DialogTitle>
                     <div className="flex items-center space-x-2">
                         {engine.status !== 'idle' && engine.status !== 'finished' && (
                             engine.status === 'paused' ? (
@@ -143,7 +143,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
 
                 <div className="flex-1 flex flex-col gap-4 p-4 overflow-y-auto">
                     <WorkoutProgressBar progress={engine.workoutProgress} />
-                    <div className="flex flex-col items-center justify-center text-center bg-muted/30 dark:bg-muted/50 rounded-lg p-4 flex-1">
+                    <div className="flex flex-col items-center justify-center text-center bg-muted/30 dark:bg-muted/50 rounded-lg p-4 flex-1 min-h-0">
                         {renderContent()}
                     </div>
                 </div>
@@ -165,7 +165,7 @@ const RestView = ({ timer, onSkip }: { timer: number, onSkip: () => void }) => (
 
 const TimedExerciseView = ({ exercise, timer }: { exercise: Exercise, timer: number }) => (
     <div className="flex flex-col items-center justify-center h-full w-full">
-        <h2 className="text-3xl sm:text-4xl font-bold truncate mb-2">{exercise.name}</h2>
+        <h2 className="text-3xl sm:text-4xl font-bold truncate w-full mb-2">{exercise.name}</h2>
         <p className="text-muted-foreground text-sm max-w-md mb-4">{exercise.description}</p>
         <h2 className="text-8xl font-bold font-mono tracking-tighter">{formatTime(timer)}</h2>
     </div>
@@ -207,7 +207,7 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
     return (
         <FormProvider {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col items-center justify-between h-full w-full space-y-3">
-                <div className="text-center">
+                <div className="text-center w-full">
                     <h2 className="text-2xl sm:text-3xl font-bold truncate">{exercise.name}</h2>
                     <div className="text-base space-y-1 bg-background/50 p-3 rounded-md mt-2">
                          <p><span className="font-semibold">Target:</span> {set.value} {set.metric}</p>

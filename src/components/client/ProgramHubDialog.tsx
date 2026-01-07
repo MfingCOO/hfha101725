@@ -173,21 +173,21 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
                             
                             return (
                             <div key={uniqueId} className='p-3 bg-muted/50 rounded-lg'>
-                                <div className='flex justify-between items-center'>
-                                <span className='font-medium'>{`Day ${index + 1}: ${workout.name}`}</span>
+                                <div className='flex justify-between items-center w-full gap-3'>
+                                <p className='font-medium truncate flex-1 min-w-0'>{`Day ${index + 1}: ${workout.name}`}</p>
                                 {!isScheduling && (
-                                    <div className='flex items-center gap-1'>
-                                        <Button variant="ghost" size="icon" onClick={() => handleViewHistory(workout)} title="View Past Workouts">
-                                            <History className="h-5 w-5 text-gray-500" />
+                                    <div className='flex items-center flex-shrink-0'>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewHistory(workout)} title="View Past Workouts">
+                                            <History className="h-4 w-4 text-gray-400" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" onClick={() => handlePreviewWorkout(workout)} title="Preview Workout">
-                                            <Eye className="h-5 w-5 text-blue-500" />
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handlePreviewWorkout(workout)} title="Preview Workout">
+                                            <Eye className="h-4 w-4 text-blue-400" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" onClick={() => handleStartWorkout(workout)} title="Start Workout">
-                                            <PlayCircle className="h-5 w-5 text-green-500" />
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleStartWorkout(workout)} title="Start Workout">
+                                            <PlayCircle className="h-4 w-4 text-green-400" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" onClick={() => handleOpenScheduler(uniqueId)} title="Schedule Workout">
-                                            <CalendarClock className="h-5 w-5 text-purple-500" />
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenScheduler(uniqueId)} title="Schedule Workout">
+                                            <CalendarClock className="h-4 w-4 text-purple-400" />
                                         </Button>
                                     </div>
                                 )}
