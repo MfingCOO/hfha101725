@@ -17,7 +17,6 @@ import { formatTime, extractExerciseIds } from '@/lib/utils';
 import { getExercisesByIdsAction } from '@/app/exercises/actions';
 import { UserProfile } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import { RPE_SCALE } from '@/lib/rpe-scale';
 
 const KG_TO_LBS = 2.20462;
 const convertKgToLbs = (kg: number) => Math.round((kg * KG_TO_LBS) * 2) / 2;
@@ -85,7 +84,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
                     userId: userProfile.uid,
                     workoutId: workout.id,
                     startTime: engine.startTime ? new Date(engine.startTime) : new Date(),
-                    duration: workout.duration, // THIS IS THE FIX: Use the coach's planned duration
+                    duration: workout.duration,
                     performanceLog: performanceLog,
                     programId: programId,
                     calendarEventId: calendarEventId,
@@ -201,9 +200,6 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
         onComplete({ ...data, weight: weightInKg });
     };
 
-    const rpeInfo = RPE_SCALE.find(r => r.value === set.rpe);
-    const rpeDescription = rpeInfo ? (rpeInfo.lifting) : 'No RPE specified';
-
     return (
         <FormProvider {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col items-center justify-between h-full w-full space-y-3">
@@ -211,7 +207,7 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
                     <h2 className="text-2xl sm:text-3xl font-bold truncate">{exercise.name}</h2>
                     <div className="text-base space-y-1 bg-background/50 p-3 rounded-md mt-2">
                          <p><span className="font-semibold">Target:</span> {set.value} {set.metric}</p>
-                         {set.rpe && <p className="text-sm text-muted-foreground"><span className="font-semibold">RPE {set.rpe}:</span> {rpeDescription}</p>}
+                         {set.target && <p className="text-sm text-muted-foreground"><span className="font-semibold">Note:</span> {set.target}</p>}
                     </div>
                 </div>
                 <div className="w-full max-w-sm p-2">

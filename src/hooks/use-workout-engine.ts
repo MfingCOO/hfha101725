@@ -8,7 +8,6 @@ type WorkoutStatus = 'idle' | 'exercising' | 'resting' | 'paused' | 'rep_based_p
 interface WorkoutEngineState {
   status: WorkoutStatus;
   workout: Workout | null;
-  // A flattened list of the actual blocks to be executed
   executionFlow: Array<ExerciseBlock | RestBlock>;
   currentBlockIndex: number;
   currentSetIndex: number;
@@ -39,22 +38,38 @@ const initialState: WorkoutEngineState = {
   performanceData: [],
 };
 
-// --- The Fix: Flattens the workout structure to handle supersets (groups) ---
+// --- FINAL FIX: Flattens the workout structure to handle supersets (groups) ---
 const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | RestBlock> => {
     const flow: Array<ExerciseBlock | RestBlock> = [];
-    blocks.forEach(block => {
+
+    for (const block of blocks) {
         if (block.type === 'group') {
             const groupBlock = block as GroupBlock;
-            for (let i = 0; i < groupBlock.rounds; i++) {
-                flow.push(...groupBlock.blocks);
-                if (groupBlock.restBetweenRounds && i < groupBlock.rounds - 1) {
-                    flow.push({ id: `${block.id}-round-rest-${i}`, type: 'rest', duration: groupBlock.restBetweenRounds });
+            const rounds = Number(groupBlock.rounds) || 1; // Ensure rounds is a number
+            const restDuration = Number(groupBlock.restBetweenRounds) || 0;
+
+            for (let i = 0; i < rounds; i++) {
+                // Create unique instances of each block for every round to avoid key conflicts
+                const exerciseBlocksInRound = groupBlock.blocks.map(b => ({ 
+                    ...b, 
+                    id: `${b.id}-round-${i}` 
+                }));
+                flow.push(...exerciseBlocksInRound);
+
+                // Add rest between rounds, if applicable
+                if (restDuration > 0 && i < rounds - 1) {
+                    const restBlock: RestBlock = {
+                        id: `${groupBlock.id}-round-rest-${i}`,
+                        type: 'rest',
+                        duration: restDuration,
+                    };
+                    flow.push(restBlock);
                 }
             }
-        } else {
+        } else if (block.type === 'exercise' || block.type === 'rest') {
             flow.push(block as ExerciseBlock | RestBlock);
         }
-    });
+    }
     return flow;
 };
 

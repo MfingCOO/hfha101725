@@ -22,7 +22,7 @@ export interface Set {
     id: string;
     metric?: 'reps' | 'time' | 'distance' | 'weight';
     value?: string;
-    rpe?: number;
+    target?: string; // Replaces RPE for a flexible target
     targetWeight?: string;
     weight?: string;
 }
