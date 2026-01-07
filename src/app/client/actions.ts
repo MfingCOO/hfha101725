@@ -8,6 +8,26 @@ import { ActionResponse } from '@/types/action-response';
 import { Timestamp } from 'firebase-admin/firestore';
 import { getSiteSettings } from '@/services/getSiteSettings';
 
+// Helper function to safely convert any value to a serializable format.
+const toSerializable = (value: any): any => {
+  if (value && typeof value.toDate === 'function') {
+    return value.toDate().toISOString();
+  }
+  if (value && value._seconds !== undefined && value._nanoseconds !== undefined) {
+    return new Timestamp(value._seconds, value._nanoseconds).toDate().toISOString();
+  }
+  if (Array.isArray(value)) {
+    return value.map(toSerializable);
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.entries(value).reduce((acc, [key, val]) => {
+      acc[key] = toSerializable(val);
+      return acc;
+    }, {} as { [key: string]: any });
+  }
+  return value;
+};
+
 export async function getVideoCallLinkAction(): Promise<ActionResponse<{ link: string | null }>> {
   try {
     const settingsResult = await getSiteSettings();
@@ -117,7 +137,7 @@ export async function getUserProgramAction(userId: string): Promise<ActionRespon
         await firestore.collection('userPrograms').doc(userId).set(defaultProgram);
         return { success: true, data: defaultProgram };
     }
-    return { success: true, data: doc.data() as UserProgram };
+    return { success: true, data: toSerializable(doc.data()) as UserProgram };
   } catch (error: any) {
     return { success: false, error: "Failed to fetch user program data." };
   }
@@ -133,7 +153,7 @@ export async function upsertUserProgramAction(userProgramData: Partial<UserProgr
         await docRef.set(userProgramData, { merge: true });
         const updatedDoc = await docRef.get();
         revalidatePath('/client/dashboard');
-        return { success: true, data: updatedDoc.data() as UserProgram };
+        return { success: true, data: toSerializable(updatedDoc.data()) as UserProgram };
     } catch (error: any) {
         return { success: false, error: "Failed to update your program progress." };
     }
@@ -163,8 +183,8 @@ export async function getScheduledEventsAction(userId: string): Promise<ActionRe
                 relatedId: data.relatedId,
                 isCompleted: data.isCompleted,
                 duration: data.duration,
-                startTime: (startTime as Timestamp).toDate().toISOString(),
-                endTime: (endTime as Timestamp).toDate().toISOString(),
+                startTime: toSerializable(startTime),
+                endTime: toSerializable(endTime),
             } as ScheduledEvent;
         });
 
@@ -225,12 +245,11 @@ export async function getClientProfileAction(userId: string): Promise<ActionResp
     const clientProfile = docSnap.data() as ClientProfile;
     clientProfile.uid = userId;
 
-    // THE FIX: Convert Timestamp to a serializable ISO string
-    if (clientProfile.createdAt && (clientProfile.createdAt as any).toDate) {
-      clientProfile.createdAt = (clientProfile.createdAt as any).toDate().toISOString();
-    }
+    // Use the hardened serializer to fix all timestamp issues
+    const serializableProfile = toSerializable(clientProfile);
 
-    return { success: true, data: clientProfile };
+    return { success: true, data: serializableProfile };
+
   } catch (error: any) {
     console.error("Error fetching client profile:", error);
     return { success: false, error: "Failed to fetch client profile." };
