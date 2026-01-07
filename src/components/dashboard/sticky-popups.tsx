@@ -1,62 +1,85 @@
-
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAuth } from '@/components/auth/auth-provider';
-import { db } from '@/lib/firebase'; // Corrected import
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
+import { getActiveStickyPopupsAction, markPopupAsReadAction } from '@/app/coach/popups/actions';
+import { useAuth } from '@/components/auth/auth-provider';
+import Image from 'next/image';
+import Link from 'next/link';
 
 interface StickyPopup {
-    id: string;
-    message: string;
+  id: string;
+  title: string;
+  message: string;
+  imageUrl?: string;
+  ctaText?: string;
+  ctaUrl?: string;
 }
 
 export function StickyPopups() {
-    const { user } = useAuth();
-    const [popups, setPopups] = useState<StickyPopup[]>([]);
+  const { user } = useAuth();
+  const [popups, setPopups] = useState<StickyPopup[]>([]);
 
-    useEffect(() => {
-        if (!user) return;
-
-        const fetchPopups = async () => {
-            const popupsRef = collection(db, 'sticky-popups'); // Use the corrected 'db' variable
-            const q = query(popupsRef, where('userId', '==', user.uid), where('isRead', '==', false));
-            const querySnapshot = await getDocs(q);
-            const fetchedPopups: StickyPopup[] = [];
-            querySnapshot.forEach((doc) => {
-                fetchedPopups.push({ id: doc.id, ...doc.data() } as StickyPopup);
-            });
-            setPopups(fetchedPopups);
-        };
-
-        fetchPopups();
-    }, [user]);
-
-    const dismissPopup = async (popupId: string) => {
-        const popupRef = doc(db, 'sticky-popups', popupId); // Use the corrected 'db' variable
-        await updateDoc(popupRef, { isRead: true });
-        setPopups(popups.filter(p => p.id !== popupId));
-    };
-
-    if (popups.length === 0) {
-        return null;
+  const fetchPopups = useCallback(async () => {
+    // Only fetch if the user is authenticated.
+    if (!user) return;
+    
+    try {
+      const result = await getActiveStickyPopupsAction();
+      if (result.success && result.data) {
+        setPopups(result.data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch sticky popups:", error);
     }
+  }, [user]);
 
-    return (
-        <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-4">
-            {popups.map(popup => (
-                <div key={popup.id} className="bg-background border border-border rounded-lg p-4 shadow-lg flex items-start gap-4">
-                    <div className="flex-1">
-                        <p className="font-bold">Reminder</p>
-                        <p>{popup.message}</p>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => dismissPopup(popup.id)}>
-                        <X className="h-4 w-4"/>
-                    </Button>
-                </div>
-            ))}
+  useEffect(() => {
+    fetchPopups();
+  }, [fetchPopups]);
+
+  const dismissPopup = async (popupId: string) => {
+    // Optimistically update the UI to remove the popup immediately.
+    setPopups(currentPopups => currentPopups.filter(p => p.id !== popupId));
+    
+    // Silently tell the server to mark this as read for the current user.
+    try {
+      await markPopupAsReadAction(popupId);
+    } catch (error) {
+        // If the server fails, the popup will just reappear on the next page load.
+        // No need to bother the user with an error toast for this.
+        console.error("Failed to mark popup as read:", error);
+    }
+  };
+
+  if (popups.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-4 items-end">
+      {popups.map(popup => (
+        <div key={popup.id} className="bg-card border border-border rounded-lg p-4 shadow-2xl flex items-start gap-4 max-w-sm w-full">
+          {popup.imageUrl && (
+            <div className="relative w-16 h-16 flex-shrink-0">
+              <Image src={popup.imageUrl} alt={popup.title} fill className="object-cover rounded-md" unoptimized />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-card-foreground">{popup.title}</p>
+            <p className="text-sm text-muted-foreground mt-1">{popup.message}</p>
+            {popup.ctaText && popup.ctaUrl && (
+                <Button asChild size="sm" className="mt-3">
+                    <Link href={popup.ctaUrl}>{popup.ctaText}</Link>
+                </Button>
+            )}
+          </div>
+          <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0" onClick={() => dismissPopup(popup.id)}>
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-    );
+      ))}
+    </div>
+  );
 }
