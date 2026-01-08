@@ -154,6 +154,15 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "user_scheduled_reminders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "scheduledAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

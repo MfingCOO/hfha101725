@@ -20,7 +20,6 @@ import type { ClientProfile, MealItem, Nutrient } from '@/types';
 import { updateClientWthr } from '@/app/coach/clients/actions';
 import { getTodaysContextualData, triggerSummaryRecalculation } from '@/app/calendar/actions';
 import { BaseModal } from '@/components/ui/base-modal';
-import { scheduleHydrationRemindersAction } from '@/app/client/reminders/actions';
 import InsightPopup from '@/components/app/InsightPopup';
 // import { runProactiveCoachAction } from "@/app/client/actions";
 import { NutritionContent } from './nutrition-content';
@@ -504,10 +503,6 @@ export function DataEntryDialog({
                     await triggerSummaryRecalculation(currentUserId, format(entryDate, 'yyyy-MM-dd'), userTimezone, entryDate.getTimezoneOffset());
                 }
                 router.refresh();
-                if (pillar.id === 'hydration' && currentUserId && userTimezone) {
-                    const timesToSchedule = formState.remindersEnabled ? formState.reminderTimes : [];
-                    await scheduleHydrationRemindersAction(currentUserId, timesToSchedule, userTimezone);
-                }              
                 const responseType = pillar.id === 'cravings'
 
                     ? formState.activeTab // This will be 'craving' or 'binge'

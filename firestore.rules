@@ -26,6 +26,11 @@ service cloud.firestore {
       allow read, write: if isCoach(request.auth.uid);
     }
 
+    // CORRECTED RULE: Users can read and update their own scheduled reminders/pop-ups
+    match /user_scheduled_reminders/{reminderId} {
+      allow read, update: if request.auth.uid == resource.data.userId;
+    }
+
     // Users can read and write their own sticky-popups
     match /sticky-popups/{popupId} {
       allow read, write: if request.auth.uid == resource.data.userId;

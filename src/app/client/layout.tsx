@@ -16,7 +16,6 @@ import type { ClientProfile } from '@/types';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-// import { InAppMessagingManager } from './reminders/InAppMessagingManager'; // DISABLED: Temporarily removed to fix critical crash.
 
 // Error Boundary Component is untouched
 interface ErrorBoundaryProps {
@@ -132,7 +131,6 @@ export default function ClientLayout({
   return (
     <DashboardProvider>
       <SidebarProvider>
-          {/* <InAppMessagingManager /> */} {/* DISABLED: Temporarily removed to fix critical crash. */}
           <AppSidebar />
           <SidebarInset className="h-dvh flex flex-col md:ml-64">
             <AppHeader />
