@@ -149,9 +149,9 @@ export function DataEntryDialog({
         setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
     }, []);
  
-    const onFormStateChange = (newState: any) => {
+    const onFormStateChange = useCallback((newState: any) => {
         setFormState(prevState => ({ ...prevState, ...newState }));
-    };    
+    }, []); // The empty dependency array is critical. 
 
 
     const getInitialFormState = useCallback((pillarId: string, initialData: any, contextData: any, clientData: ClientProfile | null) => {
