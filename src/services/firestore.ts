@@ -1,7 +1,8 @@
 'use server';
 
 import { db as adminDb } from '@/lib/firebaseAdmin';
-import { differenceInCalendarDays, startOfDay, endOfDay as fnsEndOfDay, subDays, subHours, format } from 'date-fns';
+import { differenceInCalendarDays, startOfDay, endOfDay as fnsEndOfDay, subDays, subHours, format, setHours, setMinutes, setSeconds, addDays, set } from 'date-fns';
+import { toZonedTime, formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { UserTier, ClientProfile, UserProfile, SavedMeal, MealItem, RecentFood } from '@/types';
 import { calculateDailySummaryForUser } from './summary-calculator';
 import { FieldValue, Timestamp, FieldPath, Query } from 'firebase-admin/firestore';
@@ -147,6 +148,78 @@ export async function resetBingeStreakAction(userId: string): Promise<{ success:
         return { success: false, error: error.message };
     }
 }
+export async function saveHydrationSettingsAction(userId: string, settings: { remindersEnabled?: boolean; reminderTimes?: string[]; target?: number; unit?: string; }, clientTimezone?: string) {
+    if (!userId) {
+        return { success: false, error: 'User ID is required.' };
+    }
+
+    try {
+        const clientRef = adminDb.doc(`clients/${userId}`);
+        const batch = adminDb.batch();
+
+        // 1. Save the settings to the client's profile
+        if (settings && Object.keys(settings).length > 0) {
+             batch.set(clientRef, { hydrationSettings: settings }, { merge: true });
+        }
+
+        // 2. Manage reminders
+        const remindersCollection = adminDb.collection('user_scheduled_reminders');
+        const timezone = clientTimezone || (await clientRef.get()).data()?.timezone || 'UTC';
+
+        // Delete all previous hydration reminders
+        const existingRemindersQuery = remindersCollection.where('userId', '==', userId).where('type', '==', 'hydration_reminder');
+        const existingRemindersSnapshot = await existingRemindersQuery.get();
+        existingRemindersSnapshot.forEach(doc => batch.delete(doc.ref));
+
+        // Create new reminders if enabled
+        if (settings.remindersEnabled && settings.reminderTimes?.length > 0) {
+            settings.reminderTimes.forEach((time: string) => {
+                if (typeof time !== 'string' || !time.includes(':')) {
+                    console.error('[Hydration Settings] Found and skipped an invalid time value:', time);
+                    return; 
+                }
+                
+                const [hours, minutes] = time.split(':').map(Number);
+                const nowInUserTz = toZonedTime(new Date(), timezone);
+                const reminderTimeToday = set(nowInUserTz, { 
+                    hours: hours, 
+                    minutes: minutes, 
+                    seconds: 0, 
+                    milliseconds: 0 
+                });
+
+                const scheduledDate = reminderTimeToday < nowInUserTz
+                    ? addDays(reminderTimeToday, 1)
+                    : reminderTimeToday;
+
+                const newReminderRef = remindersCollection.doc();
+                batch.set(newReminderRef, {
+                    userId: userId,
+                    status: 'scheduled',
+                    type: 'hydration_reminder',
+                    title: '💧 Time to Hydrate!',
+                    message: "A quick reminder to drink some water and stay on top of your goals.",
+                    imageUrl: 'https://storage.googleapis.com/uci-public/app-assets/water-drop.png',
+                    ctaText: 'Log Water',
+                    ctaType: 'openPillar',
+                    pillarId: 'hydration',
+                    scheduledAt: Timestamp.fromDate(scheduledDate),
+                    isRecurring: true,
+                });
+            });
+        }
+
+        // Commit all changes
+        await batch.commit();
+
+        revalidatePath('/client/dashboard');
+        return { success: true };
+
+    } catch (e: any) {
+        console.error("Error in saveHydrationSettingsAction: ", e);
+        return { success: false, error: e.message || "An unknown server error occurred." };
+    }
+}
 
 
 /**
@@ -154,146 +227,103 @@ export async function resetBingeStreakAction(userId: string): Promise<{ success:
  */
 export async function saveDataAction(collectionName: string, data: any, userId: string, docId?: string) {
     try {
-      if (!userId) throw new Error("User ID is required to save data.");
-  
-      let finalData = data.log;
-      const settingsData = data.settings;
-  
-      // Convert ISO date strings back to Timestamps for Firestore
-      if (finalData?.entryDate && typeof finalData.entryDate === 'string') {
-        finalData.entryDate = Timestamp.fromDate(new Date(finalData.entryDate));
-      } else if (finalData?.entryDate instanceof Date) {
-        finalData.entryDate = Timestamp.fromDate(finalData.entryDate);
-      }
-      
-      if (finalData?.wakeUpDay && typeof finalData.wakeUpDay === 'string') {
-        finalData.wakeUpDay = Timestamp.fromDate(new Date(finalData.wakeUpDay));
-      } else if (finalData?.wakeUpDay instanceof Date) {
-        finalData.wakeUpDay = Timestamp.fromDate(finalData.wakeUpDay);
-      }
-  
-      let displayPillar: string;
-      switch (collectionName) {
-          case 'cravings':
-              displayPillar = finalData.type; // 'craving' or 'binge'
-              break;
-          case 'stress':
-              displayPillar = finalData.type === 'event' ? 'stress' : 'relief';
-              break;
-          case 'sleep':
-              displayPillar = finalData.isNap ? 'sleep-nap' : 'sleep';
-              break;
-          default:
-              displayPillar = collectionName;
-              break;
-      }
-      
-      if (collectionName === 'nutrition' && finalData?.items) {
-        finalData.items = finalData.items.map((item: any) => {
-          const { ...foodData } = item;
-          return foodData;
-        });
-      }
-      
-      const dataPath = `clients/${userId}/${collectionName}`;
-      let savedDocId = docId;
-  
-      if (finalData && Object.keys(finalData).length > 0) {
-          const fullDataToSave = {
-              ...finalData,
-              uid: userId,
-              pillar: collectionName, 
-              displayPillar: displayPillar, 
-          };
-  
-          if (docId) {
-              const docRef = adminDb.doc(`${dataPath}/${docId}`);
-              await docRef.set({
-                ...fullDataToSave,
-                updatedAt: FieldValue.serverTimestamp(),
-                log: FieldValue.delete(), // THIS LINE KILLS THE PHANTOM DATA
-            }, { merge: true });
+        if (!userId) {
+            throw new Error("User ID is required to save data.");
+        }
 
-          } else {
-              const docRef = await adminDb.collection(dataPath).add({
-                  ...fullDataToSave,
-                  createdAt: FieldValue.serverTimestamp(),
-              });
-              savedDocId = docRef.id;
-          }
-      }
-      
-      const clientRef = adminDb.doc(`clients/${userId}`);
-  
-      if (collectionName === 'cravings' && finalData?.type === 'binge') {
-          const bingeTimestamp = finalData.entryDate;
-          await clientRef.update({ 
-              lastBinge: bingeTimestamp, 
-              bingeFreeSince: bingeTimestamp 
-          });
-      }
-  
-      if (settingsData && Object.keys(settingsData).length > 0) {
-           if (collectionName === 'hydration') {
-               await clientRef.set({ hydrationSettings: settingsData }, { merge: true });
-           }
-      }
-  
-      await clientRef.update({ lastInteraction: FieldValue.serverTimestamp() });
-      
-            // TEMP: AI calls for cravings and stress are disabled to test the actionable response pop-up.
-      // if (collectionName === 'cravings') {
-      //     // CORRECTED: Call the flow via its API endpoint.
-      //     const insight = await callGenkitFlow('proactiveCoachingFlow', {
-      //       userId: userId,
-      //       log: finalData,
-      //   });
-          
-      //     const serializableInsight = {
-      //         title: insight.title,
-      //         message: insight.message,
-      //         suggestion: insight.suggestion,
-      //         logType: finalData.type,
-      //     };
-  
-      //     return { success: true, id: savedDocId, insight: serializableInsight };
-  
-      // } else if (collectionName === 'stress' && finalData?.type === 'event') {
-      //     // CORRECTED: Call the flow via its API endpoint.
-      //     const insight = await callGenkitFlow('generateHolisticInsightFlow', {
-      //         userId,
-      //         periodInDays: 3,
-      //         triggeringEvent: JSON.stringify(finalData),
-      //     });
-  
-      //     if (insight) {
-      //         const serializableInsight = {
-      //             title: insight.title,
-      //             message: insight.explanation,
-      //             suggestion: insight.suggestion
-      //         };
-      //         return { success: true, id: savedDocId, insight: serializableInsight };
-      //     }
-      // }
-            // =======================================================================
-      // THE IGNITION: THIS IS THE FINAL, CRITICAL FIX
-      // After any successful save, this code runs the summary calculator.
-      // =======================================================================
+        if (collectionName === 'hydration') {
+            // This function now ONLY handles logging a water entry. Settings are handled by saveHydrationSettingsAction.
+            const logData = data.log || data;
 
-      // Revalidate the cache to ensure the UI updates.
-      revalidatePath('/calendar');
-      revalidatePath('/');
+            const entry = {
+                amount: logData.amount !== undefined ? Number(logData.amount) : 0,
+                hunger: logData.hunger !== undefined ? Number(logData.hunger) : 5,
+                notes: logData.notes || '',
+                entryDate: logData.entryDate ? Timestamp.fromDate(new Date(logData.entryDate)) : Timestamp.now(),
+                uid: userId,
+                pillar: 'hydration',
+                displayPillar: 'hydration',
+            };
 
+            const logCollectionPath = `clients/${userId}/hydration`;
+            let savedDocId = docId;
 
+            if (docId) {
+                await adminDb.doc(`${logCollectionPath}/${docId}`).set(entry, { merge: true });
+            } else {
+                const newDoc = await adminDb.collection(logCollectionPath).add(entry);
+                savedDocId = newDoc.id;
+            }
 
-      return { success: true, id: savedDocId, insight: null };
-  
+            const clientRef = adminDb.doc(`clients/${userId}`);
+            await clientRef.update({ lastInteraction: FieldValue.serverTimestamp() });
+            
+            revalidatePath('/calendar');
+            revalidatePath('/');
+            return { success: true, id: savedDocId, insight: null };
+        }
+
+        // ========= Original logic for all OTHER pillars remains unchanged below =========
+        let finalData = data.log;
+        
+        if (finalData?.entryDate && typeof finalData.entryDate === 'string') {
+            finalData.entryDate = Timestamp.fromDate(new Date(finalData.entryDate));
+        } else if (finalData?.entryDate instanceof Date) {
+            finalData.entryDate = Timestamp.fromDate(finalData.entryDate);
+        }
+        if (finalData?.wakeUpDay && typeof finalData.wakeUpDay === 'string') {
+            finalData.wakeUpDay = Timestamp.fromDate(new Date(finalData.wakeUpDay));
+        } else if (finalData?.wakeUpDay instanceof Date) {
+            finalData.wakeUpDay = Timestamp.fromDate(finalData.wakeUpDay);
+        }
+    
+        let displayPillar: string;
+        switch (collectionName) {
+            case 'cravings': displayPillar = finalData.type; break;
+            case 'stress': displayPillar = finalData.type === 'event' ? 'stress' : 'relief'; break;
+            case 'sleep': displayPillar = finalData.isNap ? 'sleep-nap' : 'sleep'; break;
+            default: displayPillar = collectionName; break;
+        }
+        
+        if (collectionName === 'nutrition' && finalData?.items) {
+            finalData.items = finalData.items.map((item: any) => {
+                const { ...foodData } = item;
+                return foodData;
+            });
+        }
+        
+        const dataPath = `clients/${userId}/${collectionName}`;
+        let savedDocId = docId;
+    
+        if (finalData && Object.keys(finalData).length > 0) {
+            const fullDataToSave = { ...finalData, uid: userId, pillar: collectionName, displayPillar: displayPillar };
+            if (docId) {
+                const docRef = adminDb.doc(`${dataPath}/${docId}`);
+                await docRef.set({ ...fullDataToSave, updatedAt: FieldValue.serverTimestamp(), log: FieldValue.delete() }, { merge: true });
+            } else {
+                const docRef = await adminDb.collection(dataPath).add({ ...fullDataToSave, createdAt: FieldValue.serverTimestamp() });
+                savedDocId = docRef.id;
+            }
+        }
+    
+        const clientRef = adminDb.doc(`clients/${userId}`);
+        if (collectionName === 'cravings' && finalData?.type === 'binge') {
+            const bingeTimestamp = finalData.entryDate;
+            await clientRef.update({ lastBinge: bingeTimestamp, bingeFreeSince: bingeTimestamp });
+        }
+       
+        await clientRef.update({ lastInteraction: FieldValue.serverTimestamp() });
+        
+        revalidatePath('/calendar');
+        revalidatePath('/');
+        return { success: true, id: savedDocId, insight: null };
+
     } catch (e: any) {
-      console.error("Error in saveDataAction: ", e);
-      return { success: false, error: e.message || "An unknown server error occurred." };
+        console.error("Error in saveDataAction: ", e);
+        return { success: false, error: e.message || "An unknown server error occurred." };
     }
-  }
-  
+}
+
 
 interface LogChallengeProgressInput {
   userId: string;
@@ -1148,6 +1178,53 @@ export async function getUserMeals(userId: string): Promise<{ success: boolean; 
         return { success: true, data: meals };
     } catch (error: any) {
         console.error(`Error fetching user meals for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+/**
+ * Processes a reminder that has become due.
+ * Marks non-recurring reminders as 'delivered' and reschedules recurring reminders for their next occurrence.
+ * This function is called from the client-side NotificationProvider when a notification is presented to the user.
+ */
+export async function processAndRescheduleNotification(userId: string, notificationId: string) {
+    try {
+        if (!userId || !notificationId) {
+            throw new Error('User ID and Notification ID are required.');
+        }
+
+        const notificationRef = adminDb.doc(`user_scheduled_reminders/${notificationId}`);
+        await adminDb.runTransaction(async (transaction) => {
+            const docSnap = await transaction.get(notificationRef);
+
+            if (!docSnap.exists) {
+                console.warn(`[ProcessReminder] Notification ${notificationId} not found.`);
+                return;
+            }
+
+            const notification = docSnap.data();
+
+            if (notification?.userId !== userId) {
+                console.error(`[ProcessReminder] Security violation: User ${userId} attempted to process notification ${notificationId} for user ${notification.userId}.`);
+                return;
+            }
+
+            if (notification.isRecurring) {
+                // For recurring reminders, update the scheduledAt time to the next day.
+                const nextScheduledDate = new Date(notification.scheduledAt.toDate());
+                nextScheduledDate.setDate(nextScheduledDate.getDate() + 1);
+                transaction.update(notificationRef, {
+                    scheduledAt: Timestamp.fromDate(nextScheduledDate),
+                });
+            } else {
+                // For one-time reminders, mark them as 'delivered'.
+                transaction.update(notificationRef, { status: 'delivered' });
+            }
+        });
+
+        return { success: true };
+
+    } catch (error: any) {
+        console.error(`[ProcessReminder] Error processing notification ${notificationId} for user ${userId}:`, error);
         return { success: false, error: error.message };
     }
 }

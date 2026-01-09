@@ -12,7 +12,7 @@ import { Separator } from '../ui/separator';
 import { Textarea } from '../ui/textarea';
 import { UpgradeModal } from '../modals/upgrade-modal';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
-import { Lock, PlusCircle, X } from 'lucide-react';
+import { Lock, PlusCircle, X, Loader2 } from 'lucide-react';
 import { ClientProfile, UserTier } from '@/types';
 import { AppNumberInput } from '../ui/number-input';
 
@@ -20,7 +20,10 @@ interface ContentProps {
     onFormStateChange: (newState: Partial<any>) => void;
     formState: any;
     clientProfile: ClientProfile | null;
+    handleSaveSettings?: () => void;
+    isSaving?: boolean;
 }
+
 
 const hungerLevels = [
     { value: 0, label: '0 - Stuffed' },
@@ -52,7 +55,7 @@ const HungerScaleDropdown = ({ value, onValueChange, label = "Hunger Level (0-10
     );
 };
 
-export function HydrationContent({ clientProfile, formState, onFormStateChange }: ContentProps) {
+export function HydrationContent({ clientProfile, formState, onFormStateChange, handleSaveSettings, isSaving }: ContentProps) {
     const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
 
     const handleFieldChange = (field: string, value: any) => {
@@ -71,6 +74,7 @@ export function HydrationContent({ clientProfile, formState, onFormStateChange }
             onFormStateChange({ reminderTimes: ['09:00', '12:00', '15:00'] });
         }
     };
+
     
     const addReminderTime = () => {
         const newTimes = [...(formState.reminderTimes || []), '17:00'];
@@ -180,9 +184,18 @@ export function HydrationContent({ clientProfile, formState, onFormStateChange }
                                         </Button>
                                     </div>
                                 ))}
-                                <Button variant="outline" size="sm" className="w-full" onClick={addReminderTime}>
-                                    <PlusCircle className="mr-2 h-4 w-4" /> Add Reminder
-                                </Button>
+                                <div className="flex items-center gap-2 pt-2">
+    <Button variant="outline" size="sm" className="w-full" onClick={addReminderTime}>
+        <PlusCircle className="mr-2 h-4 w-4" /> Add Reminder
+    </Button>
+    {handleSaveSettings && (
+         <Button onClick={handleSaveSettings} size="sm" className="w-full text-white bg-blue-500 hover:bg-blue-600" disabled={isSaving}>
+            {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            Save Settings
+        </Button>
+    )}
+</div>
+
                             </div>
                         )}
                     </div>

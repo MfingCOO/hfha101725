@@ -42,6 +42,7 @@ import quotes from '@/lib/quotes.json';
 
 // FIX: Define Pillar type locally to resolve import error
 import { LucideIcon } from 'lucide-react';
+import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
 export interface Pillar {
   id: string;
   label: string;
@@ -81,6 +82,7 @@ export function DashboardClient() {
   const { onOpenChallenges } = useDashboardActions();
   const { user, userProfile } = useAuth();
   const { toast } = useToast();
+  const { modalType, closeModal } = useDataEntryModal();
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
   const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
   const [activePillar, setActivePillar] = useState<Pillar | null>(null);
@@ -230,14 +232,26 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
         }
     }
   }, [onOpenCalendar]);
-
+  useEffect(() => {
+    if (modalType) {
+      const pillarToOpen = pillarsAndTools.find(p => p.id === modalType);
+      if (pillarToOpen) {
+        // Use existing component state to open the dialog
+        setActivePillar(pillarToOpen);
+        setDataEntryDialogOpen(true);
+      }
+    }
+  }, [modalType]);
+  
   const handleDataEntryDialogClose = (wasSaved: boolean) => {
     setDataEntryDialogOpen(false);
     setActivePillar(null);
+    closeModal(); // Reset the context state
     if (wasSaved) {
       fetchDashboardData();
     }
   }
+  
   const handleSwitchPillar = (pillarId: string) => {
     const pillarToSwitch = pillarsAndTools.find(p => p.id === pillarId);
     if (pillarToSwitch) {

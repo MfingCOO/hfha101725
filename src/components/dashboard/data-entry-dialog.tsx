@@ -13,7 +13,7 @@ import { format, startOfDay, addHours } from 'date-fns';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { saveDataAction } from '@/services/firestore';
+import { saveDataAction, saveHydrationSettingsAction } from '@/services/firestore';
 import { useAuth } from '../auth/auth-provider';
 import type { ClientProfile, MealItem, Nutrient } from '@/types';
 
@@ -328,22 +328,17 @@ export function DataEntryDialog({
 
         switch (pillar.id) {
             case 'hydration':
-                const logData = {
-                    amount: formState.amount || 0,
-                    hunger: formState.hunger,
-                    notes: formState.notes || '',
-                    entryDate: entryDate,
-                };
-                const settingsData = {
-                    target: formState.target,
-                    unit: formState.unit,
-                    remindersEnabled: formState.remindersEnabled,
-                    reminderTimes: formState.reminderTimes,
-                };
-                // We will pass both objects to the save action below
-                dataToSave = { log: logData, settings: settingsData };
-                break;
-            
+    // This now ONLY prepares the log entry, ignoring settings.
+    dataToSave = {
+        log: {
+            amount: formState.amount || 0,
+            hunger: formState.hunger,
+            notes: formState.notes || '',
+            entryDate: entryDate,
+        }
+    };
+    break;
+
             
             case 'sleep':
                 const wakeUpDateTime = new Date(entryDate);
@@ -550,6 +545,34 @@ export function DataEntryDialog({
             setIsSaving(false);
         }
     };
+    const handleSaveSettings = async () => {
+        if (pillar.id !== 'hydration') return;
+    
+        setIsSaving(true);
+        if (!currentUserId) {
+            toast({ variant: 'destructive', title: 'Authentication Error', description: `Could not verify your user session.` });
+            setIsSaving(false);
+            return;
+        }
+    
+        const { remindersEnabled, reminderTimes, target, unit } = formState;
+        const settingsToSave = { remindersEnabled, reminderTimes, target, unit };
+    
+        try {
+            const result = await saveHydrationSettingsAction(currentUserId, settingsToSave, userTimezone);
+            if (result.success) {
+                toast({ title: 'Settings Saved!', description: 'Your hydration settings have been updated.' });
+                onOpenChange(true); 
+            } else {
+                throw new Error(result.error?.toString() || "Failed to save settings.");
+            }
+        } catch (error: any) {
+            console.error("Error saving settings:", error);
+            toast({ variant: 'destructive', title: 'Error Saving Settings', description: `Could not save. Reason: ${error.message || 'Please try again.'}` });
+        } finally {
+            setIsSaving(false);
+        }
+    };    
     const handlePillarSwitch = (pillarId: string) => {
         if (onSwitchPillar) {
             setIsActionableResponseOpen(false);
@@ -588,22 +611,27 @@ export function DataEntryDialog({
         formState,
         onFormStateChange,
         userId: currentUserId,
+        handleSaveSettings,
+        isSaving,
     };
     
     const dialogFooter = (
-        <div className="flex items-center gap-2 w-full">
-            {logId && onDelete && (
-                <Button onClick={onDelete} variant="destructive" size="sm" className="flex-shrink-0"><Trash2 className="w-4 h-4 mr-2" />Delete</Button>
-            )}
-            <div className="flex-1" />
-            <Button onClick={() => onOpenChange(false)} variant="outline" size="sm" className="flex-shrink-0">Dismiss</Button>
-            <Button onClick={handleSave} size="sm" className="flex-shrink-0 text-white bg-green-500 hover:bg-green-600" disabled={isSaving || isLoadingContent}>
-                {(isSaving || isLoadingContent) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                {buttonText}
-            </Button>
-        </div>
-    );
+    <div className="flex items-center gap-2 w-full">
+        {logId && onDelete && (
+            <Button onClick={onDelete} variant="destructive" size="sm" className="flex-shrink-0"><Trash2 className="w-4 h-4 mr-2" />Delete</Button>
+        )}
+        <div className="flex-1" />
+        <Button onClick={() => onOpenChange(false)} variant="outline" size="sm" className="flex-shrink-0">Dismiss</Button>
+        
 
+        <Button onClick={handleSave} size="sm" className="flex-shrink-0 text-white bg-green-500 hover:bg-green-600" disabled={isSaving || isLoadingContent}>
+            {(isSaving || isLoadingContent) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            {buttonText}
+        </Button>
+    </div>
+);
+
+    
     return (
         <>
         <BaseModal

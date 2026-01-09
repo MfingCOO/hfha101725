@@ -1,24 +1,27 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { collection, query, where, onSnapshot, Timestamp, doc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/auth/auth-provider';
+import { processAndRescheduleNotification } from '@/services/firestore';
 
 export interface InAppMessage {
   id: string;
   type: string;
   title: string;
   message: string;
+  scheduledAt: Timestamp;
   imageUrl?: string;
   ctaUrl?: string;
   ctaText?: string;
-  scheduledAt: Timestamp;
+  ctaType?: 'openUrl' | 'openPillar';
+  pillarId?: string;
+  isRecurring?: boolean;
 }
 
 interface NotificationContextType {
   notifications: InAppMessage[];
-  addNotification: (notification: InAppMessage) => void;
   removeNotification: (notificationId: string) => void;
 }
 
@@ -36,12 +39,14 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   const [notifications, setNotifications] = useState<InAppMessage[]>([]);
   const [pendingNotifications, setPendingNotifications] = useState<InAppMessage[]>([]);
   const { user } = useAuth();
+  const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
 
-  // Step 1: Fetch all 'scheduled' notifications from Firestore for the current user.
+  // Step 1: Listen for all 'scheduled' notifications for the user
   useEffect(() => {
     if (!user) {
       setPendingNotifications([]);
       setNotifications([]);
+      setProcessedIds(new Set());
       return;
     }
 
@@ -52,73 +57,54 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const pending: InAppMessage[] = [];
-      snapshot.forEach(doc => {
-        if (!pending.some(n => n.id === doc.id)) {
-          const data = doc.data();
-          pending.push({
-            id: doc.id,
-            ...data,
-          } as InAppMessage);
-        }
-      });
+      const pending = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InAppMessage));
       setPendingNotifications(pending);
+    }, (error) => {
+      console.error("Error listening to scheduled reminders:", error);
     });
 
     return () => unsubscribe();
   }, [user]);
 
-  // Step 2: Use a timer to check every minute if any pending notifications are due to be shown.
+  // Step 2: Timer to check pending notifications and trigger processing via server action
   useEffect(() => {
     const intervalId = setInterval(() => {
-      const now = new Date();
-      const dueNotifications: InAppMessage[] = [];
+      if (!user) return;
 
-      pendingNotifications.forEach(notification => {
-        if (notification.scheduledAt.toDate() <= now) {
-          dueNotifications.push(notification);
-        }
-      });
+      const now = new Date();
+      // Find notifications that are due and haven't been processed in this session
+      const dueNotifications = pendingNotifications.filter(n => n.scheduledAt.toDate() <= now && !processedIds.has(n.id));
 
       if (dueNotifications.length > 0) {
-        // Add the due notifications to the visible list
+        // Add to UI to be displayed
         setNotifications(prev => {
-            const newNotifications = dueNotifications.filter(due => !prev.some(existing => existing.id === due.id));
-            return [...prev, ...newNotifications];
+          const newNotifications = dueNotifications.filter(due => !prev.some(existing => existing.id === due.id));
+          return [...prev, ...newNotifications];
         });
 
-        // Remove them from the pending list so we don't process them again
-        setPendingNotifications(prev => prev.filter(n => !dueNotifications.some(due => due.id === n.id)));
-
-        // Mark them as 'delivered' in the database in a batch
-        const batch = writeBatch(db);
-        dueNotifications.forEach(n => {
-          const notifRef = doc(db, 'user_scheduled_reminders', n.id);
-          batch.update(notifRef, { status: 'delivered' });
+        // Mark as processed locally to prevent re-triggering the pop-up
+        setProcessedIds(prev => {
+          const newSet = new Set(prev);
+          dueNotifications.forEach(n => newSet.add(n.id));
+          return newSet;
         });
-        batch.commit().catch(error => console.error("Error marking notifications as delivered: ", error));
+
+        // For each due notification, call the secure server action to handle all DB updates
+        dueNotifications.forEach(notification => {
+          processAndRescheduleNotification(user.uid, notification.id);
+        });
       }
-    }, 60000); // Check every minute
+    }, 15000); // Check every 15 seconds
 
-    return () => clearInterval(intervalId); // Clean up the interval on component unmount
-  }, [pendingNotifications]);
-
-
-  const addNotification = useCallback((notification: InAppMessage) => {
-    setNotifications(prev => {
-      if (prev.some(n => n.id === notification.id)) {
-        return prev;
-      }
-      return [...prev, notification];
-    });
-  }, []);
+    return () => clearInterval(intervalId);
+  }, [pendingNotifications, user, processedIds]);
 
   const removeNotification = useCallback((notificationId: string) => {
     setNotifications(prev => prev.filter(n => n.id !== notificationId));
   }, []);
 
   return (
-    <NotificationContext.Provider value={{ notifications, addNotification, removeNotification }}>
+    <NotificationContext.Provider value={{ notifications, removeNotification }}>
       {children}
     </NotificationContext.Provider>
   );

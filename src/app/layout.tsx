@@ -1,29 +1,22 @@
-'use client'; // This directive MUST be the very first line
+'use client'; 
 
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { AppCheckProvider } from "@/components/auth/app-check-provider";
 import { Toaster } from "@/components/ui/toaster";
 import Script from 'next/script';
-
-// **CRITICAL FIX:** Import the 'inter' font object from your new fonts file
-// This path is relative to src/app/layout.tsx
 import { inter } from './fonts';
-
-// NEW IMPORTS FOR REACT QUERY
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
-
-// NOTIFICATION SYSTEM IMPORTS
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { NotificationPresenter } from '@/components/notifications/NotificationPresenter';
+import { DataEntryModalProvider } from '@/contexts/DataEntryModalContext';
 
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Create a QueryClient instance using useState to prevent re-creation on every render
   const [queryClient] = useState(() => new QueryClient());
 
   return (
@@ -44,10 +37,12 @@ export default function RootLayout({
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <AppCheckProvider>
-              <NotificationProvider>
-                {children}
-                <NotificationPresenter />
-              </NotificationProvider>
+                <NotificationProvider>
+                  <DataEntryModalProvider>
+                    {children}
+                    <NotificationPresenter />
+                  </DataEntryModalProvider>
+                </NotificationProvider>
             </AppCheckProvider>
           </AuthProvider>
         </QueryClientProvider>
