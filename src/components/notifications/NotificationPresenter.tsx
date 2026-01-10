@@ -25,11 +25,14 @@ export const NotificationPresenter: React.FC = () => {
   const handleAction = () => {
     if (currentNotification.ctaType === 'openPillar' && currentNotification.pillarId) {
         openModal(currentNotification.pillarId as any);
+        removeNotification(currentNotification.id);
     } else if (currentNotification.ctaType === 'openUrl' && currentNotification.ctaUrl) {
         window.open(currentNotification.ctaUrl, '_blank');
+        // This was the bug. Do not dismiss here. Allow the user to manually close.
+    } else {
+        // Default behavior for a button with no action is to just dismiss.
+        removeNotification(currentNotification.id);
     }
-    // Dismiss the notification after the action.
-    removeNotification(currentNotification.id);
   };
 
   const isHydrationReminder = currentNotification.type === 'hydration_reminder';

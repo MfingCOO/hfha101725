@@ -1,3 +1,4 @@
+
 'use client';
 import {
   Dialog,
@@ -48,97 +49,95 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
         onClose();
     };
 
-    const handleActionClick = () => {
-        // This now ONLY opens the data entry dialog, preventing conflicts.
-        setIsDataEntryOpen(true);
-    }
-    
+    const handleAction = () => {
+        if (reminder.pillarId) {
+            setIsDataEntryOpen(true);
+        }
+    };
+
     const handleUpgrade = async () => {
-        if (!user || !reminder.requiredTier) return;
-        
-        setIsRedirecting(true);
+        if (!user?.uid || !reminder.requiredTier) return;
         try {
-            // FIX: Asserts the type to satisfy the function's requirement.
-            const tier = reminder.requiredTier as UserTier;
-            const { url, error } = await createStripeCheckoutSession(user.uid, tier, 'monthly');
-            if (url) {
-                window.location.href = url;
+            setIsRedirecting(true);
+            const result = await createStripeCheckoutSession(user.uid, reminder.requiredTier as any, 'monthly');
+            if (result.url) {
+                router.push(result.url);
             } else {
-                throw new Error(error || "Could not create a checkout session.");
+                throw new Error('Could not create a checkout session. Please try again.');
             }
         } catch (error: any) {
-            toast({ variant: 'destructive', title: 'Error', description: error.message });
+            toast({
+                variant: 'destructive',
+                title: 'Upgrade Failed',
+                description: error.message,
+            });
             setIsRedirecting(false);
         }
-    }
-
-    const handleDataEntryDialogClose = (wasSaved: boolean) => {
-        // First, always close the DataEntryDialog view.
-        setIsDataEntryOpen(false);
-        
-        // If the user successfully saved the meal...
-        if (wasSaved) {
-            // FIX: Refresh the page to make the new entry appear on the calendar.
-            router.refresh();
-            // Then, dismiss the reminder since its job is done.
-            handleDismiss();
-        }
-        // If not saved, we do nothing else. The reminder stays visible to be dismissed manually.
-    }
+    };
 
     return (
         <>
-            {/* FIX: `onOpenChange` now correctly calls `onClose` directly. */}
             <Dialog open={isOpen} onOpenChange={onClose}>
-                <DialogContent className="w-[90vw] sm:max-w-md">
-                     {isCustomPopup && reminder.data?.imageUrl && (
-                        <div className="relative w-full h-40">
-                             <Image src={reminder.data.imageUrl} alt={reminder.title} layout="fill" className="object-cover rounded-t-lg" unoptimized/>
+                <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                        <div className="flex items-center justify-center mb-4">
+                            {isCustomPopup && reminder.data?.imageUrl ? (
+                                <div className="relative w-24 h-24 rounded-lg overflow-hidden border-2 border-primary/20">
+                                <Image
+                                    src={reminder.data.imageUrl}
+                                    alt={reminder.title}
+                                    fill
+                                    className="object-cover"
+                                />
+                                </div>
+                            ) : (
+                                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                                    <Icon className="h-8 w-8 text-primary" />
+                                </div>
+                            )}
                         </div>
-                    )}
-                    <DialogHeader className="text-center pt-4">
-                         {!isCustomPopup && (
-                             <div className={`mx-auto bg-primary/10 rounded-full h-16 w-16 flex items-center justify-center mb-4`}>
-                                <Icon className={`h-8 w-8 text-primary`} />
-                            </div>
-                         )}
-                        <DialogTitle className="text-2xl">{reminder.title}</DialogTitle>
-                        <DialogDescription className="text-base px-4">
+                        <DialogTitle className="text-center">{reminder.title}</DialogTitle>
+                        <DialogDescription className="text-center pt-2">
                             {reminder.message}
                         </DialogDescription>
                     </DialogHeader>
-                    <DialogFooter className="flex-col sm:flex-row gap-2">
-                        {reminder.type !== 'custom-popup' && (
+                    <DialogFooter className="pt-4 flex-col space-y-2">
+                         <div className="flex w-full space-x-2">
                              <Button onClick={handleDismiss} variant="outline" className="w-full">Dismiss</Button>
-                        )}
-                       
-                        {reminder.type === 'log' && pillar && (
-                            <Button onClick={handleActionClick} className="w-full">Log {pillar.label}</Button>
-                        )}
-                        {reminder.type === 'upgrade' && reminder.requiredTier && (
-                             <Button onClick={handleUpgrade} disabled={isRedirecting} className="w-full">
-                                {isRedirecting && <Loader2 className="h-4 w-4 animate-spin" />}
-                                Upgrade to {reminder.requiredTier}
-                            </Button>
-                        )}
-                         {reminder.type === 'custom-popup' && reminder.data?.ctaUrl && reminder.data?.ctaText && (
-                            <Button asChild className="w-full">
-                                <Link href={reminder.data.ctaUrl} target="_blank" onClick={handleDismiss}>
-                                    {reminder.data.ctaText}
-                                </Link>
-                            </Button>
-                         )}
-                         {reminder.type === 'custom-popup' && !reminder.data?.ctaUrl && (
-                             <Button onClick={handleDismiss} className="w-full">{reminder.data?.ctaText || 'Got it!'}</Button>
-                         )}
+                             {!reminder.requiredTier && reminder.type !== 'custom-popup' && reminder.data?.ctaText && (
+                                 <Button onClick={handleAction} className="w-full">
+                                     {reminder.data.ctaText}
+                                 </Button>
+                             )}
+                            {reminder.requiredTier && (
+                                <Button onClick={handleUpgrade} disabled={isRedirecting} className="w-full">
+                                    {isRedirecting && <Loader2 className="h-4 w-4 animate-spin" />}
+                                    Upgrade to {reminder.requiredTier}
+                                </Button>
+                            )}
+                             {reminder.type === 'custom-popup' && reminder.data?.ctaUrl && reminder.data?.ctaText && (
+                                <Button asChild className="w-full">
+                                    <Link href={reminder.data.ctaUrl} target="_blank">
+                                        {reminder.data.ctaText}
+                                    </Link>
+                                </Button>
+                             )}
+                             {reminder.type === 'custom-popup' && !reminder.data?.ctaUrl && (
+                                 <Button onClick={handleDismiss} className="w-full">{reminder.data?.ctaText || 'Got it!'}</Button>
+                             )}
+                         </div>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-
-            {isDataEntryOpen && pillar && (
-                <DataEntryDialog 
+            {pillar && (
+                <DataEntryDialog
                     open={isDataEntryOpen}
-                    onOpenChange={handleDataEntryDialogClose}
+                    onOpenChange={(wasSaved) => {
+                        setIsDataEntryOpen(false);
+                        if (wasSaved) {
+                            handleDismiss();
+                        }
+                    }}
                     pillar={pillar}
                 />
             )}

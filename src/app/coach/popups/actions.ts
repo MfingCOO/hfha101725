@@ -30,7 +30,7 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
             throw new Error(validation.error.errors.map(e => e.message).join(', '));
         }
 
-        const { name, targetType, targetValue, ctaText, imageUrl, ...popupData } = validation.data;
+        const { name, targetType, targetValue, ctaText, ctaUrl, imageUrl, ...popupData } = validation.data;
         const campaignId = data.id || adminDb.collection('temp').doc().id;
 
         const targetUserIds = await getTargetUserIds(targetType, targetValue);
@@ -46,7 +46,7 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
                 type: 'coach_popup',
                 title: popupData.title,
                 message: popupData.message,
-                ctaUrl: popupData.ctaUrl || '',
+                ...(ctaUrl && { ctaUrl: ctaUrl, ctaType: 'openUrl' }), // FIX: Add ctaType: 'openUrl'
                 ctaText: ctaText, 
                 imageUrl: imageUrl || '',
                 scheduledAt: Timestamp.fromDate(popupData.scheduledAt),
@@ -55,7 +55,6 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
                 createdAt: Timestamp.now(),
                 campaignId,
                 campaignName: name, 
-                // FINAL FIX: Save targeting info for debugging and future use
                 targetType: targetType,
                 targetValue: targetValue || null,
             });
@@ -73,29 +72,24 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
 }
 
 async function getTargetUserIds(targetType: string, targetValue?: string): Promise<string[]> {
-    // This assumes 'users' is the primary collection of all users with profiles.
     const usersRef = adminDb.collection('users');
     let querySnapshot;
 
     switch (targetType) {
         case 'all':
-            // This should ideally target only active clients. Assuming 'users' contains them.
             querySnapshot = await usersRef.get();
             break;
         case 'tier':
             if (!targetValue) return [];
-            // Assumes user documents have a 'tier' field in their profile subcollection or root.
             querySnapshot = await usersRef.where('tier', '==', targetValue).get();
             break;
         case 'user':
             if (!targetValue) return [];
-            // The targetValue is the specific user's UID.
             return [targetValue]; 
         default:
             return [];
     }
 
-    // Return the document ID, which is the user UID.
     return querySnapshot.docs.map(doc => doc.id);
 }
 

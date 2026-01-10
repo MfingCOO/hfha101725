@@ -1,11 +1,10 @@
 'use server';
 
-import { admin, db } from '@/lib/firebaseAdmin'; // FIX: Import the full admin SDK
+import { admin, db } from '@/lib/firebaseAdmin';
 import { UserProfile, UserTier } from '@/types';
 import { startOfDay, format, subDays, addDays, addHours, isAfter } from 'date-fns';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 
-// FIX: Define a local Challenge interface to resolve the import error.
 export interface Challenge {
     id: string;
     name: string;
@@ -55,12 +54,10 @@ function serializeTimestamps(obj: any): any {
     return obj;
 }
 
-// ENHANCED: This function now also sends a push notification.
 async function createUserNotification(userId: string, reminder: Omit<Reminder, 'id'>) {
     if (!userId) return;
 
     try {
-        // 1. Send the Push Notification first
         const userProfileRef = db.collection('userProfiles').doc(userId);
         const userProfileDoc = await userProfileRef.get();
 
@@ -75,7 +72,6 @@ async function createUserNotification(userId: string, reminder: Omit<Reminder, '
                         body: reminder.message,
                     },
                     data: {
-                         // You can add extra data here if the app needs to handle the notification differently
                          type: reminder.type,
                          pillarId: reminder.pillarId,
                     }
@@ -87,7 +83,6 @@ async function createUserNotification(userId: string, reminder: Omit<Reminder, '
             }
         }
 
-        // 2. Save the notification to the database for the sticky pop-up
         const notificationRef = db.collection(`clients/${userId}/notifications`).doc();
         await notificationRef.set({
             ...reminder,
@@ -99,7 +94,6 @@ async function createUserNotification(userId: string, reminder: Omit<Reminder, '
 
     } catch (error) {
         console.error(`Failed to create user notification for user ${userId}:`, error);
-        // We don't re-throw, as failing to send a push shouldn't block saving the DB notification
         return null;
     }
 }
@@ -119,7 +113,8 @@ export async function dismissReminderAction(userId: string, notificationId: stri
 
 export async function sendScheduledPopupNotification(popupData: any) {
   try {
-    const { targetType, targetValue, title, message, id, deliveryTime, ...restData } = popupData;
+    // FIX: Correctly map campaignName and campaignId to title and id.
+    const { targetType, targetValue, campaignName: title, message, campaignId: id, scheduledAt: deliveryTime, ...restData } = popupData;
     let targetUserIds: string[] = [];
     const userProfilesRef = db.collection('userProfiles');
 

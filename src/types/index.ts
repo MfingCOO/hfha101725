@@ -1,4 +1,3 @@
-
 import { z } from "zod";
 
 // Defines the subscription tiers available in the application.
@@ -106,6 +105,7 @@ export interface UserProfile {
     timezone?: string; // ADDED TO FIX REGRESSION
     timezoneOffset?: number; // ADDED TO FIX REGRESSION
     unitSystem?: 'metric' | 'imperial'; // ADDED
+    pushToken?: string;
 }
 
 export type ClientProfile = UserProfile;

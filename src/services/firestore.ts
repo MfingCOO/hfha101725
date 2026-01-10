@@ -180,17 +180,20 @@ export async function saveHydrationSettingsAction(userId: string, settings: { re
                 }
                 
                 const [hours, minutes] = time.split(':').map(Number);
-                const nowInUserTz = toZonedTime(new Date(), timezone);
-                const reminderTimeToday = set(nowInUserTz, { 
-                    hours: hours, 
-                    minutes: minutes, 
-                    seconds: 0, 
-                    milliseconds: 0 
-                });
-
-                const scheduledDate = reminderTimeToday < nowInUserTz
-                    ? addDays(reminderTimeToday, 1)
-                    : reminderTimeToday;
+                                    // Get today's date in the user's timezone (e.g., '2023-10-27')
+                                    const todayInUserTz = format(toZonedTime(new Date(), timezone), 'yyyy-MM-dd');
+                    
+                                    // Create a string for the desired time today (e.g., '2023-10-27T17:10:00')
+                                    const reminderTimeTodayStr = `${todayInUserTz}T${time}:00`;
+                
+                                    // Convert that string into a true Date object, respecting the timezone.
+                                    let scheduledDate = fromZonedTime(reminderTimeTodayStr, timezone);
+                
+                                    // If that time has already passed today, schedule it for tomorrow instead.
+                                    if (scheduledDate < new Date()) {
+                                        scheduledDate = addDays(scheduledDate, 1);
+                                    }
+                
 
                 const newReminderRef = remindersCollection.doc();
                 batch.set(newReminderRef, {
@@ -1209,16 +1212,33 @@ export async function processAndRescheduleNotification(userId: string, notificat
             }
 
             if (notification.isRecurring) {
-                // For recurring reminders, update the scheduledAt time to the next day.
-                const nextScheduledDate = new Date(notification.scheduledAt.toDate());
-                nextScheduledDate.setDate(nextScheduledDate.getDate() + 1);
+                const scheduledAt = notification.scheduledAt.toDate();
+                let nextScheduledDate = addDays(scheduledAt, 1);
+            
+                if (notification.type === 'hydration_reminder') {
+                    const clientRef = adminDb.doc(`clients/${userId}`);
+                    const clientSnap = await transaction.get(clientRef);
+                    const timezone = clientSnap.data()?.timezone || 'UTC';
+                    
+                    const nowInUserTz = toZonedTime(new Date(), timezone);
+                    
+                    const originalTime = formatInTimeZone(scheduledAt, timezone, 'HH:mm');
+                    const [hours, minutes] = originalTime.split(':').map(Number);
+                    
+                    const tomorrowInUserTz = addDays(nowInUserTz, 1);
+                    const nextReminderInTz = set(tomorrowInUserTz, { hours, minutes, seconds: 0, milliseconds: 0 });
+                    
+                    nextScheduledDate = fromZonedTime(nextReminderInTz, timezone);
+                }
+                
                 transaction.update(notificationRef, {
                     scheduledAt: Timestamp.fromDate(nextScheduledDate),
+                    status: 'scheduled',
                 });
             } else {
-                // For one-time reminders, mark them as 'delivered'.
                 transaction.update(notificationRef, { status: 'delivered' });
             }
+            
         });
 
         return { success: true };
