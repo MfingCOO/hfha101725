@@ -14,10 +14,11 @@ import { pillarsAndTools } from '@/lib/pillars';
 import { AppointmentDetailDialog } from './AppointmentDetailDialog';
 import { LiveEventDetailDialog } from './LiveEventDetailDialog';
 import { triggerSummaryRecalculation } from '@/app/calendar/actions';
-import { WorkoutActionDialog } from './WorkoutActionDialog'; // UPDATED IMPORT
+import { WorkoutActionDialog } from './WorkoutActionDialog';
 import { EditWorkoutDialog } from './EditWorkoutDialog';
 import { getWorkoutByIdAction } from '@/app/workouts/actions';
 import { ActiveWorkoutDialog } from '../client/ActiveWorkoutDialog';
+import { FullWorkoutHistoryDialog } from '../client/FullWorkoutHistoryDialog'; // Surgical import
 import type { Workout, Exercise } from '@/types/workout-program';
 
 const pillarColors: Record<string, string> = {
@@ -166,35 +167,29 @@ const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEn
 const original = entry.originalData;
 let pillarKey;
 if (original.type === 'workout') {
-  // If the workout's 'isCompleted' flag is false, it's a scheduled event.
   if (original.isCompleted === false) {
-    pillarKey = 'scheduled-workout'; // Use the new gray color.
+    pillarKey = 'scheduled-workout'; 
   } else {
-    // Otherwise, it's a completed workout from the activity log.
-    pillarKey = 'workout'; // Use the existing green color.
+    pillarKey = 'workout';
   }
 } else {
-  // For all other event types, use their original pillar for color.
   pillarKey = original.pillar || 'default';
 }
 
 let displayName = original.title || original.name;
 
-// This new logic explicitly checks the event `type` to override defaults.
 if (original.type === 'relief' && original.pillar === 'stress') {
-    pillarKey = 'relief'; // Sets GREEN color
+    pillarKey = 'relief';
     displayName = 'Stress Relief';
 } else if (original.type === 'craving') {
-    pillarKey = 'craving'; // Sets ORANGE color
+    pillarKey = 'craving';
     displayName = 'Craving Log';
 } else if (original.type === 'binge') {
-    pillarKey = 'binge'; // Sets RED color
+    pillarKey = 'binge';
     displayName = 'Binge Log';
-} else if (original.pillar === 'stress') { // Handles a normal stress log
+} else if (original.pillar === 'stress') { 
     displayName = 'Stress Log';
 }
-// ...
-
 
 const details = pillarDetails[pillarKey] || pillarDetails.default;
 const Icon = details.icon;
@@ -255,6 +250,7 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     const [isPreparingWorkout, setIsPreparingWorkout] = useState(false);
     const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
     const [activeWorkoutExercises, setActiveWorkoutExercises] = useState<Exercise[]>([]);
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false); // Surgical Addition
 
     useEffect(() => {
         setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -308,7 +304,6 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     }, [isLoading, client, highlightedEntryId, processedEntries, isInitialScrollDone, entries]);
     
     const handleSelectEntry = (entryData: any) => {
-        // SURGICAL CHANGE: Check if it's any kind of workout
         const isWorkout = (entryData.pillar === 'activity' && entryData.type === 'workout') || (entryData.type === 'workout');
         
         if (isWorkout) {
@@ -477,7 +472,6 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                 event={selectedLiveEvent}
             />
             
-            {/* SURGICAL CHANGE: Using the new intelligent dialog */}
             <WorkoutActionDialog
                 isOpen={isActionDialogOpen}
                 onClose={() => setIsActionDialogOpen(false)}
@@ -486,6 +480,10 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                 onStart={() => handleStartWorkout(eventToAction)}
                 onEdit={() => {
                     setIsEditDialogOpen(true);
+                    setIsActionDialogOpen(false);
+                }}
+                onViewHistory={() => { // Surgical Connection
+                    setIsHistoryOpen(true);
                     setIsActionDialogOpen(false);
                 }}
                 onEntryChange={onEntryChange}
@@ -520,6 +518,11 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                 />
             )}
 
+            <FullWorkoutHistoryDialog 
+                isOpen={isHistoryOpen}
+                onClose={() => setIsHistoryOpen(false)}
+                userProfile={client}
+            />
         </div>
     );
 }

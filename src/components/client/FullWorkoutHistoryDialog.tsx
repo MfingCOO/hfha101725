@@ -3,13 +3,14 @@
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { PerformanceLog, Workout } from "@/types/workout-program";
-import { getFullWorkoutHistoryAction, getWorkoutsByIdsAction } from '@/app/workouts/actions';
+import { PerformanceLog, Workout, Exercise } from "@/types/workout-program"; // Surgical Change: Imported Exercise
+import { getFullWorkoutHistoryAction, getWorkoutsByIdsAction, listAllExercisesAction } from '@/app/workouts/actions'; // Surgical Change: Imported listAllExercisesAction
 import { Loader2, ArrowLeft } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from 'date-fns';
 import { UserProfile } from '@/types';
 import { useToast } from '@/hooks/use-toast';
+import { LogDetailView } from './LogDetailView'; // Surgical Change: Imported LogDetailView
 
 interface FullWorkoutHistoryDialogProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ interface FullWorkoutHistoryDialogProps {
 export function FullWorkoutHistoryDialog({ isOpen, onClose, userProfile }: FullWorkoutHistoryDialogProps) {
   const [history, setHistory] = useState<PerformanceLog[]>([]);
   const [workouts, setWorkouts] = useState<Map<string, Workout>>(new Map());
+  const [exercises, setExercises] = useState<Map<string, Exercise>>(new Map()); // Surgical Change: Added exercises state
   const [isLoading, setIsLoading] = useState(false);
   const [selectedLog, setSelectedLog] = useState<PerformanceLog | null>(null);
   const { toast } = useToast();
@@ -29,7 +31,18 @@ export function FullWorkoutHistoryDialog({ isOpen, onClose, userProfile }: FullW
       const fetchHistory = async () => {
         setIsLoading(true);
         try {
-          const historyResult = await getFullWorkoutHistoryAction(userProfile.uid);
+          // Fetch history, workouts, and all exercises in parallel
+          const [historyResult, exercisesResult] = await Promise.all([
+            getFullWorkoutHistoryAction(userProfile.uid),
+            listAllExercisesAction()
+          ]);
+
+          if (exercisesResult.success) {
+            setExercises(new Map(exercisesResult.data.map(e => [e.id, e])));
+          } else {
+            throw new Error('Could not load exercise data.');
+          }
+
           if (historyResult.success) {
             const logs = historyResult.data;
             setHistory(logs);
@@ -57,6 +70,7 @@ export function FullWorkoutHistoryDialog({ isOpen, onClose, userProfile }: FullW
     } else {
         setHistory([]);
         setWorkouts(new Map());
+        setExercises(new Map()); // Surgical Change: Reset exercises state
         setSelectedLog(null);
     }
   }, [isOpen, userProfile, toast]);
@@ -64,49 +78,6 @@ export function FullWorkoutHistoryDialog({ isOpen, onClose, userProfile }: FullW
   const handleClose = () => {
       setSelectedLog(null);
       onClose();
-  }
-
-  const renderLogDetailView = () => {
-      if (!selectedLog) return null;
-      const workout = workouts.get(selectedLog.workoutId);
-
-      return (
-        <div className="flex flex-col h-full">
-            <DialogHeader>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedLog(null)} className="mb-2 self-start">
-                    <ArrowLeft className="h-4 w-4 mr-2" />
-                    Back to History
-                </Button>
-                <DialogTitle>Details for: {workout?.name || 'Workout'}</DialogTitle>
-                <DialogDescription>Completed on {format(new Date(selectedLog.completedAt), 'PPP p')}</DialogDescription>
-            </DialogHeader>
-            <ScrollArea className="flex-1 overflow-y-auto p-1 pr-3 mt-4">
-                <div className="space-y-3 text-sm">
-                     <p><span className="font-semibold">Total Duration:</span> {Math.round(selectedLog.duration / 60)} minutes</p>
-                     <h4 className="font-semibold text-md mt-4">Performance</h4>
-                     <div className="space-y-2 p-2 rounded-md bg-muted/50">
-                        <div className="grid grid-cols-4 gap-2 font-semibold text-muted-foreground">
-                            <span>Exercise</span>
-                            <span>Set</span>
-                            <span>Reps</span>
-                            <span>Weight</span>
-                        </div>
-                        {selectedLog.performance.map((perf, index) => (
-                           <div key={index} className="grid grid-cols-4 gap-2 items-center border-t pt-2">
-                               <span>{perf.blockId.substring(0,5)}...</span>
-                               <span>{perf.setIndex + 1}</span>
-                               <span>{perf.reps}</span>
-                               <span>{perf.weight.toFixed(1)} {userProfile?.unitSystem === 'imperial' ? 'lbs' : 'kg'}</span>
-                           </div>
-                        ))}
-                     </div>
-                </div>
-            </ScrollArea>
-             <DialogFooter className="pt-4 border-t mt-auto">
-                <Button onClick={handleClose}>Close</Button>
-            </DialogFooter>
-        </div>
-      )
   }
 
   const renderHistoryListView = () => (
@@ -149,7 +120,16 @@ export function FullWorkoutHistoryDialog({ isOpen, onClose, userProfile }: FullW
   return (
     <Dialog open={isOpen} onOpenChange={!selectedLog ? handleClose : (open) => {if(!open) handleClose()}}>
       <DialogContent className="max-w-2xl h-[80vh] flex flex-col">
-          {selectedLog ? renderLogDetailView() : renderHistoryListView()}
+          {selectedLog ? (
+              <LogDetailView 
+                selectedLog={selectedLog}
+                workout={workouts.get(selectedLog.workoutId)}
+                exercises={exercises} // Surgical Change: Pass exercises map
+                userProfile={userProfile}
+                onBack={() => setSelectedLog(null)}
+                onClose={handleClose}
+              />
+          ) : renderHistoryListView()}
       </DialogContent>
     </Dialog>
   );

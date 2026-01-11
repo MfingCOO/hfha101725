@@ -1,83 +1,80 @@
 'use client';
 
-import { PerformanceLog, Workout, ExerciseBlock, Set, Exercise } from '@/types/workout-program';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { PerformanceLog, Workout, Exercise } from "@/types/workout-program";
+import { ArrowLeft } from 'lucide-react';
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from 'date-fns';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { UserProfile } from '@/types';
 
 interface LogDetailViewProps {
-  log: PerformanceLog;
-  workout: Workout;
-  exercises: Map<string, Exercise>;
-  unitSystem: 'metric' | 'imperial';
+    selectedLog: PerformanceLog;
+    workout: Workout | undefined;
+    exercises: Map<string, Exercise>;
+    userProfile: UserProfile | null;
+    onBack: () => void;
+    onClose: () => void;
 }
 
-const KG_TO_LBS = 2.20462;
-const convertKgToLbs = (kg: number) => Math.round((kg * KG_TO_LBS) * 2) / 2;
+export function LogDetailView({ selectedLog, workout, exercises, userProfile, onBack, onClose }: LogDetailViewProps) {
+    // Helper function to find the original exerciseId from the workout structure
+    const getExerciseIdForBlock = (blockId: string): string | null => {
+        if (!workout) return null;
+        for (const block of workout.blocks) {
+            if (block.id === blockId && block.type === 'exercise') {
+                return block.exerciseId;
+            }
+            if (block.type === 'group') {
+                for (const groupBlock of block.blocks) {
+                    if (groupBlock.id === blockId && groupBlock.type === 'exercise') {
+                        return groupBlock.exerciseId;
+                    }
+                }
+            }
+        }
+        return null;
+    };
 
-// Helper to find the specific performance data for a given set
-const getSetPerformance = (log: PerformanceLog, blockId: string, setIndex: number) => {
-    return log.performance.find(p => p.blockId === blockId && p.setIndex === setIndex);
-};
-
-export function LogDetailView({ log, workout, exercises, unitSystem }: LogDetailViewProps) {
-
-  return (
-    <div className="space-y-4">
-        <div className="text-center">
-            <h2 className="text-2xl font-bold">{workout.name}</h2>
-            <p className="text-sm text-muted-foreground">
-                Completed on {format(new Date(log.completedAt), "MMMM d, yyyy 'at' h:mm a")}
-            </p>
+    return (
+        <div className="flex flex-col h-full">
+            <DialogHeader>
+                <Button variant="ghost" size="sm" onClick={onBack} className="mb-2 self-start">
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to History
+                </Button>
+                <DialogTitle>Details for: {workout?.name || 'Workout'}</DialogTitle>
+                <DialogDescription>Completed on {format(new Date(selectedLog.completedAt), 'PPP p')}</DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="flex-1 overflow-y-auto p-1 pr-3 mt-4">
+                <div className="space-y-3 text-sm">
+                     <p><span className="font-semibold">Total Duration:</span> {Math.round(selectedLog.duration / 60)} minutes</p>
+                     <h4 className="font-semibold text-md mt-4">Performance</h4>
+                     <div className="space-y-2 p-2 rounded-md bg-muted/50">
+                        <div className="grid grid-cols-4 gap-2 font-semibold text-muted-foreground">
+                            <span>Exercise</span>
+                            <span>Set</span>
+                            <span>Reps</span>
+                            <span>Weight</span>
+                        </div>
+                        {selectedLog.performance.map((perf, index) => {
+                           const exerciseId = getExerciseIdForBlock(perf.blockId);
+                           const exerciseName = exerciseId ? exercises.get(exerciseId)?.name : 'Exercise not found';
+                           return (
+                               <div key={index} className="grid grid-cols-4 gap-2 items-center border-t pt-2">
+                                   <span className="truncate">{exerciseName}</span>
+                                   <span>{perf.setIndex + 1}</span>
+                                   <span>{perf.reps}</span>
+                                   <span>{perf.weight.toFixed(1)} {userProfile?.unitSystem === 'imperial' ? 'lbs' : 'kg'}</span>
+                               </div>
+                           )
+                        })}
+                     </div>
+                </div>
+            </ScrollArea>
+             <DialogFooter className="pt-4 border-t mt-auto">
+                <Button onClick={onClose}>Close</Button>
+            </DialogFooter>
         </div>
-
-      {workout.blocks.map((block) => {
-        if (block.type !== 'exercise') return null; // For now, we only display exercises
-        
-        const exercise = exercises.get(block.exerciseId);
-        if (!exercise) return (
-            <Card key={block.id} className="bg-muted/30">
-                <CardHeader><CardTitle>Loading Exercise...</CardTitle></CardHeader>
-            </Card>
-        );
-
-        return (
-          <Card key={block.id} className="overflow-hidden">
-            <CardHeader className='p-4'>
-              <CardTitle className="text-lg">{exercise.name}</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-1/4 text-center">Set</TableHead>
-                    <TableHead className="w-1/4 text-center">Target</TableHead>
-                    <TableHead className="w-1/4 text-center">Completed</TableHead>
-                    <TableHead className="w-1/4 text-center">Weight</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {block.sets.map((set, index) => {
-                    const performance = getSetPerformance(log, block.id, index);
-                    const targetValue = set.metric === 'time' ? `${set.value}s` : `${set.value} reps`;
-                    const completedValue = performance ? (set.metric === 'time' ? `${performance.reps}s` : `${performance.reps} reps`) : 'N/A';
-                    const weightValue = performance?.weight ? (unitSystem === 'imperial' ? `${convertKgToLbs(performance.weight)} lbs` : `${performance.weight} kg`) : 'N/A';
-
-                    return (
-                      <TableRow key={set.id}>
-                        <TableCell className="text-center font-bold">{index + 1}</TableCell>
-                        <TableCell className="text-center">{targetValue}</TableCell>
-                        <TableCell className="text-center">{completedValue}</TableCell>
-                        <TableCell className="text-center">{weightValue}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
-  );
+    );
 }

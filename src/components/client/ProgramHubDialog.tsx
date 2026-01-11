@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, PlayCircle, CalendarClock, Check, Eye, History } from 'lucide-react';
+import { Loader2, PlayCircle, CalendarClock, Check, Eye } from 'lucide-react';
 import { Program, Workout } from '@/types/workout-program';
 import { getClientProfileAction, getProgramDetailsAction } from '@/app/client/actions';
 import { getWorkoutsByIdsAction } from '@/app/workouts/actions';
@@ -14,7 +14,6 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { WorkoutPlayer } from '@/components/workout-player/workout-player';
 import { ProgramBrowserDialog } from './ProgramBrowserDialog';
 import { WorkoutOverviewDialog } from './WorkoutOverviewDialog';
-import { WorkoutHistoryDialog } from './WorkoutHistoryDialog';
 import { FullWorkoutHistoryDialog } from './FullWorkoutHistoryDialog';
 
 interface ProgramHubDialogProps {
@@ -33,7 +32,6 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [workoutToPlay, setWorkoutToPlay] = useState<Workout | null>(null);
   const [workoutToPreview, setWorkoutToPreview] = useState<Workout | null>(null);
-  const [workoutToViewHistory, setWorkoutToViewHistory] = useState<Workout | null>(null);
   const [isBrowserOpen, setIsBrowserOpen] = useState(false);
   const [isFullHistoryOpen, setIsFullHistoryOpen] = useState(false);
   const [refetchTrigger, setRefetchTrigger] = useState(0);
@@ -50,16 +48,21 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
       setWorkouts(new Map());
 
       const profileResult = await getClientProfileAction(userProfile.uid);
-      const activeProgramId = profileResult.data?.activeProgramId;
-
-      if (!profileResult.success || !activeProgramId) {
+      if (!profileResult.success) {
         setIsLoading(false);
+        // Optionally, you might want to show a toast message here.
         return;
+      }
+
+      const activeProgramId = profileResult.data.activeProgramId;
+      if (!activeProgramId) {
+          setIsLoading(false);
+          return;
       }
 
       try {
         const programResult = await getProgramDetailsAction(activeProgramId);
-        if (!programResult.success || !programResult.data) {
+        if (programResult.success === false) {
           throw new Error(programResult.error || 'Failed to load program details');
         }
 
@@ -88,7 +91,6 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
 
   const handleStartWorkout = (workout: Workout) => setWorkoutToPlay(workout);
   const handlePreviewWorkout = (workout: Workout) => setWorkoutToPreview(workout);
-  const handleViewHistory = (workout: Workout) => setWorkoutToViewHistory(workout);
   const handlePlayerClose = () => setWorkoutToPlay(null);
 
   const handleOpenScheduler = (uniqueId: string) => {
@@ -135,7 +137,7 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
     }
   };
 
-  const mainDialogOpen = isOpen && !workoutToPlay && !isBrowserOpen && !workoutToPreview && !workoutToViewHistory && !isFullHistoryOpen;
+  const mainDialogOpen = isOpen && !workoutToPlay && !isBrowserOpen && !workoutToPreview && !isFullHistoryOpen;
 
   return (
     <>
@@ -177,9 +179,6 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
                                 <p className='font-medium truncate flex-1 min-w-0'>{`Day ${index + 1}: ${workout.name}`}</p>
                                 {!isScheduling && (
                                     <div className='flex items-center flex-shrink-0'>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewHistory(workout)} title="View Past Workouts">
-                                            <History className="h-4 w-4 text-gray-400" />
-                                        </Button>
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handlePreviewWorkout(workout)} title="Preview Workout">
                                             <Eye className="h-4 w-4 text-blue-400" />
                                         </Button>
@@ -253,16 +252,6 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
           userProfile={userProfile}
         />
       )}
-
-    {userProfile && workoutToViewHistory && (
-        <WorkoutHistoryDialog
-            isOpen={!!workoutToViewHistory}
-            onClose={() => setWorkoutToViewHistory(null)}
-            workoutId={workoutToViewHistory.id}
-            userId={userProfile.uid}
-            workoutName={workoutToViewHistory.name}
-        />
-    )}
 
       {workoutToPlay && (
         <WorkoutPlayer 

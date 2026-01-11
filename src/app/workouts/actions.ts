@@ -169,7 +169,12 @@ export async function getWorkoutHistoryAction(userId: string, workoutId: string)
             .orderBy('completedAt', 'desc')
             .get();
             
-        const logs = snapshot.docs.map(doc => doc.data() as PerformanceLog);
+        const logs = snapshot.docs.map(doc => {
+            const data = doc.data();
+            const completedAt = data.completedAt.toDate ? data.completedAt.toDate() : new Date(data.completedAt);
+            return { ...data, completedAt } as PerformanceLog;
+        });
+
         return { success: true, data: logs };
     } catch (error: any) {
         console.error("Error fetching workout history:", error);
@@ -193,13 +198,10 @@ export async function getPerformanceLogByIdAction(logId: string): Promise<Action
 
 export async function getFullWorkoutHistoryAction(userId: string): Promise<ActionResponse<PerformanceLog[]>> {
     try {
-        // Query without ordering to avoid needing a composite index for (userId, completedAt)
         const snapshot = await firestore.collection('workout_logs')
             .where('userId', '==', userId)
             .get();
 
-        // The 'completedAt' field from Firestore is a Timestamp object.
-        // We need to convert it to a JS Date object for sorting and for client-side compatibility.
         const logs = snapshot.docs.map(doc => {
             const data = doc.data();
             const completedAt = data.completedAt.toDate ? data.completedAt.toDate() : new Date(data.completedAt);
@@ -209,12 +211,23 @@ export async function getFullWorkoutHistoryAction(userId: string): Promise<Actio
             } as PerformanceLog;
         });
 
-        // Now, sort the logs in memory on the server in descending order (newest first).
         logs.sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
 
         return { success: true, data: logs };
     } catch (error: any) {
         console.error("Error fetching full workout history:", error);
         return { success: false, error: "Failed to fetch full workout history." };
+    }
+}
+
+// Surgical Addition: New action to fetch all exercises
+export async function listAllExercisesAction(): Promise<ActionResponse<Exercise[]>> {
+    try {
+        const snapshot = await firestore.collection('exercises').get();
+        const exercises = snapshot.docs.map(doc => doc.data() as Exercise);
+        return { success: true, data: exercises };
+    } catch (error) {
+        console.error("Error fetching all exercises:", error);
+        return { success: false, error: "Failed to list exercises." };
     }
 }
