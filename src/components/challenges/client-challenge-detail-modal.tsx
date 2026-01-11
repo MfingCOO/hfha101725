@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -29,6 +29,30 @@ interface CustomHabit {
     name: string;
     description: string;
 }
+
+// This is the new helper function to determine if a task is visible.
+const isTaskVisibleOnDate = (task: any, currentDay: Date, challengeStartDate: Date): boolean => {
+    if (!task.days || task.days.length === 0) {
+        return true; // Default to visible if no rules are set
+    }
+
+    const dayOfWeek = format(currentDay, 'eee').toLowerCase(); // e.g., 'mon'
+    if (!task.days.includes(dayOfWeek)) {
+        return false; // Not the right day of the week
+    }
+
+    if (task.recurrenceType === 'custom' && task.recurrenceInterval) {
+        const dayDifference = differenceInCalendarDays(currentDay, challengeStartDate);
+        // Task should appear on the first valid day (dayDifference >= 0)
+        // and on subsequent intervals.
+        if (dayDifference < 0) return false;
+        return dayDifference % task.recurrenceInterval === 0;
+    }
+
+    // If it's weekly, we just need to check the day of the week, which we've already done.
+    return true;
+};
+
 
 type SerializableChallenge = Omit<Challenge, 'dates' | 'createdAt' | 'progress'> & {
     dates: { from: string, to: string };
@@ -200,6 +224,9 @@ const DailyTasks = React.memo(({
     handleSaveProgress,
     isSaving,
 }: any) => {
+
+    const challengeStartDate = useMemo(() => startOfDay(new Date(challenge.dates.from)), [challenge.dates.from]);
+
  return (
         <div className="flex flex-col h-full">
             <div className="p-4 flex items-center justify-between gap-1 flex-shrink-0 bg-background rounded-t-lg">
@@ -226,7 +253,8 @@ const DailyTasks = React.memo(({
             ) : (
                  <ScrollArea className="flex-1">
                     <div className="p-4 pt-2 space-y-3">
-                        {challenge.scheduledPillars?.map((pillarInfo: any, i: number) => {
+                        {challenge.scheduledPillars?.filter((pillarInfo: any) => isTaskVisibleOnDate(pillarInfo, currentDay, challengeStartDate))
+                        .map((pillarInfo: any, i: number) => {
                             const pillar = pillarsAndTools.find(p => p.id === pillarInfo.pillarId);
                             if (!pillar) return null;
                             const taskDescription = `Log ${pillar.label}`;
@@ -303,7 +331,8 @@ const DailyTasks = React.memo(({
                                 )}
                             </div>
                         )})}
-                         {challenge.scheduledHabits?.map((habit: any, i: number) => {
+                         {challenge.scheduledHabits?.filter((habit: any) => isTaskVisibleOnDate(habit, currentDay, challengeStartDate))
+                         .map((habit: any, i: number) => {
                              const habitDetails = customHabits.find(h => h.id === habit.habitId) || { name: `Habit ${i+1}`, description: 'Complete this habit.' };
                              const isCompleted = !!getTaskProgressValue(habitDetails.name);
                              return (
