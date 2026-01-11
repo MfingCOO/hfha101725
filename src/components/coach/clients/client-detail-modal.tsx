@@ -4,9 +4,9 @@ import { Button } from '@/components/ui/button';
 import { ClientStatsDashboard } from './client-stats-dashboard';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { ClientProfile } from '@/types';
+// FIX: getClientByIdAction is now needed for the 'read it again' logic.
 import { getCoachingChatIdForClient, deleteClientAction, getClientByIdAction } from '@/app/coach/clients/actions';
 import { calculateDailySummaries } from '@/ai/flows/calculate-daily-summaries';
-import { generateInsightFlow, type GenerateInsightOutput } from '@/ai/flows/generate-insight-flow';
 
 import { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -20,12 +20,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Loader2, Lightbulb, Sparkles, CheckCircle, BarChart, MessageSquare, Calendar, Pencil } from 'lucide-react';
-import { Separator } from '@/components/ui/separator';
+import { Loader2, BarChart, MessageSquare, Pencil } from 'lucide-react';
 import { ClientCalendarView } from './ClientCalendarView';
 import { CoachNotes } from './CoachNotes';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { EmbeddedChatDialog } from '../chats/embedded-chat-dialog';
 
@@ -33,87 +30,6 @@ interface ClientDetailModalProps {
   client: ClientProfile;
   isOpen: boolean;
   onClose: () => void;
-}
-
-const AiInsightSection = ({ client }: { client: ClientProfile }) => {
-    const { toast } = useToast();
-    const [insightPeriod, setInsightPeriod] = useState(7);
-    const [isGenerating, setIsGenerating] = useState(false);
-    const [insight, setInsight] = useState<GenerateInsightOutput | null>(null);
-
-    const handleGenerate = async () => {
-        setIsGenerating(true);
-        setInsight(null);
-        try {
-            const result = await generateInsightFlow({ clientId: client.uid, days: insightPeriod });
-            // This now correctly accesses the 'recommendation' field on the returned object.
-            if (result && result.recommendation) { 
-                // This correctly uses the entire result object, which matches the GenerateInsightOutput type.
-                setInsight(result); 
-            } else {
-                throw new Error('The AI model did not return a valid insight.');
-            }
-        } catch (error: any) {
-            toast({
-                variant: 'destructive',
-                title: 'Insight Failed',
-                description: error.message,
-            });
-        } finally {
-            setIsGenerating(false);
-        }
-    };
-    
-    return (
-        <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row gap-2">
-                <Select onValueChange={(v) => setInsightPeriod(parseInt(v))} defaultValue={String(insightPeriod)}>
-                    <SelectTrigger className="w-full sm:w-[180px]">
-                        <SelectValue placeholder="Select period" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="3">Last 3 Days</SelectItem>
-                        <SelectItem value="7">Last 7 Days</SelectItem>
-                        <SelectItem value="14">Last 14 Days</SelectItem>
-                        <SelectItem value="30">Last 30 Days</SelectItem>
-                    </SelectContent>
-                </Select>
-                <Button onClick={handleGenerate} disabled={isGenerating} className="w-full sm:w-auto">
-                    {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Generate
-                </Button>
-            </div>
-
-            {isGenerating && (
-                <div className="flex items-center justify-center p-8 rounded-lg bg-muted">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                </div>
-            )}
-            
-            {insight && (
-                <div className="rounded-lg bg-background/80 p-4 space-y-3 animate-in fade-in-50">
-                    {/* This structure now accesses the fields within the 'insight' object */}
-                    <h3 className="text-lg font-bold text-primary flex items-center gap-2"><Sparkles className="h-5 w-5" /> AI Summary</h3>
-                    <div>
-                        <h4 className="font-semibold text-sm">Calories:</h4>
-                        <p className="text-sm text-muted-foreground">{insight.calories}</p>
-                    </div>
-                    <div>
-                        <h4 className="font-semibold text-sm">Macros:</h4>
-                        <p className="text-sm text-muted-foreground">{insight.macros}</p>
-                    </div>
-                    <div>
-                        <h4 className="font-semibold text-sm">Hydration:</h4>
-                        <p className="text-sm text-muted-foreground">{insight.hydration}</p>
-                    </div>
-                    <div className="bg-primary/10 border-l-4 border-primary text-primary-foreground p-3 rounded-r-lg">
-                        <h4 className="font-semibold flex items-center gap-2 text-sm text-primary"><CheckCircle className="h-5 w-5" /> Key Recommendation:</h4>
-                        <p className="text-foreground/90 text-sm">{insight.recommendation}</p>
-                    </div>
-                </div>
-            )}
-        </div>
-    )
 }
 
 export function ClientDetailModal({ client: initialClient, isOpen, onClose }: ClientDetailModalProps) {
@@ -125,22 +41,28 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
   const [chatInfo, setChatInfo] = useState<{ id: string; name: string } | null>(null);
   const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
 
-  
-  const handleRefreshAndRefetch = useCallback(async () => {
+  // FIX: This function now implements the correct 'update and re-read' logic.
+  const handleRefreshAndRefetch = useCallback(async (showToast = true) => {
     if (!initialClient.uid) return;
     setIsRefreshing(true);
     try {
-        // This now correctly passes the arguments as an object.
+        // 1. Trigger the summary calculation. We don't need its return value.
         await calculateDailySummaries({ clientId: initialClient.uid });
-        const result = await getClientByIdAction(initialClient.uid);
-        if (result.success && result.data) {
-            setClient(result.data);
-            toast({
-                title: "Stats Refreshed",
-                description: `${initialClient.fullName}'s summary is now up-to-date.`,
-            });
+
+        // 2. 'Read it again': Re-fetch the entire client profile.
+        const updatedClientResult = await getClientByIdAction(initialClient.uid);
+
+        if (updatedClientResult.success && updatedClientResult.data) {
+            // 3. Update the state with the complete, fresh client object.
+            setClient(updatedClientResult.data);
+            if (showToast) {
+                toast({
+                    title: "Stats Refreshed",
+                    description: `${initialClient.fullName}'s summary is now up-to-date.`,
+                });
+            }
         } else {
-             throw new Error(result.error || "Could not refetch client data after refresh.");
+             throw new Error(updatedClientResult.error || "Could not refetch client data.");
         }
     } catch (error: any) {
          toast({
@@ -156,18 +78,21 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
   useEffect(() => {
     if (isOpen && initialClient.uid) {
       setClient(initialClient);
-      if(initialClient.tier === 'coaching') {
-        getCoachingChatIdForClient(initialClient.uid).then(result => {
-          if (result.success && result.chatId) {
-            setChatInfo({ id: result.chatId, name: `${initialClient.fullName} Coaching` });
-          }
-        });
-      }
-    } else {
-        setChatInfo(null);
+      handleRefreshAndRefetch(false); 
     }
-  }, [isOpen, initialClient]);
+  }, [isOpen, initialClient, handleRefreshAndRefetch]);
 
+  useEffect(() => {
+      if (isOpen && initialClient.uid && initialClient.tier === 'coaching') {
+          getCoachingChatIdForClient(initialClient.uid).then(result => {
+              if (result.success && result.chatId) {
+                  setChatInfo({ id: result.chatId, name: `${initialClient.fullName} Coaching` });
+              }
+          });
+      } else {
+          setChatInfo(null);
+      }
+  }, [isOpen, initialClient.uid, initialClient.tier, initialClient.fullName]);
 
   const handleDeleteClient = async () => {
     if (!client?.uid) return;
@@ -187,7 +112,6 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
         setDeleteClientAlertOpen(false);
     }
   };
-
 
   return (
     <>
@@ -212,10 +136,11 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
                                 </div>
                             </AccordionTrigger>
                             <AccordionContent className="p-4 pt-0">
+                                {/* FIX: Removed the unnecessary key prop. */}
                                 <ClientStatsDashboard 
                                     client={client}
                                     onDeleteClient={() => setDeleteClientAlertOpen(true)}
-                                    onRefresh={handleRefreshAndRefetch}
+                                    onRefresh={() => handleRefreshAndRefetch(true)}
                                     isRefreshing={isRefreshing}
                                 />
                             </AccordionContent>
@@ -229,12 +154,6 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
                             <ClientCalendarView client={client} />
                         </div>
 
-                        <AccordionItem value="item-2" className="border rounded-lg overflow-hidden">
-                            <AccordionTrigger className="p-4 hover:no-underline"><Lightbulb className="mr-2 h-5 w-5"/> AI Client Insight</AccordionTrigger>
-                            <AccordionContent className="p-4 pt-0">
-                                <AiInsightSection client={client} />
-                            </AccordionContent>
-                        </AccordionItem>
                         <AccordionItem value="item-5" className="border rounded-lg overflow-hidden">
                             <AccordionTrigger className="p-4 hover:no-underline"><Pencil className="mr-2 h-5 w-5"/> Coach Notes</AccordionTrigger>
                             <AccordionContent className="p-4 pt-0">

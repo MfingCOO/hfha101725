@@ -10,20 +10,39 @@ const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
     apiVersion: '2024-04-10',
 });
 
+// FIX: This is a new, more robust function that handles all variants of Timestamp objects,
+// including class instances and plain objects, finally resolving the serialization error.
 function serializeTimestamps(data: any): any {
-    if (data === null || data === undefined) return data;
-    if (data instanceof Timestamp) return data.toDate().toISOString();
-    if (Array.isArray(data)) return data.map(serializeTimestamps);
-    if (typeof data === 'object' && Object.prototype.toString.call(data) === '[object Object]') {
-        const newObject: { [key: string]: any } = {};
-        for (const key in data) {
-            if (Object.prototype.hasOwnProperty.call(data, key)) {
-                newObject[key] = serializeTimestamps(data[key]);
-            }
-        }
-        return newObject;
+    if (data === null || data === undefined || typeof data !== 'object') {
+        return data;
     }
-    return data;
+
+    // Handle actual Timestamp instances from the Firebase SDK
+    if (typeof data.toDate === 'function') {
+        return data.toDate().toISOString();
+    }
+
+    // Handle plain objects that are structured like Timestamps (duck-typing)
+    if (typeof data.seconds === 'number' && typeof data.nanoseconds === 'number') {
+        return new Date(data.seconds * 1000 + data.nanoseconds / 1000000).toISOString();
+    }
+    if (typeof data._seconds === 'number' && typeof data._nanoseconds === 'number') {
+        return new Date(data._seconds * 1000 + data._nanoseconds / 1000000).toISOString();
+    }
+
+    // Recurse into arrays
+    if (Array.isArray(data)) {
+        return data.map(item => serializeTimestamps(item));
+    }
+
+    // Recurse into plain objects
+    const newObj: { [key: string]: any } = {};
+    for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+            newObj[key] = serializeTimestamps(data[key]);
+        }
+    }
+    return newObj;
 }
 
 export async function updateClientWthr(clientId: string, waist: number): Promise<{ success: boolean; error?: string }> {

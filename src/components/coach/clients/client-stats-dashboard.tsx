@@ -1,10 +1,9 @@
-
 'use client';
 
 import { Card, CardContent } from '@/components/ui/card';
 import type { ClientProfile } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Loader2, Trash2, Moon, Flame, Droplet, UtensilsCrossed, Apple, HeartCrack, ShieldAlert } from 'lucide-react';
+import { Loader2, Trash2, Moon, Flame, UtensilsCrossed, Apple, HeartCrack, ShieldAlert, Percent } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { differenceInDays } from 'date-fns';
 import type { LucideIcon } from 'lucide-react';
@@ -38,7 +37,15 @@ export function ClientStatsDashboard({
   onRefresh,
   isRefreshing,
 }: ClientStatsDashboardProps) {
-  const summary = client.dailySummary;
+  
+  // FIX: Restore the original, correct logic to find the most recent summary.
+  const getMostRecentSummary = (summaries: ClientProfile['dailySummaries']) => {
+    if (!summaries) return null;
+    // Sort dates in descending order to find the most recent one.
+    const sortedDates = Object.keys(summaries).sort((a, b) => b.localeCompare(a));
+    return sortedDates.length > 0 ? summaries[sortedDates[0]] : null;
+  };
+  const summary = getMostRecentSummary(client.dailySummaries) as any;
 
   const getStatValue = (value: any, fractionDigits = 0) => {
     const num = Number(value);
@@ -70,6 +77,7 @@ export function ClientStatsDashboard({
         <Separator />
         
         <div className="grid grid-cols-5 gap-1">
+            {/* FIX: These will now correctly pull data from the most recent summary object. */}
             <StaticInfo title="Weight" value={`${getStatValue(summary?.currentWeight, 1)} ${summary?.unit || ''}`} />
             <StaticInfo title="WtHR" value={getStatValue(summary?.currentWthr, 2)} />
             <StaticInfo title="Age" value={summary?.age ?? 'N/A'} />
@@ -84,8 +92,8 @@ export function ClientStatsDashboard({
             <div className="grid grid-cols-4 gap-2">
                 <MiniStat icon={Moon} value={getStatValue(summary?.avgSleep, 1)} unit="hr" />
                 <MiniStat icon={Flame} value={getStatValue(summary?.avgActivity)} unit="min" />
-                <MiniStat icon={Droplet} value={getStatValue(summary?.avgHydration)} unit="oz" />
-                <MiniStat icon={UtensilsCrossed} value={getStatValue(summary?.avgUpf)} unit="%" />
+                <MiniStat icon={UtensilsCrossed} value={getStatValue(summary?.avgNutrients?.Energy)} unit="kcal" />
+                <MiniStat icon={Percent} value={getStatValue(summary?.avgUpf, 1)} unit="%" />
             </div>
         </div>
         

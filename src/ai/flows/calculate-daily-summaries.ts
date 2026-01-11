@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { getAllDataForPeriod } from '@/services/firestore';
-import { differenceInCalendarDays, subDays, isWithinInterval } from 'date-fns';
+import { differenceInCalendarDays, subDays, isWithinInterval, format } from 'date-fns';
 import type { ClientProfile } from '@/types/index';
 
 const CalculateSummariesInputSchema = z.object({
@@ -17,16 +17,13 @@ const CalculateSummariesInputSchema = z.object({
   dryRun: z.boolean().optional().default(false),
 });
 
-// DO NOT EXPORT the type directly in a 'use server' file.
 type CalculateSummariesInput = z.infer<typeof CalculateSummariesInputSchema>;
 
 const CalculateSummariesOutputSchema = z.object({
   success: z.boolean(),
   message: z.string(),
-  summary: z.any().optional(),
 });
 
-// DO NOT EXPORT the type directly in a 'use server' file.
 type CalculateSummariesOutput = z.infer<typeof CalculateSummariesOutputSchema>;
 
 const safeToDate = (date: any): Date | null => {
@@ -41,7 +38,6 @@ const safeToDate = (date: any): Date | null => {
     }
 };
 
-// DO NOT EXPORT the flow definition directly in a 'use server' file.
 const calculateDailySummariesFlow = defineFlow(
   {
     name: 'calculateDailySummariesFlow',
@@ -115,10 +111,16 @@ const calculateDailySummariesFlow = defineFlow(
             totalHydrationOz += entry.amount || 0;
             hydrationDays++;
         }
-        if (entry.pillar === 'nutrition' && entry.summary?.upf) {
-            totalUpfScore += entry.summary.upf.score || 0;
-            upfMeals++;
+
+        // DEFINITIVE FIX: Replicate the working logic from Data Insights.
+        if (entry.pillar === 'nutrition' && entry.summary) {
+            // 1. Correctly check for upfPercentage and add its value.
+            if (entry.summary.upfPercentage) {
+                totalUpfScore += entry.summary.upfPercentage.value || 0;
+                upfMeals++;
+            }
             
+            // 2. Correctly aggregate nutrients for calorie calculation.
             if (entry.summary.nutrients) {
                 for (const key in entry.summary.nutrients) {
                     const nutrient = entry.summary.nutrients[key];
@@ -175,19 +177,20 @@ const calculateDailySummariesFlow = defineFlow(
     };
 
     if (!dryRun) {
-        await clientRef.set({ dailySummary: summary }, { merge: true });
+        const today = format(new Date(), 'yyyy-MM-dd');
+        await clientRef.update({ 
+            [`dailySummaries.${today}`]: summary 
+        });
         console.log(`Successfully updated daily summary for client: ${clientId}`);
     }
 
     return {
       success: true,
       message: `Summary calculated for client ${clientId}. ${dryRun ? '[DRY RUN]' : ''}`,
-      summary,
     };
   }
 );
 
-// EXPORT ONLY the async server action. This is the only function that should be callable from the client.
 export async function calculateDailySummaries(input: CalculateSummariesInput): Promise<CalculateSummariesOutput> {
     return await runFlow(calculateDailySummariesFlow, input);
 }
