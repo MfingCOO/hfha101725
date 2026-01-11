@@ -152,7 +152,7 @@ export async function unifiedSignupAction(
     billingCycle: 'monthly' | 'yearly'
 ): Promise<{ success: boolean; error?: string; checkoutUrl?: string | null }> {
     
-    if (data.tier === 'free' || data.tier === 'ad-free') {
+    if (data.tier === 'free') {
         const result = await createClientByCoachAction(data);
         if (result.success) {
             return { success: true, checkoutUrl: null };
@@ -165,12 +165,14 @@ export async function unifiedSignupAction(
         let priceId: string | undefined;
         if (billingCycle === 'monthly') {
             switch (data.tier) {
+                case 'ad-free': priceId = process.env.STRIPE_AD_FREE_MONTHLY_PRICE_ID; break;
                 case 'basic': priceId = process.env.STRIPE_BASIC_MONTHLY_PRICE_ID; break;
                 case 'premium': priceId = process.env.STRIPE_PREMIUM_MONTHLY_PRICE_ID; break;
                 case 'coaching': priceId = process.env.STRIPE_COACHING_MONTHLY_PRICE_ID; break;
             }
         } else { // yearly
             switch (data.tier) {
+                case 'ad-free': priceId = process.env.STRIPE_AD_FREE_YEARLY_PRICE_ID; break;
                 case 'basic': priceId = process.env.STRIPE_BASIC_YEARLY_PRICE_ID; break;
                 case 'premium': priceId = process.env.STRIPE_PREMIUM_YEARLY_PRICE_ID; break;
             }
