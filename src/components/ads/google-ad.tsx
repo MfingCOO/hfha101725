@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useRef } from 'react';
@@ -9,27 +8,41 @@ declare global {
   }
 }
 
-// The component now accepts a slotId to specify which ad to show.
 export function GoogleAd({ slotId }: { slotId: string }) {
-  const adRef = useRef<HTMLModElement>(null);
+  const adRef = useRef<HTMLDivElement>(null);
+  const initialized = useRef(false);
 
   useEffect(() => {
-    // This effect hook is now more robust.
-    // It checks if the ad slot has already been filled by Google's script.
-    // The `data-ad-status="filled"` attribute is added by the adsbygoogle script itself.
-    if (adRef.current && adRef.current.getAttribute("data-ad-status") !== "filled") {
-        try {
-            (window.adsbygoogle = window.adsbygoogle || []).push({});
-        } catch (err) {
-            console.error(err);
-        }
+    if (initialized.current) {
+      return;
     }
-  }, [slotId]); // The effect re-runs if the slotId changes.
 
+    // Use a timeout to delay the push call.
+    // This gives the DOM time to update and for the container to get its proper dimensions,
+    // which resolves the "availableWidth=0" error.
+    const timeout = setTimeout(() => {
+      try {
+        if (adRef.current && adRef.current.getAttribute("data-ad-status") !== "filled") {
+            (window.adsbygoogle = window.adsbygoogle || []).push({});
+            // Mark as initialized so this component instance doesn't try to push another ad.
+            // This resolves the "already have ads in them" error.
+            initialized.current = true; 
+        }
+      } catch (err) {
+        console.error(`AdSense push error for slot ${slotId}:`, err);
+      }
+    }, 100); // 100ms is a safe delay.
+
+    return () => clearTimeout(timeout);
+
+  }, [slotId]);
+
+  // Using the slotId as a key on the parent div ensures that React
+  // treats each ad slot as a distinct component, preventing issues
+  // when navigating between pages where ads might be present.
   return (
-    <div className="text-center my-4 h-16 flex items-center justify-center">
+    <div ref={adRef} key={slotId} className="google-ad-container text-center my-4 min-h-[50px] flex items-center justify-center bg-gray-50/10 rounded-lg">
       <ins
-        ref={adRef}
         className="adsbygoogle"
         style={{ display: 'block' }}
         data-ad-client={process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID}

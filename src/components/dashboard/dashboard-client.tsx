@@ -444,11 +444,22 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
         {bottomRowButtons.map(renderPillarButton)}
       </div>
       
-       {userProfile?.tier === UserTier.Free && (
-        <div className="my-2">
-          <GoogleAd slotId={process.env.NEXT_PUBLIC_AD_SLOT_ID_1!} />
-        </div>
+         {/* Ad Slot 1 for Free Tier */}
+  {userProfile?.tier === UserTier.Free && (
+    <div className="my-4">
+      {process.env.NEXT_PUBLIC_AD_SLOT_ID_1 ? (
+        <GoogleAd slotId={process.env.NEXT_PUBLIC_AD_SLOT_ID_1} />
+      ) : (
+        process.env.NODE_ENV === 'development' && (
+          <div className="text-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+            <p><strong>Ad Slot 1 is not configured.</strong></p>
+            <p>Please set <code>NEXT_PUBLIC_AD_SLOT_ID_1</code> in your .env file.</p>
+          </div>
+        )
       )}
+    </div>
+  )}
+
       
       {renderChallengeSection()}
 
@@ -516,6 +527,21 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
             </CardContent>
         </Card>
       )}
+  {/* Ad Slot 2 for Free Tier */}
+  {userProfile?.tier === UserTier.Free && (
+    <div className="my-4">
+      {process.env.NEXT_PUBLIC_AD_SLOT_ID_2 ? (
+        <GoogleAd slotId={process.env.NEXT_PUBLIC_AD_SLOT_ID_2} />
+      ) : (
+        process.env.NODE_ENV === 'development' && (
+          <div className="text-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+            <p><strong>Ad Slot 2 is not configured.</strong></p>
+            <p>Please set <code>NEXT_PUBLIC_AD_SLOT_ID_2</code> in your .env file.</p>
+          </div>
+        )
+      )}
+    </div>
+  )}
 
       <ProgramListDialog
         isOpen={isProgramListOpen}
