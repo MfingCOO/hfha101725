@@ -133,6 +133,7 @@ export interface CoachNote {
     id: string;
     clientId: string;
     coachId: string;
+    coachName: string; // THE FIX: Added coachName to the interface
     text: string;
     createdAt: any; 
     updatedAt?: any;

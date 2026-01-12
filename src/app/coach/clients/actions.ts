@@ -10,22 +10,29 @@ const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
     apiVersion: '2024-04-10',
 });
 
+// This is a new, more robust serialization function
 function serializeTimestamps(data: any): any {
     if (data === null || data === undefined || typeof data !== 'object') {
         return data;
     }
+
+    // Firestore Timestamps have toDate(), plain objects from server actions might not
     if (typeof data.toDate === 'function') {
         return data.toDate().toISOString();
     }
+
+    // Handle object representations of Timestamps from different Firebase SDK versions
     if (typeof data.seconds === 'number' && typeof data.nanoseconds === 'number') {
         return new Date(data.seconds * 1000 + data.nanoseconds / 1000000).toISOString();
     }
     if (typeof data._seconds === 'number' && typeof data._nanoseconds === 'number') {
         return new Date(data._seconds * 1000 + data._nanoseconds / 1000000).toISOString();
     }
+
     if (Array.isArray(data)) {
         return data.map(item => serializeTimestamps(item));
     }
+
     const newObj: { [key: string]: any } = {};
     for (const key in data) {
         if (Object.prototype.hasOwnProperty.call(data, key)) {
@@ -191,36 +198,49 @@ export async function getCoachNotesAction(clientId: string): Promise<{ success: 
     try {
         const notesRef = adminDb.collection(`clients/${clientId}/coachNotes`).orderBy('createdAt', 'desc');
         const snapshot = await notesRef.get();
+        
+        // THE FIX: Use a robust serialization function to handle all timestamp formats
         const notes = snapshot.docs.map(doc => {
             const data = doc.data();
             return {
                 id: doc.id,
-                text: data.text,
-                coachName: data.coachName,
-                coachId: data.coachId,
-                clientId: clientId,
-                createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-            };
+                ...data,
+                createdAt: serializeTimestamps(data.createdAt),
+            } as CoachNote;
         });
-        return { success: true, data: notes as CoachNote[] };
+
+        return { success: true, data: notes };
     } catch (error: any) {
         console.error("Error fetching coach notes:", error);
         return { success: false, error: error.message };
     }
 }
 
-export async function addCoachNoteAction(clientId: string, text: string, coachId: string, coachName: string): Promise<{ success: boolean; error?: string }> {
+export async function addCoachNoteAction(clientId: string, text: string, coachId: string, coachName: string): Promise<{ success: boolean; error?: string, newNote?: CoachNote }> {
     try {
         if (!text.trim()) return { success: false, error: "Note cannot be empty." };
+        
         const noteData = {
             text,
             coachId,
             coachName,
-            createdAt: FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(), // Use server timestamp for consistency
         };
+        
         const notesRef = adminDb.collection(`clients/${clientId}/coachNotes`);
-        await notesRef.add(noteData);
-        return { success: true };
+        const newNoteRef = await notesRef.add(noteData);
+
+        // THE FIX: Return the newly created note so the UI can update instantly
+        const newNote: CoachNote = {
+            id: newNoteRef.id,
+            text,
+            coachId,
+            coachName,
+            clientId,
+            createdAt: new Date().toISOString(), // Provide an immediate timestamp for the UI
+        };
+
+        return { success: true, newNote };
     } catch (error: any) {
         console.error("Error adding coach note:", error);
         return { success: false, error: error.message };

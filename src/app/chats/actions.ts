@@ -30,13 +30,12 @@ function serializeTimestamps(docData: any) {
 
 export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; data?: { chats: Chat[], clients: ClientProfile[] }; error?: any; }> {
     try {
-        const chatsQuery = adminDb.collection('chats').orderBy('createdAt', 'desc');
-        const clientsQuery = adminDb.collection('clients').orderBy('createdAt', 'desc');
+        const chatsQuery = adminDb.collection('chats').orderBy('createdAt', 'desc').get();
+        
+        // THE FIX: Query userProfiles collection for all premium or coaching clients
+        const clientsQuery = adminDb.collection('userProfiles').where('tier', 'in', ['premium', 'coaching']).get();
 
-        const [chatsSnapshot, clientsSnapshot] = await Promise.all([
-            chatsQuery.get(),
-            clientsQuery.get()
-        ]);
+        const [chatsSnapshot, clientsSnapshot] = await Promise.all([chatsQuery, clientsQuery]);
         
         const allChats = chatsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
         const allClients = clientsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as ClientProfile));
@@ -161,19 +160,13 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
 
 export async function getSignedUrlAction(fileName: string, path: string, contentType: string): Promise<{ success: boolean, signedUrl?: string, publicUrl?: string, error?: string }> {
     try {
-      // --- START SURGICAL FIX ---
-      
-      // Define a unique name for a dedicated storage admin app instance to avoid conflicts.
       const STORAGE_ADMIN_APP_NAME = 'storage-admin-app-instance';
   
-      // This function gets or creates our dedicated, authenticated app instance.
       const getStorageAdminApp = (): App => {
-          // If our dedicated app already exists, just return it.
           if (getApps().some(app => app.name === STORAGE_ADMIN_APP_NAME)) {
               return getApp(STORAGE_ADMIN_APP_NAME);
           }
   
-          // Otherwise, initialize it for the first time with the service account key.
           const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
           if (!serviceAccountKey) {
               throw new Error('CRITICAL: FIREBASE_SERVICE_ACCOUNT_KEY is not set for signed URL generation.');
@@ -186,13 +179,9 @@ export async function getSignedUrlAction(fileName: string, path: string, content
           }, STORAGE_ADMIN_APP_NAME);
       };
   
-      // Get the dedicated, authenticated app and its storage service.
       const storageAdminApp = getStorageAdminApp();
       const authenticatedStorage = getStorage(storageAdminApp);
       
-      // --- END SURGICAL FIX ---
-  
-      // Now, use the fully authenticated storage service to get the URL.
       const bucket = authenticatedStorage.bucket();
       const uniqueFileName = `${path}/${Date.now()}-${fileName.replace(/\s+/g, '_')}`;
       const file = bucket.file(uniqueFileName);
@@ -288,10 +277,12 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                     const profile = doc.data() as UserProfile;
                     const isRecipientCoach = COACH_UIDS.includes(doc.id);
                     
-                    // THIS IS THE FIX: Only send notifications to coaches and paying clients.
                     if (isRecipientCoach || profile.tier === 'coaching' || profile.tier === 'premium') {
                         if (profile.fcmTokens && Array.isArray(profile.fcmTokens)) {
                             tokens.push(...profile.fcmTokens);
+                        }
+                        if (profile.pushToken && typeof profile.pushToken === 'string') {
+                            tokens.push(profile.pushToken);
                         }
                     }
                 });
@@ -401,12 +392,17 @@ const CreateChatInputSchema = z.object({
   type: z.enum(['open', 'private_group']),
   rules: z.string().optional(),
   participantIds: z.array(z.string()).optional(),
+  requesterId: z.string(),
 });
 
 export async function createChatAction(input: z.infer<typeof CreateChatInputSchema>) {
-    const { name, description, type, rules, participantIds = [] } = CreateChatInputSchema.parse(input);
+    const { name, description, type, rules, participantIds = [], requesterId } = CreateChatInputSchema.parse(input);
 
-    const ownerId = COACH_UIDS[0]; 
+    if (!COACH_UIDS.includes(requesterId)) {
+        return { success: false, error: "Only coaches can create chats." };
+    }
+
+    const ownerId = requesterId;
 
     try {
         const batch = adminDb.batch();
@@ -430,7 +426,7 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
         const initialMessage = {
             userId: 'system',
             userName: 'System',
-            text: `Chat "${name}" created by an admin.`,
+            text: `Chat "${name}" created by a coach.`,
             timestamp: FieldValue.serverTimestamp(),
             isSystemMessage: true,
         };
@@ -443,7 +439,7 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
         }
 
         await batch.commit();
-        return { success: true };
+        return { success: true, chatId: chatRef.id };
 
     } catch (error: any) {
         console.error("Error in createChatAction:", error);
@@ -473,39 +469,29 @@ export async function getCoachingChatIdForClient(clientId: string): Promise<{ su
     }
 }
 
-/**
- * This is the action that will be triggered upon a coaching client's first login.
- * It creates their private coaching chat and sends the initial welcome message.
- */
 export async function createCoachingChatOnFirstLogin(user: ClientProfile): Promise<{ success: boolean; error?: string; }> {
-    // 1. Double-check this is a coaching client who has never had this action run before.
-    // We check for `hasLoggedInBefore` being false (for coach-created clients) OR
-    // undefined (for Stripe-created clients).
     if (user.tier !== 'coaching' || user.hasLoggedInBefore === true) {
-        return { success: true }; // Not applicable or already run, so we exit gracefully.
+        return { success: true };
     }
 
     const batch = adminDb.batch();
     const userRef = adminDb.collection('userProfiles').doc(user.uid);
-    const chatRef = adminDb.collection('chats').doc(); // Create a new chat document reference
+    const chatRef = adminDb.collection('chats').doc();
 
     try {
-        // 2. Define the chat participants: The client, plus the two head coaches.
-        const alanUID = 'yue7fVPBQZg45vmfXXUH5PdG7jE2'; // Alan Roberts
-        const crystalUID = 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2'; // Crystal Roberts
+        const alanUID = 'yue7fVPBQZg45vmfXXUH5PdG7jE2'; 
+        const crystalUID = 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2';
         const participants = [user.uid, alanUID, crystalUID];
 
-        // 3. Create the chat document.
         batch.set(chatRef, {
             name: `${user.fullName} Coaching`,
             type: 'coaching',
             participants: participants,
             participantCount: participants.length,
-            ownerId: alanUID, // Designate Alan as the owner
+            ownerId: alanUID,
             createdAt: FieldValue.serverTimestamp(),
         });
 
-        // 4. Create the welcome message from Alan.
         const welcomeMessageRef = chatRef.collection('messages').doc();
         const userFirstName = user.fullName.split(' ')[0];
         const welcomeText = `Hi ${userFirstName} and welcome to coaching. This is your private coaching chat with just the two of us and yourself. We are excited to work with you. Can you tell us a bit about yourself, what brings you to coaching, and what you hope to accomplish through it? To make your video conference appointment you can go to the "Book a Call" button and choose either of us to book a call with and the available times each day.`;
@@ -518,20 +504,17 @@ export async function createCoachingChatOnFirstLogin(user: ClientProfile): Promi
             isSystemMessage: false,
         });
 
-        // 5. Update the chat's last message for UI purposes.
         batch.update(chatRef, {
             lastMessage: welcomeText,
             lastMessageSenderId: alanUID,
             lastCoachMessage: FieldValue.serverTimestamp(),
         });
         
-        // 6. Mark the user so this doesn't run again and add the new chat ID to their profile.
         batch.update(userRef, {
             hasLoggedInBefore: true,
             chatIds: FieldValue.arrayUnion(chatRef.id)
         });
 
-        // 7. Commit all the changes to the database at once.
         await batch.commit();
 
         return { success: true };
