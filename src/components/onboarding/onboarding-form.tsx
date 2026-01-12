@@ -204,7 +204,17 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                             <FeatureListItem>Basic data summaries</FeatureListItem>
                                         </ul>
                                     </CardContent>
-                                    <CardFooter><Button className="w-full" disabled>Coming Soon</Button></CardFooter>
+                                    <CardFooter>
+                                        <Button
+                                            className="w-full"
+                                            onClick={() => handleSubscriptionClick('free')}
+                                            disabled={isLoading || billingCycle === 'yearly'}
+                                        >
+                                            {isLoading 
+                                                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 
+                                                : (billingCycle === 'yearly' ? 'Monthly Only' : 'Sign Up Free')}
+                                        </Button>
+                                    </CardFooter>
                                 </Card>
 
                                 <Card className="flex flex-col">

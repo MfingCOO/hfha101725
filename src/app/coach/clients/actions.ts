@@ -10,32 +10,22 @@ const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
     apiVersion: '2024-04-10',
 });
 
-// FIX: This is a new, more robust function that handles all variants of Timestamp objects,
-// including class instances and plain objects, finally resolving the serialization error.
 function serializeTimestamps(data: any): any {
     if (data === null || data === undefined || typeof data !== 'object') {
         return data;
     }
-
-    // Handle actual Timestamp instances from the Firebase SDK
     if (typeof data.toDate === 'function') {
         return data.toDate().toISOString();
     }
-
-    // Handle plain objects that are structured like Timestamps (duck-typing)
     if (typeof data.seconds === 'number' && typeof data.nanoseconds === 'number') {
         return new Date(data.seconds * 1000 + data.nanoseconds / 1000000).toISOString();
     }
     if (typeof data._seconds === 'number' && typeof data._nanoseconds === 'number') {
         return new Date(data._seconds * 1000 + data._nanoseconds / 1000000).toISOString();
     }
-
-    // Recurse into arrays
     if (Array.isArray(data)) {
         return data.map(item => serializeTimestamps(item));
     }
-
-    // Recurse into plain objects
     const newObj: { [key: string]: any } = {};
     for (const key in data) {
         if (Object.prototype.hasOwnProperty.call(data, key)) {
@@ -52,23 +42,18 @@ export async function updateClientWthr(clientId: string, waist: number): Promise
         if (!clientSnap.exists) {
             throw new Error("Client not found.");
         }
-
         const clientData = clientSnap.data() as ClientProfile;
         const height = clientData.height;
-
         if (!height || !height.value || !height.unit) {
             return { success: false, error: "Client height is not set." };
         }
-
         let wthr;
         if (height.unit === 'in') {
             wthr = waist / height.value;
         } else { // cm
-            wthr = waist / (height.value * 0.393701); // convert cm to inches
+            wthr = waist / (height.value * 0.393701);
         }
-
         await clientRef.update({ wthr: wthr });
-
         return { success: true };
     } catch (error: any) {
         console.error(`Error updating WTHR for client ${clientId}:`, error);
@@ -76,31 +61,24 @@ export async function updateClientWthr(clientId: string, waist: number): Promise
     }
 }
 
-
 export async function createClientByCoachAction(data: CreateClientInput): Promise<{ success: boolean; uid?: string; error?: any; }> {
     const batch = adminDb.batch();
     let uid = '';
-
     try {
         const stripeCustomer = await stripe.customers.create({ email: data.email, name: data.fullName });
-
         const userRecord = await auth.createUser({
             email: data.email,
             password: data.password,
             displayName: data.fullName,
-            emailVerified: true,
+            emailVerified: false,
         });
         uid = userRecord.uid;
-
         const idealBodyWeight = calculateIdealBodyWeight(data.height, data.units);
-        
         const tempProfileForCalc: Partial<ClientProfile> = {
             onboarding: { ...data, birthdate: new Date(data.birthdate) },
             idealBodyWeight: idealBodyWeight,
         };
-
         const { idealGoals, actualGoals } = calculateNutritionalGoals(tempProfileForCalc as ClientProfile);
-        
         const userProfileRef = adminDb.collection('userProfiles').doc(uid);
         batch.set(userProfileRef, {
             uid: uid,
@@ -112,9 +90,8 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
             chatIds: [],
             challengeIds: [],
             createdAt: FieldValue.serverTimestamp(),
-            hasLoggedInBefore: false, // STEP 2: SET 'FIRST-LOGIN' FLAG
+            hasLoggedInBefore: false,
         });
-
         const { password, ...onboardingData } = data;
         const clientRef = adminDb.collection('clients').doc(uid);
         batch.set(clientRef, {
@@ -131,13 +108,8 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
             suggestedGoals: idealGoals, 
             customGoals: actualGoals, 
         });
-
-        // NOTE: Chat creation is now handled by a separate first-login action.
-
         await batch.commit();
-
         return { success: true, uid: uid };
-    
     } catch (error: any) {
         console.error("Error in createClientByCoachAction:", error);
         if (uid) {
@@ -152,19 +124,11 @@ export async function unifiedSignupAction(
     billingCycle: 'monthly' | 'yearly'
 ): Promise<{ success: boolean; error?: string; checkoutUrl?: string | null }> {
     
-    if (data.tier === 'free') {
-        const result = await createClientByCoachAction(data);
-        if (result.success) {
-            return { success: true, checkoutUrl: null };
-        } else {
-            return { success: false, error: result.error?.message || "Failed to create free user account." };
-        }
-    }
-
     try {
         let priceId: string | undefined;
         if (billingCycle === 'monthly') {
             switch (data.tier) {
+                case 'free': priceId = process.env.STRIPE_FREE_MONTHLY_PRICE_ID; break;
                 case 'ad-free': priceId = process.env.STRIPE_AD_FREE_MONTHLY_PRICE_ID; break;
                 case 'basic': priceId = process.env.STRIPE_BASIC_MONTHLY_PRICE_ID; break;
                 case 'premium': priceId = process.env.STRIPE_PREMIUM_MONTHLY_PRICE_ID; break;
@@ -175,6 +139,7 @@ export async function unifiedSignupAction(
                 case 'ad-free': priceId = process.env.STRIPE_AD_FREE_YEARLY_PRICE_ID; break;
                 case 'basic': priceId = process.env.STRIPE_BASIC_YEARLY_PRICE_ID; break;
                 case 'premium': priceId = process.env.STRIPE_PREMIUM_YEARLY_PRICE_ID; break;
+                case 'coaching': priceId = process.env.STRIPE_COACHING_YEARLY_PRICE_ID; break;
             }
         }
 
@@ -221,7 +186,6 @@ export async function deleteClientAction(clientId: string): Promise<{ success: b
         return { success: false, error: error.message };
     }
 }
-
 
 export async function getCoachNotesAction(clientId: string): Promise<{ success: boolean; data?: CoachNote[]; error?: string }> {
     try {
