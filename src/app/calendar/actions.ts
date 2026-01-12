@@ -130,15 +130,29 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
                 console.error(`Failed to fetch client calendar events:`, err);
                 return [];
             });
+            const liveEventsPromise = adminDb.collection('clientCalendar')
+            .where('userId', '==', userId)
+            .where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC))
+            .where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC))
+            .get().then(snapshot =>
+                snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return { ...data, id: doc.id, pillar: data.type || 'live-event', entryDate: data.start };
+                })
+            ).catch(err => {
+                console.error(`Failed to fetch live events from client calendar:`, err);
+                return [];
+            });
 
-        const [summarySnap, personalLogsNested, coachAppointments, clientCalendarEvents] = await Promise.all([
-            summaryPromise,
-            Promise.all(personalLogPromises),
-            coachAppointmentsPromise,
-            clientCalendarEventsPromise
-        ]);
+            const [summarySnap, personalLogsNested, coachAppointments, clientCalendarEvents, liveEvents] = await Promise.all([
+                summaryPromise,
+                Promise.all(personalLogPromises),
+                coachAppointmentsPromise,
+                clientCalendarEventsPromise,
+                liveEventsPromise
+            ]);            
 
-        const allEntriesRaw = (personalLogsNested as any).flat().concat(coachAppointments as any).concat(clientCalendarEvents as any).filter(Boolean);
+        const allEntriesRaw = (personalLogsNested as any).flat().concat(coachAppointments as any).concat(clientCalendarEvents as any).concat(liveEvents as any).filter(Boolean);
 
         const finalEntries = allEntriesRaw.filter(entry => {
             const getJSDate = (d: any) => {
@@ -520,17 +534,21 @@ export async function getCalendarDataForRange(userId: string, startDate: string,
 
         const coachAppointmentsPromise = adminDb.collection('coachCalendar').where('clientId', '==', userId).where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC)).get();
         const clientCalendarEventsPromise = adminDb.collection('clientCalendar').where('userId', '==', userId).where('startTime', '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where('startTime', '<=', Timestamp.fromDate(firestoreQueryEndUTC)).get();
+        const liveEventsPromise = adminDb.collection('clientCalendar').where('userId', '==', userId).where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC)).get();
 
-        const [personalLogsNested, coachAppointmentsSnap, clientCalendarEventsSnap] = await Promise.all([
+        const [personalLogsNested, coachAppointmentsSnap, clientCalendarEventsSnap, liveEventsSnap] = await Promise.all([
             Promise.all(personalLogPromises),
             coachAppointmentsPromise,
             clientCalendarEventsPromise,
+            liveEventsPromise
         ]);
+    
 
         const coachAppointments = coachAppointmentsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id, pillar: 'appointment', entryDate: doc.data().start }));
         const clientCalendarEvents = clientCalendarEventsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id, pillar: doc.data().type || 'live-event', entryDate: doc.data().startTime }));
+        const liveEvents = liveEventsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id, pillar: doc.data().type || 'live-event', entryDate: doc.data().start }));
 
-        const allEntriesRaw = (personalLogsNested as any).flat().concat(coachAppointments as any).concat(clientCalendarEvents as any).filter(Boolean);
+        const allEntriesRaw = (personalLogsNested as any).flat().concat(coachAppointments as any).concat(clientCalendarEvents as any).concat(liveEvents as any).filter(Boolean);
 
         const finalEntries = allEntriesRaw.filter(entry => {
             const getJSDate = (d: any) => d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
