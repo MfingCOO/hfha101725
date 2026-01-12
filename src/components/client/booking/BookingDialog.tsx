@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -19,8 +19,8 @@ import { addMinutes, format, startOfDay, getDay, areIntervalsOverlapping, isPast
 import { COACH_UIDS } from '@/lib/coaches';
 import { useAuth } from '@/components/auth/auth-provider';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
+import { formatInUserTimezone, convertToUTC, getUserTimezone } from '@/services/time';
 
 interface BookingDialogProps {
   isOpen: boolean;
@@ -31,6 +31,12 @@ const coaches = [
   { name: 'Alan Roberts', id: COACH_UIDS[0] },
   { name: 'Crystal Roberts', id: COACH_UIDS[1] },
 ];
+
+// Helper to parse yyyy-MM-dd string into a local Date object
+const parseDateString = (dateString: string) => {
+    const [year, month, day] = dateString.split('-').map(Number);
+    return new Date(year, month - 1, day);
+};
 
 export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
   const { toast } = useToast();
@@ -43,8 +49,12 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSlot, setSelectedSlot] = useState<Date | null>(null);
   const [isBooking, setIsBooking] = useState(false);
+  const [userTimezone, setUserTimezone] = useState('');
 
   useEffect(() => {
+    if (isOpen) {
+        setUserTimezone(getUserTimezone());
+    }
     if (isOpen && selectedDate) {
       setIsLoading(true);
       setSelectedSlot(null);
@@ -68,21 +78,18 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
     setCurrentWeekStart(prev => addDays(prev, direction === 'next' ? 7 : -7));
   };
 
-
   const availableSlots = useMemo(() => {
-    if (!availability || !selectedDate) return [];
+    if (!availability || !selectedDate || !availability.timezone) return [];
 
-    // FIX: Check if the selected date falls within a vacation block.
     const isBlockedForVacation = availability.vacationBlocks?.some(block => 
       areIntervalsOverlapping(
         { start: startOfDay(selectedDate), end: endOfDay(selectedDate) },
-        { start: new Date(block.start), end: new Date(block.end) }
+        // Parse the string dates and ensure the end of the block is the end of the day
+        { start: parseDateString(block.start as string), end: endOfDay(parseDateString(block.end as string)) }
       )
     );
 
-    if (isBlockedForVacation) {
-      return []; // Return no slots if the day is part of a vacation.
-    }
+    if (isBlockedForVacation) return [];
 
     const dayOfWeek = getDay(selectedDate);
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -91,16 +98,15 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
     if (!todaySettings || !todaySettings.enabled) return [];
     
     const slots: Date[] = [];
-    
-    for (const slot of todaySettings.slots) {
-      const [startHour, startMinute] = slot.start.split(':').map(Number);
-      const [endHour, endMinute] = slot.end.split(':').map(Number);
-      
-      let currentSlotTime = new Date(selectedDate);
-      currentSlotTime.setHours(startHour, startMinute, 0, 0);
+    const coachTimezone = availability.timezone;
 
-      const endTime = new Date(selectedDate);
-      endTime.setHours(endHour, endMinute, 0, 0);
+    for (const slot of todaySettings.slots) {
+      const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
+      const startString = `${selectedDateString}T${slot.start}:00`;
+      const endString = `${selectedDateString}T${slot.end}:00`;
+      
+      let currentSlotTime = convertToUTC(startString, coachTimezone);
+      const endTime = convertToUTC(endString, coachTimezone);
 
       while (currentSlotTime < endTime) {
         const slotEnd = addMinutes(currentSlotTime, 15);
@@ -113,7 +119,7 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
           )
         );
 
-        if (!isOverlapping) {
+        if (!isOverlapping && !isPast(currentSlotTime)) {
           slots.push(new Date(currentSlotTime));
         }
 
@@ -142,7 +148,7 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
         };
         const result = await saveCalendarEvent(eventData);
         if(result.success) {
-            toast({ title: "Appointment Booked!", description: `Your call is confirmed for ${format(selectedSlot, "PPP p")}.` });
+            toast({ title: "Appointment Booked!", description: `Your call is confirmed for ${formatInUserTimezone(selectedSlot, "PPP p")}.` });
             onClose();
         } else {
             throw new Error(result.error || "Failed to book appointment.");
@@ -225,7 +231,10 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
             </div>
 
             <div className="flex-1 space-y-2 flex flex-col min-h-0">
-                <Label>Available Times for {selectedDate ? format(selectedDate, 'PPP') : '...'}</Label>
+                <Label>
+                    Available Times for {selectedDate ? format(selectedDate, 'PPP') : '...'}
+                    {userTimezone && <span className="text-muted-foreground text-xs ml-2"> (times shown in {userTimezone})</span>}
+                </Label>
                 <div className="flex-1 rounded-lg border min-h-0">
                 {isLoading ? (
                     <div className="flex items-center justify-center h-full">
@@ -241,7 +250,7 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
                                 onClick={() => setSelectedSlot(slot)}
                                 size="sm"
                             >
-                                {format(slot, 'p')}
+                                {formatInUserTimezone(slot, 'p')}
                             </Button>
                         ))}
                         </div>

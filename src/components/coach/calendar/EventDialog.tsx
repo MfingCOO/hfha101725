@@ -29,15 +29,16 @@ import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { Loader2, Trash2, Calendar as CalendarIcon, Link as LinkIcon } from 'lucide-react';
 import { saveCalendarEvent, deleteCalendarEvent } from '@/app/coach/calendar/actions';
-import { getAllAppUsers } from '@/app/coach/dashboard/actions'; // FIX: Import the new authoritative function
+import { getAllAppUsers } from '@/app/coach/dashboard/actions';
 import type { UserProfile } from '@/types';
 import { Combobox } from '@/components/ui/combobox';
-import { format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/components/auth/auth-provider';
+import { getUserTimezone, convertToUTC } from '@/services/time';
 
 const eventSchema = z.object({
     id: z.string().optional(),
@@ -86,7 +87,6 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
 
   useEffect(() => {
     if (isOpen) {
-      // FIX: Call the new authoritative function to get ALL users
       getAllAppUsers().then(result => {
         if (result.success && result.users) {
           setClients(result.users);
@@ -138,16 +138,21 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
 
   const onSubmit = async (values: EventFormValues) => {
     setIsLoading(true);
-    const end = new Date(values.start);
-    end.setDate(end.getDate() + (values.durationDays || 0));
-    end.setHours(end.getHours() + (values.durationHours || 0));
-    end.setMinutes(end.getMinutes() + (values.durationMinutes || 0));
+
+    const coachTimezone = getUserTimezone();
+    const startUTC = convertToUTC(values.start.toISOString(), coachTimezone);
+
+    const endUTC = new Date(startUTC);
+    endUTC.setDate(endUTC.getDate() + (values.durationDays || 0));
+    endUTC.setHours(endUTC.getHours() + (values.durationHours || 0));
+    endUTC.setMinutes(endUTC.getMinutes() + (values.durationMinutes || 0));
 
     try {
         const client = clients.find(c => c.uid === values.clientId);
         const dataToSave = {
             ...values,
-            end,
+            start: startUTC,
+            end: endUTC,
             clientName: client?.fullName || null,
             coachId: user?.uid,
             coachName: user?.displayName,

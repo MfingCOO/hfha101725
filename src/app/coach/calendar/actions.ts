@@ -3,7 +3,7 @@
 
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { z }from 'zod';
+import { z } from 'zod';
 import { endOfDay } from 'date-fns';
 import type { AvailabilitySettings, SiteSettings } from '@/types';
 
@@ -23,15 +23,16 @@ const eventSchema = z.object({
 
 type CalendarEventInput = z.infer<typeof eventSchema>;
 
+// Helper to convert Firestore Timestamps to ISO strings for client-side consumption
 function serializeTimestamps(docData: any): any {
     if (!docData) return docData;
     const newObject: { [key: string]: any } = { ...docData };
     for (const key in newObject) {
         if (newObject[key] instanceof Timestamp) {
-        newObject[key] = newObject[key].toDate().toISOString();
-      } else if (typeof newObject[key] === 'object' && newObject[key] !== null && !Array.isArray(newObject[key])) {
-          newObject[key] = serializeTimestamps(newObject[key]);
-      }
+            newObject[key] = newObject[key].toDate().toISOString();
+        } else if (typeof newObject[key] === 'object' && newObject[key] !== null && !Array.isArray(newObject[key])) {
+            newObject[key] = serializeTimestamps(newObject[key]);
+        }
     }
     return newObject;
 }
@@ -115,19 +116,11 @@ export async function deleteCalendarEvent(eventId: string) {
     }
 }
 
-
 export async function saveCoachAvailability(settings: AvailabilitySettings): Promise<{ success: boolean; error?: string }> {
     try {
         const docRef = adminDb.collection('siteSettings').doc('v1');
-        const availabilityData = {
-            ...settings,
-            vacationBlocks: settings.vacationBlocks.map(block => ({
-                ...block,
-                start: new Date(block.start),
-                end: new Date(block.end),
-            }))
-        }
-        await docRef.set({ availability: availabilityData }, { merge: true });
+        // No data manipulation is needed. The client will provide dates in 'yyyy-MM-dd' string format.
+        await docRef.set({ availability: settings }, { merge: true });
         return { success: true };
     } catch (error: any) {
         console.error("Error saving coach availability:", error);
@@ -135,23 +128,15 @@ export async function saveCoachAvailability(settings: AvailabilitySettings): Pro
     }
 }
 
-
 export async function getCoachAvailabilityAndEvents(startDate: Date, endDate: Date) {
     try {
         const settingsDocRef = adminDb.collection('siteSettings').doc('v1');
         const settingsSnap = await settingsDocRef.get();
         const siteSettings = settingsSnap.data() as SiteSettings | undefined;
 
-        const availability = siteSettings?.availability 
-            ? {
-                ...siteSettings.availability,
-                vacationBlocks: siteSettings.availability.vacationBlocks?.map(block => ({
-                    ...block,
-                    start: (block.start as unknown as Timestamp).toDate().toISOString(),
-                    end: (block.end as unknown as Timestamp).toDate().toISOString(),
-                })) || []
-            }
-            : null;
+        // The availability object is fetched and passed through without modification.
+        // Vacation blocks are stored as 'yyyy-MM-dd' strings.
+        const availability = siteSettings?.availability || null;
 
         const eventsResult = await getCoachEvents(startDate, endDate);
         if (!eventsResult.success) {

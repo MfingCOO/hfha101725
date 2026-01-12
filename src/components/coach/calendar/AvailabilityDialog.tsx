@@ -23,12 +23,14 @@ import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
+import { getUserTimezone } from '@/services/time';
 
+// The form internally uses Date objects for the pickers
 const availabilitySchema = z.object({
   weekly: z.array(z.object({
     day: z.string(),
@@ -43,6 +45,7 @@ const availabilitySchema = z.object({
     end: z.date(),
     notes: z.string().optional(),
   })).optional(),
+  timezone: z.string().optional(), // timezone is part of the data model
 });
 
 type AvailabilityFormValues = z.infer<typeof availabilitySchema>;
@@ -51,6 +54,21 @@ interface AvailabilityDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+// Helper to parse yyyy-MM-dd string into a local Date object
+const parseDateString = (dateString: string): Date | null => {
+    if (!dateString || typeof dateString !== 'string') return null;
+    const parts = dateString.split('-').map(Number);
+    if (parts.length !== 3) return null;
+    const [year, month, day] = parts;
+    const date = new Date(year, month - 1, day);
+    if (!isValid(date)) return null;
+    return date;
+};
+
+const isValidDateString = (dateString: any): dateString is string => {
+    return typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString);
+};
 
 export function AvailabilityDialog({ open, onOpenChange }: AvailabilityDialogProps) {
   const { toast } = useToast();
@@ -82,24 +100,45 @@ export function AvailabilityDialog({ open, onOpenChange }: AvailabilityDialogPro
       setIsLoading(true);
       getSiteSettingsAction().then(result => {
         if (result.success && result.data?.availability) {
+          const processedBlocks = result.data.availability.vacationBlocks
+            ?.map(block => {
+              const start = parseDateString(block.start as any);
+              const end = parseDateString(block.end as any);
+              if (start && end) {
+                return { ...block, start, end };
+              }
+              return null;
+            })
+            .filter(Boolean) as any[];
+
           form.reset({
             ...result.data.availability,
-            vacationBlocks: result.data.availability.vacationBlocks?.map(block => ({
-                ...block,
-                start: new Date(block.start),
-                end: new Date(block.end),
-            })) || []
+            vacationBlocks: processedBlocks,
           });
         }
         setIsLoading(false);
+      }).catch(err => {
+          console.error("Error loading availability", err);
+          setIsLoading(false);
+          toast({ variant: 'destructive', title: 'Error Loading Data', description: 'Could not parse existing availability. Please check the console.' });
       });
     }
-  }, [open, form]);
+  }, [open, form, toast]);
 
   const onSubmit = async (values: AvailabilityFormValues) => {
     setIsLoading(true);
     try {
-        const result = await saveCoachAvailability(values as any);
+        const dataToSave = {
+            ...values,
+            timezone: getUserTimezone(), 
+            vacationBlocks: values.vacationBlocks?.map(block => ({
+                ...block,
+                start: format(block.start, 'yyyy-MM-dd'),
+                end: format(block.end, 'yyyy-MM-dd'),
+            }))
+        };
+        
+        const result = await saveCoachAvailability(dataToSave as any);
         if (result.success) {
             toast({ title: 'Availability Saved!', description: 'Your schedule has been updated.' });
             onOpenChange(false);
@@ -186,7 +225,7 @@ export function AvailabilityDialog({ open, onOpenChange }: AvailabilityDialogPro
                                 <Popover><PopoverTrigger asChild><FormControl>
                                     <Button variant="outline" className="justify-start text-left font-normal">
                                         <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {field.value ? format(field.value, "MM/dd/yy") : <span>Pick a date</span>}
+                                        {field.value && isValid(field.value) ? format(field.value, "MM/dd/yy") : <span>Pick a date</span>}
                                     </Button>
                                 </FormControl></PopoverTrigger>
                                 <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
@@ -200,7 +239,7 @@ export function AvailabilityDialog({ open, onOpenChange }: AvailabilityDialogPro
                                 <Popover><PopoverTrigger asChild><FormControl>
                                     <Button variant="outline" className="justify-start text-left font-normal">
                                         <CalendarIcon className="mr-2 h-4 w-4" />
-                                        {field.value ? format(field.value, "MM/dd/yy") : <span>Pick a date</span>}
+                                        {field.value && isValid(field.value) ? format(field.value, "MM/dd/yy") : <span>Pick a date</span>}
                                     </Button>
                                 </FormControl></PopoverTrigger>
                                 <PopoverContent className="w-auto p-0"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
