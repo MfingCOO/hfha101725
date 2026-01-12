@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -89,15 +88,17 @@ export function CoachNotes({ client }: CoachNotesProps) {
                             {notes.map(note => (
                                 <div key={note.id} className="flex items-start gap-3">
                                     <Avatar className="h-8 w-8 border">
-                                        <AvatarImage src={`https://placehold.co/100x100.png`} alt={note.coachName} data-ai-hint="person avatar"/>
-                                        <AvatarFallback>{note.coachName.charAt(0)}</AvatarFallback>
+                                        {/* This is a placeholder, you might want to fetch actual coach avatars in the future */}
+                                        <AvatarImage src={`https://placehold.co/100x100.png`} alt={(note as any).coachName} /> 
+                                        <AvatarFallback>{((note as any).coachName || 'C').charAt(0)}</AvatarFallback>
                                     </Avatar>
                                     <div className="flex-1">
                                         <div className="flex items-center justify-between">
-                                            <p className="font-semibold text-sm">{note.coachName}</p>
+                                            <p className="font-semibold text-sm">{(note as any).coachName}</p>
                                             <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(note.createdAt), { addSuffix: true })}</p>
                                         </div>
-                                        <p className="text-sm text-muted-foreground">{note.note}</p>
+                                        {/* FIX: Changed note.note to note.text */}
+                                        <p className="text-sm text-muted-foreground">{note.text}</p>
                                     </div>
                                 </div>
                             ))}

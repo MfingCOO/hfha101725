@@ -24,6 +24,9 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
         throw new Error("Webhook Error: Customer ID is missing in the Stripe session.");
     }
 
+    // --- FIX: Hardcode the default coach ID for all new signups ---
+    const DEFAULT_COACH_ID = 'yue7fVPBQZg45vmfXXUH5PdG7jE2';
+
     let uid = '';
     try {
         const userRecord = await auth.createUser({
@@ -34,8 +37,6 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
         });
         uid = userRecord.uid;
 
-        // THE FIX: The data from Stripe metadata is just a string. 
-        // We need to convert `birthdate` back to a Date object before passing it to the calculator.
         if (data.birthdate) {
             data.birthdate = new Date(data.birthdate);
         }
@@ -53,6 +54,7 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
             stripeCustomerId: customerId,
             chatIds: [],
             challengeIds: [],
+            coachId: DEFAULT_COACH_ID, // SURGICAL INSERTION: Assign the default coach
         });
 
         // 2. Prepare the client document data
@@ -65,6 +67,7 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
             tier: data.tier,
             onboarding: onboardingData,
             stripeCustomerId: customerId,
+            coachId: DEFAULT_COACH_ID, // SURGICAL INSERTION: Assign the default coach
         };
 
         const initialGoals = calculateNutritionalGoals(clientDataForGoals as ClientProfile);
@@ -93,7 +96,7 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
 
 export async function POST(req: NextRequest) {
     const body = await req.text();
-    // THE FIX: headers() returns a Promise, so we must await it.
+    // THE FIX: Added await to the headers() call.
     const signature = (await headers()).get('stripe-signature') as string;
 
     let event: Stripe.Event;
