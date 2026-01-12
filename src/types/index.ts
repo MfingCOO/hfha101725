@@ -298,6 +298,7 @@ export interface LiveEvent {
     description: string;
     coachId: string;
     eventTimestamp: any;
+    entryDate: any;
     durationMinutes: number;
     videoConferenceLink?: string;
     signUpDeadline: any;

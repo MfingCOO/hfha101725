@@ -15,10 +15,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parse } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { createLiveEvent, updateLiveEvent } from './actions';
 import type { LiveEvent } from '@/types';
+import { getUserTimezone, convertToUTC } from '@/services/time';
 
 const formSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters'),
@@ -86,19 +87,19 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
 
     setIsSubmitting(true);
     try {
+      const localDate = values.eventDate;
       const [hours, minutes] = values.eventTime.split(':').map(Number);
-      const eventTimestamp = new Date(values.eventDate);
-      eventTimestamp.setHours(hours, minutes);
+      localDate.setHours(hours, minutes, 0, 0);
 
-      // --- THE SURGICAL FIX ---
-      // Construct a clean payload instead of spreading `...values` to prevent sending
-      // the ambiguous `eventDate` and `eventTime` fields to the server.
+      const userTimezone = getUserTimezone();
+      const utcEventTimestamp = convertToUTC(localDate.toISOString(), userTimezone);
+
       const payload = {
         title: values.title,
         description: values.description,
         durationMinutes: values.durationMinutes,
         attachVideoLink: values.attachVideoLink,
-        eventTimestamp: eventTimestamp,
+        eventTimestamp: utcEventTimestamp,
       };
 
       const result = isEditMode

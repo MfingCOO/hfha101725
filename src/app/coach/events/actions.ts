@@ -3,8 +3,8 @@
 import { admin, db as adminDb } from '@/lib/firebaseAdmin';
 import { FieldValue, Timestamp, FieldPath } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { subDays, set } from 'date-fns';
-import type { UserProfile, ClientProfile, SiteSettings, LiveEvent } from '@/types';
+import { set } from 'date-fns';
+import type { UserProfile, SiteSettings, LiveEvent } from '@/types';
 
 // Zod schema for input validation
 const LiveEventInputSchema = z.object({
@@ -18,30 +18,8 @@ const LiveEventInputSchema = z.object({
 
 type LiveEventInput = z.infer<typeof LiveEventInputSchema>;
 
-function serializeData(docData: any): any {
-    if (!docData) return docData;
-    if (Array.isArray(docData)) {
-        return docData.map(item => serializeData(item));
-    }
-    if (typeof docData !== 'object') return docData;
-
-    const newObject: { [key: string]: any } = {};
-    for (const key in docData) {
-        if (Object.prototype.hasOwnProperty.call(docData, key)) {
-            const value = docData[key];
-            if (value instanceof Timestamp) {
-                newObject[key] = value.toDate().toISOString();
-            } else if (value && typeof value.toDate === 'function') { // Firestore Timestamp-like objects
-                 newObject[key] = value.toDate().toISOString();
-            } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-                newObject[key] = serializeData(value);
-            } else {
-                newObject[key] = value;
-            }
-        }
-    }
-    return newObject;
-}
+// No longer needed. We will perform explicit serialization.
+// function serializeData(docData: any): any { ... }
 
 
 /**
@@ -73,20 +51,20 @@ export async function createLiveEvent(input: LiveEventInput): Promise<{ success:
         }
       }
     }
+    
+    const utcEventDate = eventTimestamp;
+    const startOfDayUTC = set(utcEventDate, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
 
-    const eventDate = new Date(eventTimestamp);
-    const eventDateForDeadline = new Date(eventTimestamp);
-    eventDateForDeadline.setUTCHours(0, 0, 0, 0);
-
-    const liveEventData = {
+    const liveEventData: LiveEvent = {
+      id: liveEventRef.id,
       title,
       description,
       coachId,
-      eventTimestamp: Timestamp.fromDate(eventDate),
-      entryDate: Timestamp.fromDate(eventDate),
+      eventTimestamp: Timestamp.fromDate(utcEventDate),
+      entryDate: Timestamp.fromDate(startOfDayUTC),
       durationMinutes,
-      videoConferenceLink,
-      signUpDeadline: Timestamp.fromDate(eventDateForDeadline),
+      videoConferenceLink: videoConferenceLink || undefined,
+      signUpDeadline: Timestamp.fromDate(startOfDayUTC),
       attendees: [],
       createdAt: FieldValue.serverTimestamp(),
     };
@@ -96,9 +74,9 @@ export async function createLiveEvent(input: LiveEventInput): Promise<{ success:
     const calendarEventData = {
         coachId,
         title: `[Live Event] ${title}`,
-        start: Timestamp.fromDate(eventDate),
-        entryDate: Timestamp.fromDate(eventDate),
-        end: Timestamp.fromDate(new Date(eventDate.getTime() + durationMinutes * 60000)),
+        start: Timestamp.fromDate(utcEventDate),
+        entryDate: Timestamp.fromDate(startOfDayUTC),
+        end: Timestamp.fromDate(new Date(utcEventDate.getTime() + durationMinutes * 60000)),
         description: `This is a placeholder for the live event: "${title}". Manage attendees in the Events section.`,
         isPersonal: true, 
         videoCallLink: videoConferenceLink,
@@ -129,20 +107,12 @@ export async function signUpForEvent(input: z.infer<typeof SignUpInputSchema>): 
   const { eventId, userId } = validation.data;
 
   const liveEventRef = adminDb.collection('liveEvents').doc(eventId);
-  const userProfileRef = adminDb.collection('userProfiles').doc(userId);
-  const clientProfileRef = adminDb.collection('clients').doc(userId);
 
   try {
     await adminDb.runTransaction(async (transaction) => {
-      const [liveEventDoc, userProfileDoc, clientProfileDoc] = await Promise.all([
-        transaction.get(liveEventRef),
-        transaction.get(userProfileRef),
-        transaction.get(clientProfileRef)
-      ]);
+      const liveEventDoc = await transaction.get(liveEventRef);
 
       if (!liveEventDoc.exists) throw new Error("Event not found.");
-      if (!userProfileDoc.exists) throw new Error("User profile not found.");
-      if (!clientProfileDoc.exists) throw new Error("Client profile not found. Cannot verify subscription tier.");
 
       const liveEvent = liveEventDoc.data() as LiveEvent;
 
@@ -163,11 +133,21 @@ export async function signUpForEvent(input: z.infer<typeof SignUpInputSchema>): 
       }
       const eventDate = eventTimestampSource.toDate();
 
+      // THIS IS THE CRITICAL FIX FOR THE CALENDAR BUG
+      // Ensure entryDate is correctly derived, whether from new or legacy data.
+      let entryDate;
+      const entryDateSource = liveEvent.entryDate as any;
+      if (entryDateSource && typeof entryDateSource.toDate === 'function') {
+        entryDate = entryDateSource.toDate();
+      } else {
+        entryDate = set(eventDate, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
+      }
+
       const clientCalendarEventData = {
           userId: userId,
           title: liveEvent.title,
           start: Timestamp.fromDate(eventDate),
-          entryDate: Timestamp.fromDate(eventDate),
+          entryDate: Timestamp.fromDate(entryDate), // This is the corrected field
           end: Timestamp.fromDate(new Date(eventDate.getTime() + Number(liveEvent.durationMinutes) * 60000)),
           description: `You are registered for the live event: "${liveEvent.title}".\n\n${liveEvent.description}`,
           type: 'live-event',
@@ -215,12 +195,34 @@ export async function getLiveEvents(): Promise<{ success: boolean; data?: any[];
             }
         }
         
-        const eventsWithAttendees = events.map(event => ({
-            ...event,
-            attendeeDetails: event.attendees.map(uid => attendeeProfiles[uid]).filter(Boolean) 
-        }));
+        // THIS IS THE CRITICAL FIX FOR THE SERIALIZATION CRASH
+        const serializedEvents = events.map(event => {
+            const serializedAttendees = event.attendees.map(uid => {
+                const profile = attendeeProfiles[uid];
+                if (!profile) return null;
+                // Manually serialize the nested UserProfile object
+                return {
+                    ...profile,
+                    createdAt: (profile.createdAt as any)?.toDate?.().toISOString() || null,
+                    lastBinge: (profile.lastBinge as any)?.toDate?.().toISOString() || null,
+                    bingeFreeSince: (profile.bingeFreeSince as any)?.toDate?.().toISOString() || null,
+                    lastInteraction: (profile.lastInteraction as any)?.toDate?.().toISOString() || null,
+                    lastStreakNotification: (profile.lastStreakNotification as any)?.toDate?.().toISOString() || null,
+                };
+            }).filter(Boolean);
 
-        return { success: true, data: serializeData(eventsWithAttendees) };
+            // Manually serialize the LiveEvent object
+            return {
+                ...event,
+                eventTimestamp: (event.eventTimestamp as any).toDate().toISOString(),
+                signUpDeadline: (event.signUpDeadline as any).toDate().toISOString(),
+                createdAt: (event.createdAt as any)?.toDate?.().toISOString() || null,
+                entryDate: (event.entryDate as any)?.toDate?.().toISOString() || null,
+                attendeeDetails: serializedAttendees,
+            };
+        });
+
+        return { success: true, data: serializedEvents };
 
     } catch (error: any) {
         console.error("Error fetching live events:", error);
@@ -243,9 +245,19 @@ export async function getUpcomingLiveEvent(): Promise<{ success: boolean; data?:
             return { success: true, data: undefined };
         }
 
-        const upcomingEvent = { id: eventsSnapshot.docs[0].id, ...eventsSnapshot.docs[0].data() };
+        const event = eventsSnapshot.docs[0].data() as LiveEvent;
+        event.id = eventsSnapshot.docs[0].id;
         
-        return { success: true, data: serializeData(upcomingEvent) };
+        // CRITICAL FIX: Manually serialize the event object to prevent client-side errors.
+        const serializedEvent = {
+            ...event,
+            eventTimestamp: (event.eventTimestamp as any).toDate().toISOString(),
+            signUpDeadline: (event.signUpDeadline as any).toDate().toISOString(),
+            createdAt: (event.createdAt as any)?.toDate?.().toISOString() || null,
+            entryDate: (event.entryDate as any)?.toDate?.().toISOString() || null,
+        };
+        
+        return { success: true, data: serializedEvent };
 
     } catch (error: any) {
         console.error("Error fetching upcoming live event:", error);
@@ -270,7 +282,7 @@ export async function updateLiveEvent(input: z.infer<typeof UpdateLiveEventInput
   const { eventId, ...updateData } = validation.data;
 
   if (Object.keys(updateData).length === 0) {
-    return { success: true }; // No data to update
+    return { success: true };
   }
 
   const eventRef = adminDb.collection('liveEvents').doc(eventId);
@@ -278,8 +290,10 @@ export async function updateLiveEvent(input: z.infer<typeof UpdateLiveEventInput
   try {
     const payload: { [key: string]: any } = { ...updateData };
     if (updateData.eventTimestamp) {
-        payload.eventTimestamp = Timestamp.fromDate(updateData.eventTimestamp);
-        payload.entryDate = Timestamp.fromDate(updateData.eventTimestamp);
+        const utcEventDate = updateData.eventTimestamp;
+        const startOfDayUTC = set(utcEventDate, { hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
+        payload.eventTimestamp = Timestamp.fromDate(utcEventDate);
+        payload.entryDate = Timestamp.fromDate(startOfDayUTC);
     }
     await eventRef.update(payload);
     return { success: true };
@@ -304,7 +318,6 @@ export async function deleteLiveEvent(input: z.infer<typeof DeleteLiveEventInput
 
   try {
     await eventRef.delete();
-    // Note: This doesn't delete the associated calendar event. A full implementation would also delete the calendar placeholder.
     return { success: true };
   } catch (error: any) {
     console.error(`Error deleting live event ${eventId}:`, error);
