@@ -260,27 +260,3 @@ export async function getCoachingChatIdForClient(clientId: string): Promise<{ su
         return { success: false, error: { message: error.message || 'An unknown error occurred' } };
     }
 }
-
-export async function manuallyAssignCoachToClientAction(clientId: string, coachId: string): Promise<{ success: boolean; error?: string }> {
-    try {
-        if (!clientId || !coachId) {
-            throw new Error("Client ID and Coach ID are required.");
-        }
-
-        const batch = adminDb.batch();
-
-        const clientRef = adminDb.collection('clients').doc(clientId);
-        batch.update(clientRef, { coachId: coachId });
-
-        const userProfileRef = adminDb.collection('userProfiles').doc(clientId);
-        batch.update(userProfileRef, { coachId: coachId });
-
-        await batch.commit();
-        console.log(`Successfully assigned coach ${coachId} to client ${clientId}`);
-        return { success: true };
-
-    } catch (error: any) {
-        console.error(`Error manually assigning coach:`, error);
-        return { success: false, error: error.message };
-    }
-}
