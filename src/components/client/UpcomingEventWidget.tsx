@@ -22,11 +22,7 @@ export function UpcomingEventWidget({ userProfile, clientProfile, onOpenUpgradeM
     getUpcomingLiveEvent()
       .then(result => {
         if (result.success && result.data) {
-          const eventTime = new Date(result.data.eventTimestamp).getTime();
-          const twelveHours = 12 * 60 * 60 * 1000;
-          if (eventTime - Date.now() > twelveHours) {
-            setEvent(result.data);
-          }
+          setEvent(result.data);
         }
       })
       .finally(() => setIsLoading(false));
