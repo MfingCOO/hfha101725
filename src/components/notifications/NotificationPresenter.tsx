@@ -12,14 +12,17 @@ export const NotificationPresenter: React.FC = () => {
   const { notifications, removeNotification } = useNotification();
   const { openModal } = useDataEntryModal();
 
-  if (notifications.length === 0) {
+  // --- FIX: Add a guard to prevent crash if notifications is not an array ---
+  if (!notifications || !Array.isArray(notifications) || notifications.length === 0) {
     return null;
   }
 
   const currentNotification = notifications[0];
 
   const handleDismiss = () => {
-    removeNotification(currentNotification.id);
+    if (removeNotification) {
+      removeNotification(currentNotification.id);
+    }
   };
 
   const handleAction = () => {
@@ -28,9 +31,7 @@ export const NotificationPresenter: React.FC = () => {
         removeNotification(currentNotification.id);
     } else if (currentNotification.ctaType === 'openUrl' && currentNotification.ctaUrl) {
         window.open(currentNotification.ctaUrl, '_blank');
-        // This was the bug. Do not dismiss here. Allow the user to manually close.
     } else {
-        // Default behavior for a button with no action is to just dismiss.
         removeNotification(currentNotification.id);
     }
   };

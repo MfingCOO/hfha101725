@@ -5,6 +5,7 @@ import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firest
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/auth/auth-provider';
 import { processAndRescheduleNotification } from '@/services/firestore';
+import { ChatNotification } from '@/components/notifications/ChatNotification';
 
 export interface InAppMessage {
   id: string;
@@ -18,6 +19,7 @@ export interface InAppMessage {
   ctaType?: 'openUrl' | 'openPillar';
   pillarId?: string;
   isRecurring?: boolean;
+  chatName?: string;
 }
 
 interface NotificationContextType {
@@ -36,16 +38,29 @@ export const useNotification = () => {
 };
 
 export const NotificationProvider = ({ children }: { children: ReactNode }) => {
-  const [notifications, setNotifications] = useState<InAppMessage[]>([]);
   const [pendingNotifications, setPendingNotifications] = useState<InAppMessage[]>([]);
   const { user } = useAuth();
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
 
-  // Step 1: Listen for all 'scheduled' notifications for the user
+  // Separate states for different notification UIs
+  const [chatNotification, setChatNotification] = useState<InAppMessage | null>(null);
+  const [stickyNotifications, setStickyNotifications] = useState<InAppMessage[]>([]);
+
+  // Request browser notification permission
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+  }, []);
+
+  // Listen for scheduled notifications from Firestore
   useEffect(() => {
     if (!user) {
       setPendingNotifications([]);
-      setNotifications([]);
+      setChatNotification(null);
+      setStickyNotifications([]);
       setProcessedIds(new Set());
       return;
     }
@@ -59,53 +74,72 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const pending = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InAppMessage));
       setPendingNotifications(pending);
-    }, (error) => {
-      console.error("Error listening to scheduled reminders:", error);
     });
 
     return () => unsubscribe();
   }, [user]);
 
-  // Step 2: Timer to check pending notifications and trigger processing via server action
+  // Timer to process due notifications
   useEffect(() => {
     const intervalId = setInterval(() => {
       if (!user) return;
 
       const now = new Date();
-      // Find notifications that are due and haven't been processed in this session
-      const dueNotifications = pendingNotifications.filter(n => n.scheduledAt.toDate() <= now && !processedIds.has(n.id));
+      const dueNotifications = pendingNotifications.filter(n => 
+        n.scheduledAt.toDate() <= now && !processedIds.has(n.id)
+      );
 
       if (dueNotifications.length > 0) {
-        // Add to UI to be displayed
-        setNotifications(prev => {
-          const newNotifications = dueNotifications.filter(due => !prev.some(existing => existing.id === due.id));
-          return [...prev, ...newNotifications];
-        });
+        const newProcessedIds = new Set(processedIds);
 
-        // Mark as processed locally to prevent re-triggering the pop-up
-        setProcessedIds(prev => {
-          const newSet = new Set(prev);
-          dueNotifications.forEach(n => newSet.add(n.id));
-          return newSet;
-        });
-
-        // For each due notification, call the secure server action to handle all DB updates
         dueNotifications.forEach(notification => {
+          newProcessedIds.add(notification.id);
+
+          // --- ROUTE NOTIFICATION BY TYPE ---
+          if (notification.type === 'chat_message') {
+            setChatNotification(notification);
+          } else {
+            // Add to the list for the NotificationPresenter
+            setStickyNotifications(prev => [...prev, notification]);
+          }
+
+          // Trigger browser notification for all types
+          if (Notification.permission === 'granted') {
+            new Notification(notification.title, {
+              body: notification.message,
+              icon: notification.imageUrl || '/logo.png',
+            });
+          }
+          
           processAndRescheduleNotification(user.uid, notification.id);
         });
+
+        setProcessedIds(newProcessedIds);
       }
-    }, 15000); // Check every 15 seconds
+    }, 10000);
 
     return () => clearInterval(intervalId);
   }, [pendingNotifications, user, processedIds]);
 
-  const removeNotification = useCallback((notificationId: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+  // Function to close the temporary chat notification
+  const handleCloseChatNotification = () => {
+    setChatNotification(null);
+  };
+
+  // Function to dismiss a sticky notification from the NotificationPresenter
+  const removeStickyNotification = useCallback((id: string) => {
+    setStickyNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
 
   return (
-    <NotificationContext.Provider value={{ notifications, removeNotification }}>
+    <NotificationContext.Provider value={{ notifications: stickyNotifications, removeNotification: removeStickyNotification }}>
       {children}
+      {chatNotification && (
+        <ChatNotification 
+          notification={chatNotification} 
+          onClose={handleCloseChatNotification} 
+        />
+      )}
     </NotificationContext.Provider>
   );
 };

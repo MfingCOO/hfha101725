@@ -4,11 +4,11 @@ import { db as adminDb, admin, auth } from '@/lib/firebaseAdmin';
 import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';
-import { FieldValue, FieldPath } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
 import { initializeApp, getApps, App, cert, getApp } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 
-
+// Helper for serialization
 function serializeTimestamps(docData: any) {
     if (!docData) return docData;
     const newObject: { [key: string]: any } = { ...docData };
@@ -32,7 +32,6 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
     try {
         const chatsQuery = adminDb.collection('chats').orderBy('createdAt', 'desc').get();
         
-        // THE FIX: Query userProfiles collection for all premium or coaching clients
         const clientsQuery = adminDb.collection('userProfiles').where('tier', 'in', ['premium', 'coaching']).get();
 
         const [chatsSnapshot, clientsSnapshot] = await Promise.all([chatsQuery, clientsQuery]);
@@ -215,22 +214,21 @@ const PostMessageInputSchema = z.object({
   fileName: z.string().optional(),
 });
 
+
 export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>) {
     
     const { chatId, text, userId, userName, isCoach, isAutomated, fileUrl, fileName } = PostMessageInputSchema.parse(input);
 
     const chatDocRef = adminDb.collection('chats').doc(chatId);
-
-    let chatData: Chat | null = null;
     
     try {
-        await adminDb.runTransaction(async (transaction) => {
-            const chatDoc = await transaction.get(chatDocRef);
-            if (!chatDoc.exists) {
-                throw new Error("Chat does not exist.");
-            }
-            chatData = chatDoc.data() as Chat;
+        const chatSnapshot = await chatDocRef.get();
+        if (!chatSnapshot.exists) {
+            throw new Error("Chat does not exist.");
+        }
+        const chatData = chatSnapshot.data() as Chat;
 
+        await adminDb.runTransaction(async (transaction) => {
             const messagesCollectionRef = chatDocRef.collection('messages');
             const messageData: any = {
                 userId,
@@ -243,7 +241,6 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             if(fileUrl) messageData.fileUrl = fileUrl;
             if(fileName) messageData.fileName = fileName;
 
-
             transaction.set(messagesCollectionRef.doc(), messageData);
 
             const updateData: { [key: string]: any } = {
@@ -251,7 +248,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
               lastMessageSenderId: userId,
             };
             
-            if (chatData?.type === 'coaching') {
+            if (chatData.type === 'coaching') {
                 const senderIsCoach = COACH_UIDS.includes(userId);
                 if (isAutomated) {
                     updateData.lastAutomatedMessage = FieldValue.serverTimestamp();
@@ -262,47 +259,35 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 }
             }
 
-
             transaction.update(chatDocRef, updateData);
         });
 
-        if (chatData) {
-            const recipients = chatData.participants.filter(pId => pId !== userId);
-            if (recipients.length > 0) {
-                const profilesSnap = await adminDb.collection('userProfiles').where(FieldPath.documentId(), 'in', recipients).get();
-                
-                let tokens: string[] = [];
-                profilesSnap.forEach(doc => {
-                    const profile = doc.data() as UserProfile;
-                    const isRecipientCoach = COACH_UIDS.includes(doc.id);
-                    
-                    if (isRecipientCoach || profile.tier === 'coaching' || profile.tier === 'premium') {
-                        if (profile.fcmTokens && Array.isArray(profile.fcmTokens)) {
-                            tokens.push(...profile.fcmTokens);
-                        }
-                        if (profile.pushToken && typeof profile.pushToken === 'string') {
-                            tokens.push(profile.pushToken);
-                        }
-                    }
-                });
-                
-                tokens = [...new Set(tokens)];
+        const recipients = chatData.participants.filter(pId => pId !== userId);
+        const notificationPromises: Promise<any>[] = [];
 
-                if (tokens.length > 0) {
-                    const notificationPayload = {
-                        notification: {
-                            title: `New message from ${userName}`,
-                            body: text || (fileName ? `Sent an attachment: ${fileName}` : 'Sent a message'),
-                        },
-                        data: {
-                            chatId: chatId,
-                            url: `/chats/${chatId}`
-                        }
-                    };
-                    await admin.messaging().sendToDevice(tokens, notificationPayload);
-                    console.log(`Sent chat notification to ${tokens.length} tokens for chat ${chatId}`);
-                }
-            }
+        for (const recipientId of recipients) {
+            const isRecipientCoach = COACH_UIDS.includes(recipientId);
+            const ctaUrl = isRecipientCoach ? `/coach/chats/${chatId}` : `/client/dashboard?chatId=${chatId}`;
+
+            const newReminderRef = adminDb.collection('user_scheduled_reminders').doc();
+            const notificationPromise = newReminderRef.set({
+                userId: recipientId,
+                status: 'scheduled',
+                type: 'chat_message',
+                title: `New message from ${userName}`,
+                message: text || (fileName ? `Sent an attachment: ${fileName}` : 'Sent a message'),
+                chatName: chatData.name || 'Group Chat',
+                scheduledAt: Timestamp.now(),
+                isRecurring: false,
+                ctaText: 'View Chat',
+                ctaType: 'openUrl',
+                ctaUrl: ctaUrl,
+            });
+            notificationPromises.push(notificationPromise);
+        }
+
+        if (notificationPromises.length > 0) {
+            await Promise.all(notificationPromises);
         }
         
         return { success: true };
