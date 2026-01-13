@@ -204,7 +204,6 @@ export async function getSignedUrlAction(fileName: string, path: string, content
   }
   
 
-
 const PostMessageInputSchema = z.object({
   chatId: z.string(),
   text: z.string().optional(),
@@ -443,6 +442,54 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
 
     } catch (error: any) {
         console.error("Error in createChatAction:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function joinChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        const chatRef = adminDb.collection('chats').doc(chatId);
+        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+
+        await adminDb.runTransaction(async (transaction) => {
+            const chatDoc = await transaction.get(chatRef);
+            if (!chatDoc.exists) {
+                throw new Error("Chat not found.");
+            }
+            transaction.update(chatRef, { 
+                participants: FieldValue.arrayUnion(userId),
+                participantCount: FieldValue.increment(1)
+            });
+            transaction.update(userProfileRef, { chatIds: FieldValue.arrayUnion(chatId) });
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Error joining chat ${chatId} for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function leaveChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        const chatRef = adminDb.collection('chats').doc(chatId);
+        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+
+        await adminDb.runTransaction(async (transaction) => {
+            const chatDoc = await transaction.get(chatRef);
+            if (!chatDoc.exists) {
+                throw new Error("Chat not found.");
+            }
+            transaction.update(chatRef, { 
+                participants: FieldValue.arrayRemove(userId),
+                participantCount: FieldValue.increment(-1)
+            });
+            transaction.update(userProfileRef, { chatIds: FieldValue.arrayRemove(chatId) });
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Error leaving chat ${chatId} for user ${userId}:`, error);
         return { success: false, error: error.message };
     }
 }

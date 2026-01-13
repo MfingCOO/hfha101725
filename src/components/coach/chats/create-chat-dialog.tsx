@@ -28,7 +28,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
 import { Loader2, Users, Lock, X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-// THE FIX: Import the correct action for getting all clients.
 import { getChatsAndClientsForCoach, createChatAction } from '@/app/chats/actions';
 import type { ClientProfile } from '@/types';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -39,9 +38,9 @@ interface CreateChatDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChatCreated: () => void;
+  clients: ClientProfile[];
 }
 
-// THE FIX: Remove requesterId from validation. It's added on submission.
 const chatFormSchema = z.object({
   name: z.string().min(3, 'Chat name must be at least 3 characters.'),
   description: z.string().min(10, 'Description must be at least 10 characters.'),
@@ -58,10 +57,9 @@ const chatFormSchema = z.object({
     path: ["rules"],
 });
 
-export function CreateChatDialog({ open, onOpenChange, onChatCreated }: CreateChatDialogProps) {
+export function CreateChatDialog({ open, onOpenChange, onChatCreated, clients }: CreateChatDialogProps) {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [clients, setClients] = useState<ClientProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<z.infer<typeof chatFormSchema>>({
@@ -75,27 +73,10 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated }: CreateCh
     },
   });
 
-  useEffect(() => {
-    if (open && user) {
-      setIsLoading(true);
-      // THE FIX: Call the correct, universal function to get ALL eligible clients.
-      getChatsAndClientsForCoach().then(result => {
-        if (result.success && result.data?.clients) {
-          setClients(result.data.clients);
-        } else {
-          // Clear clients if the fetch fails
-          setClients([]);
-        }
-        setIsLoading(false);
-      });
-    }
-  }, [open, user]);
-
   const onSubmit = async (values: z.infer<typeof chatFormSchema>) => {
     if (!user) return;
     setIsLoading(true);
     try {
-        // THE FIX: Pass the logged-in coach's ID as requesterId.
         const result = await createChatAction({ ...values, requesterId: user.uid });
         if (result.success) {
             toast({ title: 'Chat Created!', description: `${values.name} is now live.` });
@@ -268,7 +249,6 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated }: CreateCh
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          {/* THE FIX: The button is now correctly enabled based on form validity. */}
           <Button type="submit" form="create-chat-form" disabled={isLoading || !form.formState.isValid} onClick={form.handleSubmit(onSubmit)}>
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create Chat

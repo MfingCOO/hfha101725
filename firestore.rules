@@ -6,7 +6,8 @@ service cloud.firestore {
   
     // Helper function to check if a user is a coach
     function isCoach(userId) {
-      return get(/databases/$(database)/documents/userProfiles/$(userId)).data.role == 'coach';
+      // Alan and Crystal's UIDs
+      return userId in ['yue7fVPBQZg45vmfXXUH5PdG7jE2', 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2'];
     }
 
     // Lock down asset library to coaches only
@@ -36,10 +37,10 @@ service cloud.firestore {
       allow read, write: if request.auth.uid == resource.data.userId;
     }
     
-    // User profiles can be read by their owner or any coach
+    // User profiles can be read by any authenticated user.
     // They can only be created/updated by their owner.
     match /userProfiles/{userId} {
-      allow read: if request.auth.uid == userId || isCoach(request.auth.uid);
+      allow read: if request.auth != null;
       allow create, update: if request.auth.uid == userId;
     }
 
@@ -57,13 +58,16 @@ service cloud.firestore {
       }
     }
     
-    // Chats can only be accessed by participants of the chat
+    // Chats can be accessed by participants or any coach.
     match /chats/{chatId} {
-      allow read, write: if request.auth.uid in resource.data.participants;
-      
-      // Messages can be created by participants, and read by them.
+      allow read: if isCoach(request.auth.uid) || request.auth.uid in resource.data.participants;
+      allow write: if request.auth.uid in resource.data.participants;
+
+      // Messages can be read by participants or any coach.
+      // Messages can be created by participants.
       match /messages/{messageId} {
-        allow read, create: if request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow read: if isCoach(request.auth.uid) || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
       }
     }
   }

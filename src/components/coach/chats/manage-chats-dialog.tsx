@@ -2,7 +2,7 @@
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback } from "react";
-import { Loader2, MessageSquare, MoreVertical, Trash2 } from "lucide-react";
+import { Loader2, MessageSquare, MoreVertical, Trash2, PlusCircle, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   DropdownMenu,
@@ -25,7 +25,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { differenceInHours } from 'date-fns';
 import { useAuth } from '@/components/auth/auth-provider';
-import { createChatAction, deleteChatAction, getChatsAndClientsForCoach } from '@/app/chats/actions';
+import { getChatsAndClientsForCoach, createChatAction, deleteChatAction, joinChat, leaveChat } from '@/app/chats/actions';
 import { CreateChatDialog } from './create-chat-dialog';
 import type { Chat as OriginalChat, ClientProfile as OriginalClientProfile } from "@/types";
 
@@ -35,7 +35,6 @@ const toTimestamp = (date: string | undefined | null): number => {
 };
 
 // These types correctly represent the data shape after it's been serialized by the server action.
-// All Firestore Timestamps have been converted to ISO strings.
 type SerializableChat = Omit<OriginalChat, 'createdAt' | 'lastClientMessage' | 'lastCoachMessage' | 'lastAutomatedMessage' | 'lastMessage'> & {
     createdAt?: string;
     lastClientMessage?: string;
@@ -57,6 +56,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     const [allChats, setAllChats] = useState<SerializableChat[]>([]);
     const [allClients, setAllClients] = useState<SerializableClientProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isActing, setIsActing] = useState<string | null>(null);
     
     const [sortedChats, setSortedChats] = useState<{
         activeCoachingChats: SerializableChat[],
@@ -64,7 +64,6 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         groupChats: SerializableChat[]
     }>({ activeCoachingChats: [], miaCoachingChats: [], groupChats: [] });
 
-    const [isClientReady, setIsClientReady] = useState(false);
     const [detailDialogState, setDetailDialogState] = useState<{ open: boolean, chatInfo: {id: string, name: string} | null }>({ open: false, chatInfo: null });
     const [deleteAlertState, setDeleteAlertState] = useState<{ open: boolean, chat: SerializableChat | null }>({ open: false, chat: null });
     const [isDeleting, setIsDeleting] = useState(false);
@@ -93,7 +92,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     }, [open, fetchChats]);
 
     useEffect(() => {
-        if (isLoading) return;
+        if (isLoading || !user) return;
 
         const coaching: SerializableChat[] = [];
         const group: SerializableChat[] = [];
@@ -101,7 +100,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         allChats.forEach(chat => {
             if (chat.type === 'coaching') {
                 coaching.push(chat);
-            } else {
+            } else if (chat.type === 'private_group' || chat.type === 'open') {
                 group.push(chat);
             }
         });
@@ -114,51 +113,43 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
 
         coaching.forEach(chat => {
             const lastClientMsgTime = toTimestamp(chat.lastClientMessage);
-            if (lastClientMsgTime > 0 && differenceInHours(now, lastClientMsgTime) < miaThresholdHours) {
-                active.push(chat);
-            } else {
+            const needsAttention = !chat.lastCoachMessage || (lastClientMsgTime > toTimestamp(chat.lastCoachMessage));
+            const isMia = differenceInHours(now, lastClientMsgTime) >= miaThresholdHours;
+
+            if (isMia) {
                 mia.push(chat);
+            } else {
+                active.push(chat);
             }
         });
-
-        active.sort((a, b) => {
-            const a_client = toTimestamp(a.lastClientMessage);
-            const a_coach = toTimestamp(a.lastCoachMessage);
-            const b_client = toTimestamp(b.lastClientMessage);
-            const b_coach = toTimestamp(b.lastCoachMessage);
-            
-            if (a_client > a_coach && b_client <= b_coach) return -1;
-            if (a_client <= a_coach && b_client > b_coach) return 1;
-            if (a_client > a_coach && b_client > b_coach) return a_client - b_client;
-            return a_coach - b_coach;
-        });
         
-        // CORRECTED SORT LOGIC FOR MIA LIST
-        mia.sort((a, b) => {
-            const a_last_client = toTimestamp(a.lastClientMessage);
-            const b_last_client = toTimestamp(b.lastClientMessage);
-            // DESCENDING order: most recent message time at the top.
-            // This places the longest-inactive clients at the BOTTOM of the list.
-            return b_last_client - a_last_client;
-        });
-
-        group.sort((a,b) => {
-            const dateA = toTimestamp(a.lastMessage || a.createdAt);
-            const dateB = toTimestamp(b.lastMessage || b.createdAt);
-            return dateB - dateA;
-        });
+        active.sort((a, b) => toTimestamp(b.lastClientMessage) - toTimestamp(a.lastClientMessage));
+        mia.sort((a, b) => toTimestamp(a.lastClientMessage) - toTimestamp(b.lastClientMessage));
+        group.sort((a,b) => toTimestamp(b.lastMessage || b.createdAt) - toTimestamp(a.lastMessage || b.createdAt));
 
         setSortedChats({ activeCoachingChats: active, miaCoachingChats: mia, groupChats: group });
-        setIsClientReady(true); 
 
-    }, [allChats, allClients, isLoading]);
+    }, [allChats, allClients, isLoading, user]);
 
+    const handleJoinLeave = async (chatId: string, action: 'join' | 'leave') => {
+        if (!user) return;
+        setIsActing(chatId);
+        const actionFunc = action === 'join' ? joinChat : leaveChat;
+        const result = await actionFunc(chatId, user.uid);
+
+        if (result.success) {
+            toast({ title: 'Success', description: `Successfully ${action}ed the chat.` });
+            fetchChats();
+        } else {
+            toast({ variant: 'destructive', title: 'Error', description: result.error });
+        }
+        setIsActing(null);
+    }
 
     const handleDelete = async () => {
         if (!deleteAlertState.chat || !user) return;
         setIsDeleting(true);
         try {
-            // Use the original requesterId from the user object
             const result = await deleteChatAction(deleteAlertState.chat.id, user.uid);
             if (result.success) {
                 toast({ title: "Success", description: "The chat has been deleted." });
@@ -174,7 +165,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         }
     }
     
-    const ChatList = ({ list }: { list: SerializableChat[] }) => {
+    const ChatList = ({ list, type }: { list: SerializableChat[], type: 'coaching' | 'group' }) => {
         if (list.length === 0) {
             return <p className="text-center text-muted-foreground p-8 text-sm">No chats in this category.</p>
         }
@@ -184,24 +175,29 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         return (
              <div className="space-y-2">
                 {list.map(chat => {
-                    const clientUid = chat.type === 'coaching' ? chat.participants.find(p => !p.startsWith('coach-') && p !== user?.uid) : undefined;
-                    const client = clientUid ? clientMap.get(clientUid) : null;
-                    const clientName = client?.fullName || chat.name;
+                    const clientParticipants = chat.participants.filter(p => !COACH_UIDS.includes(p));
+                    const primaryClient = clientParticipants.length > 0 ? clientMap.get(clientParticipants[0]) : null;
+
+                    const chatName = chat.type === 'coaching' && primaryClient ? primaryClient.fullName : chat.name;
+                    const chatAvatar = chat.type === 'coaching' && primaryClient ? primaryClient.photoURL : undefined;
+
+                    const isParticipant = user ? chat.participants.includes(user.uid) : false;
+                    const isActionInProgress = isActing === chat.id;
                     
                      return (
                          <div key={chat.id} className="flex items-center gap-2 rounded-lg border p-1.5 bg-card text-card-foreground">
                             <Avatar className="h-8 w-8 border">
-                                <AvatarImage src={client?.photoURL || ''} alt={clientName || 'Chat'} />
-                                <AvatarFallback>{clientName?.charAt(0) || 'C'}</AvatarFallback>
+                                <AvatarImage src={chatAvatar || ''} alt={chatName || 'Chat'} />
+                                <AvatarFallback>{chatName?.charAt(0) || 'C'}</AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-xs truncate">{clientName}</p>
+                                <p className="font-semibold text-xs truncate">{chatName}</p>
                                 {chat.type !== 'coaching' && (
                                      <p className="text-[10px] text-muted-foreground truncate">{chat.participantCount} members</p>
                                 )}
                             </div>
                              <div className="flex items-center gap-0">
-                                 <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setDetailDialogState({open: true, chatInfo: { id: chat.id, name: clientName || chat.name } })}>
+                                 <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setDetailDialogState({open: true, chatInfo: { id: chat.id, name: chatName || chat.name } })}>
                                     <MessageSquare className="h-3.5 w-3.5" />
                                 </Button>
                                 <DropdownMenu>
@@ -211,6 +207,17 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
+                                        {type === 'group' && (
+                                            isParticipant ? (
+                                                <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'leave')} disabled={isActionInProgress}>
+                                                    <LogOut className="mr-2 h-4 w-4" /> Leave
+                                                </DropdownMenuItem>
+                                            ) : (
+                                                <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'join')} disabled={isActionInProgress}>
+                                                    <PlusCircle className="mr-2 h-4 w-4" /> Join
+                                                </DropdownMenuItem>
+                                            )
+                                        )}
                                         <DropdownMenuItem onClick={() => setDeleteAlertState({ open: true, chat })} className="text-destructive">
                                             <Trash2 className="mr-2 h-4 w-4" /> Delete
                                         </DropdownMenuItem>
@@ -250,19 +257,10 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                         <TabsTrigger value="mia">MIA ({sortedChats.miaCoachingChats.length})</TabsTrigger>
                         <TabsTrigger value="group">Group ({sortedChats.groupChats.length})</TabsTrigger>
                     </TabsList>
-                    <div className="flex-1 min-h-0 mt-2">
-                        {!isClientReady ? (
-                             <div className="flex items-center justify-center h-full">
-                                <Loader2 className="h-8 w-8 animate-spin" />
-                            </div>
-                        ) : (
-                            <>
-                                <TabsContent value="active" className="h-full m-0"><ChatList list={sortedChats.activeCoachingChats} /></TabsContent>
-                                <TabsContent value="mia" className="h-full m-0"><ChatList list={sortedChats.miaCoachingChats} /></TabsContent>
-                                <TabsContent value="group" className="h-full m-0
-                                "><ChatList list={sortedChats.groupChats} /></TabsContent>
-                            </>
-                        )}
+                    <div className="flex-1 min-h-0 mt-2 overflow-y-auto">
+                        <TabsContent value="active" className="h-full m-0"><ChatList list={sortedChats.activeCoachingChats} type="coaching" /></TabsContent>
+                        <TabsContent value="mia" className="h-full m-0"><ChatList list={sortedChats.miaCoachingChats} type="coaching" /></TabsContent>
+                        <TabsContent value="group" className="h-full m-0"><ChatList list={sortedChats.groupChats} type="group" /></TabsContent>
                     </div>
                 </Tabs>
             )}
@@ -272,6 +270,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             open={isCreateChatOpen}
             onOpenChange={setIsCreateChatOpen}
             onChatCreated={fetchChats}
+            clients={allClients}
         />
 
          {detailDialogState.chatInfo && (
@@ -302,3 +301,6 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         </>
     );
 }
+
+// Dummy COACH_UIDS for client-side identification.
+const COACH_UIDS = ['oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2', 'yue7fVPBQZg45vmfXXUH5PdG7jE2'];
