@@ -131,7 +131,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
                 return <TimedExerciseView exercise={currentExercise} timer={engine.timer} groupInfo={currentExerciseBlock?.groupInfo} onSkip={engine.skipExercise} />;
             case 'rep_based_pause':
                 if (!currentExercise || !engine.currentSet) return <p>Loading exercise...</p>;
-                return <RepBasedView exercise={currentExercise} set={engine.currentSet} onComplete={engine.completeSet} unitSystem={userProfile.unitSystem || 'metric'} groupInfo={currentExerciseBlock?.groupInfo} />;
+                return <RepBasedView key={`${engine.currentBlockIndex}-${engine.currentSetIndex}`} exercise={currentExercise} set={engine.currentSet} onComplete={engine.completeSet} unitSystem={userProfile.unitSystem || 'metric'} groupInfo={currentExerciseBlock?.groupInfo} />;
             case 'paused': return <PausedView onResume={engine.resumeWorkout} />;
             case 'finished': return <FinishedView workoutName={workout.name} />;
             default: return <p>Preparing your workout...</p>;
@@ -209,13 +209,6 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem, groupInfo }: { ex
                 : parseFloat(String(set.weight || 0))) || 0,
         }
     });
-
-    useEffect(() => {
-        const defaultWeightKg = parseFloat(String(set.weight || 0));
-        const displayWeight = unitSystem === 'imperial' ? convertKgToLbs(defaultWeightKg) : defaultWeightKg;
-        const targetReps = parseInt(set.value || '0', 10);
-        form.reset({ reps: targetReps || 0, weight: displayWeight || 0 });
-    }, [set, unitSystem, form]);
 
     const onSubmit = (data: PerformanceLogValues) => {
         const weightInKg = unitSystem === 'imperial' ? convertLbsToKg(data.weight) : data.weight;

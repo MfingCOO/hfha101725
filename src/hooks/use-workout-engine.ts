@@ -86,7 +86,6 @@ const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | Rest
 };
 
 function workoutEngineReducer(state: WorkoutEngineState, action: Action): WorkoutEngineState {
-  const { status, executionFlow, currentBlockIndex, currentSetIndex } = state;
 
   switch (action.type) {
     case 'START_WORKOUT': {
@@ -111,26 +110,26 @@ function workoutEngineReducer(state: WorkoutEngineState, action: Action): Workou
     }
 
     case 'PAUSE':
-      if (['exercising', 'resting', 'rep_based_pause'].includes(status)) {
+      if (['exercising', 'resting', 'rep_based_pause'].includes(state.status)) {
         return { ...state, status: 'paused' };
       }
       return state;
 
     case 'RESUME': {
         if (state.status !== 'paused') return state;
-        const block = executionFlow[currentBlockIndex];
+        const block = state.executionFlow[state.currentBlockIndex];
         if(!block) return state;
 
         if (block.type === 'rest') return { ...state, status: 'resting' };
         if (block.type === 'exercise') {
-            const set = (block as ExerciseBlock).sets[currentSetIndex];
+            const set = (block as ExerciseBlock).sets[state.currentSetIndex];
             return { ...state, status: set?.metric === 'time' ? 'exercising' : 'rep_based_pause' };
         }
         return state;
     }
 
     case 'TICK': {
-        if (!['exercising', 'resting'].includes(status) || state.timer <= 0) {
+        if (!['exercising', 'resting'].includes(state.status) || state.timer <= 0) {
             return state;
         }
         const newTimer = state.timer - 1;
@@ -146,35 +145,55 @@ function workoutEngineReducer(state: WorkoutEngineState, action: Action): Workou
     case 'COMPLETE_SET': {
         let newState = { ...state };
         if (action.log) {
-            const block = executionFlow[currentBlockIndex];
+            const block = state.executionFlow[state.currentBlockIndex];
             if (block) {
-                newState.performanceData = [...state.performanceData, { blockId: block.id, setIndex: currentSetIndex, ...action.log }];
+                newState.performanceData = [...state.performanceData, { blockId: block.id, setIndex: state.currentSetIndex, ...action.log }];
             }
         }
         return workoutEngineReducer(newState, { type: 'ADVANCE' });
     }
     
     case 'ADVANCE': {
+        const { status, executionFlow, currentBlockIndex, currentSetIndex } = state;
         const currentBlock = executionFlow[currentBlockIndex];
         if (!currentBlock) return { ...state, status: 'finished' };
 
-        if (currentBlock.type === 'exercise' && currentSetIndex < currentBlock.sets.length - 1) {
-            const restTime = parseInt(String(currentBlock.restBetweenSets) || '0', 10);
-            const nextSetIndex = currentSetIndex + 1;
-
-            if (restTime > 0 && status !== 'resting') {
-                 return { ...state, status: 'resting', timer: restTime, currentSetIndex: nextSetIndex };
+        // If we just finished resting, start the next set.
+        if (status === 'resting') {
+            const setToStart = (currentBlock as ExerciseBlock).sets[currentSetIndex];
+            if (setToStart) {
+                 return {
+                    ...state,
+                    status: setToStart.metric === 'time' ? 'exercising' : 'rep_based_pause',
+                    timer: setToStart.metric === 'time' ? parseInt(String(setToStart.value) || '0', 10) : 0,
+                };
             }
-            
-            const nextSet = currentBlock.sets[nextSetIndex];
-            return {
-                ...state,
-                currentSetIndex: nextSetIndex,
-                status: nextSet.metric === 'time' ? 'exercising' : 'rep_based_pause',
-                timer: nextSet.metric === 'time' ? parseInt(String(nextSet.value) || '0', 10) : 0,
-            };
         }
 
+        // If we just finished a set, decide what to do next.
+        if (currentBlock.type === 'exercise') {
+            // Check if there are more sets in the current block
+            if (currentSetIndex < currentBlock.sets.length - 1) {
+                const nextSetIndex = currentSetIndex + 1;
+                const restTime = parseInt(String(currentBlock.restBetweenSets) || '0', 10);
+
+                if (restTime > 0) {
+                    // Go to rest, advancing the set index for when rest is over.
+                    return { ...state, status: 'resting', timer: restTime, currentSetIndex: nextSetIndex };
+                } else {
+                    // No rest, go directly to the next set.
+                    const nextSet = currentBlock.sets[nextSetIndex];
+                    return {
+                        ...state,
+                        currentSetIndex: nextSetIndex,
+                        status: nextSet.metric === 'time' ? 'exercising' : 'rep_based_pause',
+                        timer: nextSet.metric === 'time' ? parseInt(String(nextSet.value) || '0', 10) : 0,
+                    };
+                }
+            }
+        }
+
+        // No more sets in this block, or it was a rest block. Advance to the next block.
         const nextBlockIndex = currentBlockIndex + 1;
         const nextBlock = executionFlow[nextBlockIndex];
 
