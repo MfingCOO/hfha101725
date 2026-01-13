@@ -3,11 +3,10 @@
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Workout, Exercise, ExerciseBlock, RestBlock, GroupBlock } from "@/types/workout-program";
+import { Workout, Exercise, ExerciseBlock, RestBlock, GroupBlock, Set } from "@/types/workout-program";
 import { getExercisesByIdsAction } from '@/app/exercises/actions';
 import { extractExerciseIds } from '@/lib/utils';
 import { Loader2, History } from 'lucide-react';
-import { RPE_SCALE } from '@/lib/rpe-scale';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { UserProfile } from '@/types';
 import { WorkoutHistoryDialog } from './WorkoutHistoryDialog';
@@ -98,6 +97,7 @@ export function WorkoutOverviewDialog({ isOpen, onClose, workout, userProfile }:
                 workoutId={workout.id}
                 userId={userProfile.uid}
                 workoutName={workout.name}
+                userProfile={userProfile}
             />
         )}
     </>
@@ -108,25 +108,19 @@ export function WorkoutOverviewDialog({ isOpen, onClose, workout, userProfile }:
 // Sub-components for rendering different block types
 
 const ExerciseBlockView = ({ block, exercise }: { block: ExerciseBlock, exercise: Exercise }) => {
-    const isWeightTracked = exercise.trackingMetrics.includes('weight');
     return (
         <div className="p-3 rounded-md bg-muted/50">
             <h4 className="font-semibold text-lg">{exercise.name}</h4>
             <p className="text-sm text-muted-foreground mb-2">{exercise.description}</p>
             <div className="space-y-1 text-sm">
-                {block.sets.map((set, index) => {
-                    const rpeInfo = RPE_SCALE.find(r => r.value === set.rpe);
-                    const rpeDescription = rpeInfo ? (isWeightTracked ? rpeInfo.lifting : rpeInfo.running) : '';
-                    return (
-                        <div key={set.id || index} className="grid grid-cols-4 gap-2 items-center">
-                            <span className="font-medium">Set {index + 1}</span>
-                            <span>{set.value} {set.metric}</span>
-                            {set.rpe !== undefined && <span className="col-span-2">RPE {set.rpe}: <i className="text-muted-foreground">{rpeDescription}</i></span>}
-                        </div>
-                    )
-                })}
+                {block.sets.map((set: Set, index: number) => (
+                    <div key={set.id || index} className="grid grid-cols-3 gap-2 items-center">
+                        <span className="font-medium">Set {index + 1}</span>
+                        <span>{set.value} {set.metric}</span>
+                        <span className="text-muted-foreground">Rest: {block.restBetweenSets || '0'}s</span>
+                    </div>
+                ))}
             </div>
-            {block.restBetweenSets && <p className="text-sm mt-2">Rest: {block.restBetweenSets} seconds</p>}
         </div>
     )
 }

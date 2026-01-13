@@ -23,6 +23,7 @@ export interface Set {
     metric?: 'reps' | 'time' | 'distance' | 'weight';
     value?: string;
     target?: string; // Replaces RPE for a flexible target
+    rpe?: number;
     targetWeight?: string;
     weight?: string;
 }
