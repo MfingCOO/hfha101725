@@ -22,6 +22,18 @@ const KG_TO_LBS = 2.20462;
 const convertKgToLbs = (kg: number) => Math.round((kg * KG_TO_LBS) * 2) / 2;
 const convertLbsToKg = (lbs: number) => lbs / KG_TO_LBS;
 
+const SupersetHeader = ({ groupInfo }: { groupInfo: ExerciseBlock['groupInfo'] }) => {
+    if (!groupInfo) return null;
+    return (
+        <div className="bg-gray-100 dark:bg-gray-800 p-2 rounded-t-lg text-center">
+            <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{groupInfo.name}</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+                Round {groupInfo.currentRound} of {groupInfo.totalRounds} | Exercise {groupInfo.exerciseIndex} of {groupInfo.totalExercises}
+            </p>
+        </div>
+    );
+};
+
 interface WorkoutPlayerProps {
     isOpen: boolean;
     onClose: () => void;
@@ -84,7 +96,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
                     userId: userProfile.uid,
                     workoutId: workout.id,
                     startTime: engine.startTime ? new Date(engine.startTime) : new Date(),
-                    duration: workout.duration,
+                    duration: workout.duration, // CORRECTED: Use the coach's predetermined duration
                     performanceLog: performanceLog,
                     programId: programId,
                     calendarEventId: calendarEventId,
@@ -94,15 +106,18 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
 
                 if (result.success) {
                     toast({ title: 'Workout Complete!', description: 'Great job! Your performance has been logged.' });
+                    // Reload the page to ensure the calendar UI updates
+                    setTimeout(() => window.location.reload(), 1000);
                 } else {
                     toast({ variant: 'destructive', title: 'Logging Failed', description: result.error || 'Could not save your workout performance.' });
+                    setTimeout(handleClose, 1000); // On failure, just close the dialog
                 }
-                setTimeout(handleClose, 1000);
             }
         };
 
         completeAndLogWorkout();
     }, [engine.status, engine.elapsedTime, engine.performanceData, engine.startTime, workout, userProfile, programId, calendarEventId, isSubmitting, handleClose, toast]);
+
 
     const currentExerciseBlock = useMemo(() => engine.currentBlock?.type === 'exercise' ? (engine.currentBlock as ExerciseBlock) : null, [engine.currentBlock]);
     const currentExercise = useMemo(() => currentExerciseBlock ? exercises.get(currentExerciseBlock.exerciseId) : null, [currentExerciseBlock, exercises]);
@@ -113,10 +128,10 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
             case 'resting': return <RestView timer={engine.timer} onSkip={engine.skipRest} />;
             case 'exercising':
                 if (!currentExercise) return <p>Loading exercise...</p>;
-                return <TimedExerciseView exercise={currentExercise} timer={engine.timer} />;
+                return <TimedExerciseView exercise={currentExercise} timer={engine.timer} groupInfo={currentExerciseBlock?.groupInfo} onSkip={engine.skipExercise} />;
             case 'rep_based_pause':
                 if (!currentExercise || !engine.currentSet) return <p>Loading exercise...</p>;
-                return <RepBasedView exercise={currentExercise} set={engine.currentSet} onComplete={engine.completeSet} unitSystem={userProfile.unitSystem || 'metric'} />;
+                return <RepBasedView exercise={currentExercise} set={engine.currentSet} onComplete={engine.completeSet} unitSystem={userProfile.unitSystem || 'metric'} groupInfo={currentExerciseBlock?.groupInfo} />;
             case 'paused': return <PausedView onResume={engine.resumeWorkout} />;
             case 'finished': return <FinishedView workoutName={workout.name} />;
             default: return <p>Preparing your workout...</p>;
@@ -142,8 +157,11 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
 
                 <div className="flex-1 flex flex-col gap-4 p-4 overflow-y-auto">
                     <WorkoutProgressBar progress={engine.workoutProgress} />
-                    <div className="flex flex-col items-center justify-center text-center bg-muted/30 dark:bg-muted/50 rounded-lg p-4 flex-1 min-h-0">
-                        {renderContent()}
+                    <div className="flex flex-col items-center justify-center text-center bg-muted/30 dark:bg-muted/50 rounded-lg p-0 flex-1 min-h-0">
+                         <SupersetHeader groupInfo={currentExerciseBlock?.groupInfo} />
+                        <div className="p-4 flex-1 w-full">
+                            {renderContent()}
+                        </div>
                     </div>
                 </div>
             </DialogContent>
@@ -162,11 +180,15 @@ const RestView = ({ timer, onSkip }: { timer: number, onSkip: () => void }) => (
     </div>
 );
 
-const TimedExerciseView = ({ exercise, timer }: { exercise: Exercise, timer: number }) => (
+const TimedExerciseView = ({ exercise, timer, onSkip }: { exercise: Exercise, timer: number, groupInfo?: ExerciseBlock['groupInfo'], onSkip: () => void }) => (
     <div className="flex flex-col items-center justify-center h-full w-full">
         <h2 className="text-3xl sm:text-4xl font-bold truncate w-full mb-2">{exercise.name}</h2>
         <p className="text-muted-foreground text-sm max-w-md mb-4">{exercise.description}</p>
-        <h2 className="text-8xl font-bold font-mono tracking-tighter">{formatTime(timer)}</h2>
+        <h2 className="text-8xl font-bold font-mono tracking-tighter mb-6">{formatTime(timer)}</h2>
+        <Button onClick={onSkip} variant="ghost">
+            <SkipForward className="mr-2 h-4 w-4" />
+            Skip Exercise
+        </Button>
     </div>
 );
 
@@ -177,7 +199,7 @@ const performanceLogSchema = z.object({
 
 type PerformanceLogValues = z.infer<typeof performanceLogSchema>;
 
-const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exercise, set: Set, onComplete: (log: PerformanceLogValues) => void, unitSystem: 'metric' | 'imperial' }) => {
+const RepBasedView = ({ exercise, set, onComplete, unitSystem, groupInfo }: { exercise: Exercise, set: Set, onComplete: (log: PerformanceLogValues) => void, unitSystem: 'metric' | 'imperial', groupInfo?: ExerciseBlock['groupInfo'] }) => {
     const form = useForm<PerformanceLogValues>({
         resolver: zodResolver(performanceLogSchema),
         defaultValues: {

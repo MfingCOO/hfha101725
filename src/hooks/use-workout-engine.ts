@@ -38,7 +38,6 @@ const initialState: WorkoutEngineState = {
   performanceData: [],
 };
 
-// FINAL FIX PART 1: This function correctly prepares the data for the engine.
 const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | RestBlock> => {
     const flow: Array<ExerciseBlock | RestBlock> = [];
 
@@ -50,21 +49,25 @@ const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | Rest
             const exercisesInGroup = groupBlock.blocks;
 
             for (let i = 0; i < rounds; i++) {
-                for (const exercise of exercisesInGroup) {
-                    // Robustly select the set to use for the current round,
-                    // defaulting to the first set if no specific set is defined for this round.
+                exercisesInGroup.forEach((exercise, j) => {
                     const setToUse = exercise.sets[i] || exercise.sets[0];
-
                     if (setToUse) {
                         const singleSetExerciseBlock: ExerciseBlock = {
                             ...exercise,
                             id: `${exercise.id}-round-${i}`,
                             sets: [setToUse],
                             restBetweenSets: '0',
+                            groupInfo: {
+                                name: groupBlock.name,
+                                currentRound: i + 1,
+                                totalRounds: rounds,
+                                exerciseIndex: j + 1,
+                                totalExercises: exercisesInGroup.length,
+                            },
                         };
                         flow.push(singleSetExerciseBlock);
                     }
-                }
+                });
 
                 if (restBetweenRounds > 0 && i < rounds - 1) {
                     const restBlock: RestBlock = {
@@ -75,15 +78,13 @@ const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | Rest
                     flow.push(restBlock);
                 }
             }
-        } else if (block.type === 'exercise' || block.type === 'rest') {
-            // Pass standard blocks through unchanged to preserve their behavior.
+        } else {
             flow.push(block as ExerciseBlock | RestBlock);
         }
     }
     return flow;
 };
 
-// FINAL FIX PART 2: The rewritten reducer and ADVANCE logic.
 function workoutEngineReducer(state: WorkoutEngineState, action: Action): WorkoutEngineState {
   const { status, executionFlow, currentBlockIndex, currentSetIndex } = state;
 
@@ -157,18 +158,14 @@ function workoutEngineReducer(state: WorkoutEngineState, action: Action): Workou
         const currentBlock = executionFlow[currentBlockIndex];
         if (!currentBlock) return { ...state, status: 'finished' };
 
-        // SCENARIO 1: We are in a standard multi-set block and it's not the last set yet.
-        // This logic handles advancing WITHIN the same block.
         if (currentBlock.type === 'exercise' && currentSetIndex < currentBlock.sets.length - 1) {
             const restTime = parseInt(String(currentBlock.restBetweenSets) || '0', 10);
             const nextSetIndex = currentSetIndex + 1;
 
-            // If there's rest, start resting. The engine will call ADVANCE again when the timer finishes.
             if (restTime > 0 && status !== 'resting') {
                  return { ...state, status: 'resting', timer: restTime, currentSetIndex: nextSetIndex };
             }
             
-            // If there's no rest (or we just finished resting), start the next set.
             const nextSet = currentBlock.sets[nextSetIndex];
             return {
                 ...state,
@@ -178,18 +175,14 @@ function workoutEngineReducer(state: WorkoutEngineState, action: Action): Workou
             };
         }
 
-        // SCENARIO 2: We finished the last set of ANY block (standard or superset) OR a RestBlock.
-        // This logic handles advancing BETWEEN blocks in the execution flow.
         const nextBlockIndex = currentBlockIndex + 1;
         const nextBlock = executionFlow[nextBlockIndex];
 
-        // If there is no next block, the workout is complete.
         if (!nextBlock) {
             const finalElapsedTime = state.startTime ? Math.floor((Date.now() - state.startTime) / 1000) : state.elapsedTime;
             return { ...state, status: 'finished', elapsedTime: finalElapsedTime };
         }
 
-        // Set up the state for the new block.
         let nextStatus: WorkoutStatus = 'rep_based_pause';
         let nextTimer = 0;
 
@@ -204,7 +197,6 @@ function workoutEngineReducer(state: WorkoutEngineState, action: Action): Workou
             }
         }
 
-        // Point the engine to the new block and reset the set index.
         return { ...state, currentBlockIndex: nextBlockIndex, currentSetIndex: 0, status: nextStatus, timer: nextTimer };
     }
 
@@ -215,8 +207,6 @@ function workoutEngineReducer(state: WorkoutEngineState, action: Action): Workou
       return state;
   }
 }
-
-// --- HOOK ---
 
 export function useWorkoutEngine(workout: Workout | null) {
   const [state, dispatch] = useReducer(workoutEngineReducer, initialState);
@@ -236,10 +226,17 @@ export function useWorkoutEngine(workout: Workout | null) {
   const pauseWorkout = useCallback(() => dispatch({ type: 'PAUSE' }), []);
   const resumeWorkout = useCallback(() => dispatch({ type: 'RESUME' }), []);
   const endWorkout = useCallback(() => dispatch({ type: 'END_WORKOUT' }), []);
+
   const skipRest = useCallback(() => {
     if (state.status === 'resting') {
         dispatch({ type: 'ADVANCE' });
     }
+  }, [state.status]);
+
+  const skipExercise = useCallback(() => {
+      if (state.status === 'exercising') {
+          dispatch({ type: 'ADVANCE' });
+      }
   }, [state.status]);
 
   const completeSet = useCallback((log?: { reps: number; weight: number }) => {
@@ -282,5 +279,6 @@ export function useWorkoutEngine(workout: Workout | null) {
     completeSet,
     endWorkout,
     skipRest,
+    skipExercise,
   };
 }
