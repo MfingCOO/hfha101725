@@ -214,7 +214,9 @@ const PostMessageInputSchema = z.object({
   fileName: z.string().optional(),
 });
 
-
+// --- GENIE'S SINGLE-LINE FIX ---
+// The function was writing to the wrong collection ('user_scheduled_reminders').
+// This change corrects the collection name to 'notifications', matching the unified engine.
 export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>) {
     
     const { chatId, text, userId, userName, isCoach, isAutomated, fileUrl, fileName } = PostMessageInputSchema.parse(input);
@@ -269,15 +271,16 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             const isRecipientCoach = COACH_UIDS.includes(recipientId);
             const ctaUrl = isRecipientCoach ? `/coach/chats/${chatId}` : `/client/dashboard?chatId=${chatId}`;
 
-            const newReminderRef = adminDb.collection('user_scheduled_reminders').doc();
-            const notificationPromise = newReminderRef.set({
+            // THE FIX: Changed collection name to the correct 'notifications' collection.
+            const newNotificationRef = adminDb.collection('notifications').doc();
+            const notificationPromise = newNotificationRef.set({
                 userId: recipientId,
                 status: 'scheduled',
                 type: 'chat_message',
                 title: `New message from ${userName}`,
                 message: text || (fileName ? `Sent an attachment: ${fileName}` : 'Sent a message'),
                 chatName: chatData.name || 'Group Chat',
-                scheduledAt: Timestamp.now(),
+                scheduledAt: Timestamp.now(), 
                 isRecurring: false,
                 ctaText: 'View Chat',
                 ctaType: 'openUrl',
