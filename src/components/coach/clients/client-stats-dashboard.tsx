@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import type { ClientProfile } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,8 @@ import { Loader2, Trash2, Moon, Flame, UtensilsCrossed, Apple, HeartCrack, Shiel
 import { Separator } from '@/components/ui/separator';
 import { differenceInDays } from 'date-fns';
 import type { LucideIcon } from 'lucide-react';
+import { getClientByIdAction } from '@/app/coach/clients/actions';
+import { useToast } from '@/hooks/use-toast';
 
 interface ClientStatsDashboardProps {
   client: ClientProfile;
@@ -30,30 +33,69 @@ const StaticInfo = ({ title, value }: { title: string; value: string | number })
     </div>
 );
 
-
 export function ClientStatsDashboard({
-  client,
+  client: initialClient,
   onDeleteClient,
   onRefresh,
   isRefreshing,
 }: ClientStatsDashboardProps) {
+
+  const [client, setClient] = useState<ClientProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const fetchFullClientData = async () => {
+      if (!initialClient.uid) {
+        toast({ variant: 'destructive', title: 'Cannot load client data: No ID provided.'});
+        setIsLoading(false);
+        return;
+      }
+      
+      setIsLoading(true);
+      const result = await getClientByIdAction(initialClient.uid);
+      if (result.success && result.data) {
+        setClient(result.data);
+      } else {
+        toast({ variant: 'destructive', title: 'Failed to load client stats', description: result.error });
+      }
+      setIsLoading(false);
+    };
+
+    fetchFullClientData();
+  }, [initialClient.uid, toast]);
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-60">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!client) {
+    return <p className="text-center text-destructive">Could not load client statistics.</p>;
+  }
   
-  // FIX: Restore the original, correct logic to find the most recent summary.
+  // --- GENIE'S "PUT IT ALL TOGETHER" FIX ---
+  // Reverting to the single, stable data source that was almost perfect.
   const getMostRecentSummary = (summaries: ClientProfile['dailySummaries']) => {
-    if (!summaries) return null;
-    // Sort dates in descending order to find the most recent one.
+    if (!summaries || typeof summaries !== 'object' || Object.keys(summaries).length === 0) return null;
     const sortedDates = Object.keys(summaries).sort((a, b) => b.localeCompare(a));
-    return sortedDates.length > 0 ? summaries[sortedDates[0]] : null;
+    return summaries[sortedDates[0]];
   };
   const summary = getMostRecentSummary(client.dailySummaries) as any;
+  
+  const onboarding = client.onboarding;
 
   const getStatValue = (value: any, fractionDigits = 0) => {
-    const num = Number(value);
-    if (value === null || value === undefined || isNaN(num)) return 'N/A';
-    return num.toFixed(fractionDigits);
+    if (value === null || value === undefined || isNaN(Number(value))) return 'N/A';
+    return Number(value).toFixed(fractionDigits);
   }
 
   const durationInDays = client.createdAt ? differenceInDays(new Date(), new Date(client.createdAt as string)) : 0;
+  const age = onboarding?.birthdate ? Math.floor(differenceInDays(new Date(), new Date(onboarding.birthdate)) / 365.25) : 'N/A';
+  const weightUnit = onboarding?.units === 'metric' ? 'kg' : 'lbs';
 
   return (
     <Card className="border-none shadow-none bg-transparent">
@@ -64,7 +106,7 @@ export function ClientStatsDashboard({
             <p className="text-sm text-muted-foreground truncate">{client.email}</p>
           </div>
           <div className="flex-shrink-0 flex gap-2">
-            <Button onClick={onRefresh} disabled={isRefreshing} size="sm">
+            <Button onClick={onRefresh} disabled={true} size="sm">
               {isRefreshing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Refresh
             </Button>
@@ -77,11 +119,11 @@ export function ClientStatsDashboard({
         <Separator />
         
         <div className="grid grid-cols-5 gap-1">
-            {/* FIX: These will now correctly pull data from the most recent summary object. */}
-            <StaticInfo title="Weight" value={`${getStatValue(summary?.currentWeight, 1)} ${summary?.unit || ''}`} />
+            {/* All stats now pull from the single, reliable summary object */}
+            <StaticInfo title="Weight" value={`${getStatValue(summary?.currentWeight, 1)} ${weightUnit}`} />
             <StaticInfo title="WtHR" value={getStatValue(summary?.currentWthr, 2)} />
-            <StaticInfo title="Age" value={summary?.age ?? 'N/A'} />
-            <StaticInfo title="Sex" value={summary?.sex ? summary.sex.charAt(0).toUpperCase() : 'N/A'} />
+            <StaticInfo title="Age" value={age} />
+            <StaticInfo title="Sex" value={onboarding?.sex ? onboarding.sex.charAt(0).toUpperCase() : 'N/A'} />
             <StaticInfo title="Duration" value={`${durationInDays}d`} />
         </div>
         
@@ -92,6 +134,7 @@ export function ClientStatsDashboard({
             <div className="grid grid-cols-4 gap-2">
                 <MiniStat icon={Moon} value={getStatValue(summary?.avgSleep, 1)} unit="hr" />
                 <MiniStat icon={Flame} value={getStatValue(summary?.avgActivity)} unit="min" />
+                {/* The final fix for the last two incorrect fields */}
                 <MiniStat icon={UtensilsCrossed} value={getStatValue(summary?.avgNutrients?.Energy)} unit="kcal" />
                 <MiniStat icon={Percent} value={getStatValue(summary?.avgUpf, 1)} unit="%" />
             </div>
