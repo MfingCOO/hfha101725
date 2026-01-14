@@ -21,25 +21,28 @@ export interface FoodDetailViewProps {
 
 export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFavorite }: FoodDetailViewProps) {
   const availablePortions = food.portionSizes || [];
-  const [quantity, setQuantity] = React.useState(1);
+  const [quantity, setQuantity] = React.useState('');
   const [selectedPortion, setSelectedPortion] = React.useState<PortionSize | undefined>(availablePortions[0]);
 
-  const canAddItem = !!selectedPortion;
+  // SURGICAL FIX 1: Use parseFloat to correctly handle decimal input for the button state.
+  const canAddItem = !!selectedPortion && parseFloat(quantity) > 0;
 
   React.useEffect(() => {
     setSelectedPortion((food.portionSizes && food.portionSizes.length > 0) ? food.portionSizes[0] : undefined);
-    setQuantity(1);
+    setQuantity('');
   }, [food]);
 
   const calculatedNutrients = React.useMemo(() => {
     if (!food.nutrients) {
       return { protein: 0, carbs: 0, fat: 0, calories: 0, fiber: 0 };
     }
+    // SURGICAL FIX 2: Use parseFloat for display calculation, defaulting to 1 for an empty input.
+    const displayQuantity = parseFloat(quantity) || 1;
     const getNutrientValue = (name: string) => {
       const nutrient = food.nutrients.find(n => n.name.toLowerCase() === name.toLowerCase());
       const gramWeight = selectedPortion?.gramWeight ?? 0;
       if (!nutrient) return 0;
-      return (nutrient.amount / 100) * gramWeight * quantity;
+      return (nutrient.amount / 100) * gramWeight * displayQuantity;
     };
 
     return {
@@ -54,12 +57,10 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
   const handleAdd = () => {
     if (!canAddItem || !selectedPortion) return;
 
-    // CORRECTED: Use the spread operator to ensure all data from the EnrichedFood
-    // object is preserved, and then add the instance-specific details.
-    // This conforms to the new robust MealItem type from Step 1.
     const mealItem: MealItem = {
-        ...food, // Spread all properties from the EnrichedFood object
-        quantity: quantity,
+        ...food,
+        // SURGICAL FIX 3: Use parseFloat to save the correct decimal value.
+        quantity: parseFloat(quantity),
         unit: selectedPortion.description,
         calories: calculatedNutrients.calories,
     };
@@ -150,7 +151,12 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
             <Input
               type="number"
               value={quantity}
-              onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              onChange={(e) => {
+                if (e.target.value.length <= 3) {
+                  setQuantity(e.target.value);
+                }
+              }}
+              placeholder="qty"
               className="w-20"
             />
             <Select
@@ -159,7 +165,7 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
                 const newPortion = availablePortions.find(s => s.description === value);
                 if (newPortion) setSelectedPortion(newPortion);
               }}
-              disabled={!canAddItem}
+              disabled={!canAddItem && !selectedPortion}
             >
               <SelectTrigger className="flex-1">
                 <SelectValue placeholder={canAddItem ? "Select portion" : "No portions available"} />
