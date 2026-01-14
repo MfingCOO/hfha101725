@@ -47,11 +47,10 @@ const StaticInfo = ({ title, value }: { title: string; value: string | number })
     </div>
 );
 
-// STYLISTIC FIX: Darker card background and space for units
 const DataCard = ({ icon: Icon, title, value, unit, context }: { icon: LucideIcon, title: string, value: string, unit: string, context: string }) => (
     <div className="bg-neutral-800/80 border border-neutral-700/60 rounded-lg p-2.5 flex flex-col aspect-square justify-between shadow-md">
         <div className="flex justify-between items-start">
-            <span className="text-xs font-medium text-neutral-400 whitespace-pre-wrap">{title}</span>
+            <span className="text-xs text-neutral-400 whitespace-pre-wrap">{title}</span>
             <Icon className="h-4 w-4 text-neutral-500 shrink-0" />
         </div>
         <div>
@@ -132,21 +131,31 @@ export function ClientStatsDashboard({
         };
     }, []);
 
+    // THE FIX: This effect now clears the old data before fetching new data.
     useEffect(() => {
         if (client) {
             const fetchData = async () => {
+                // 1. Immediately clear old data and set loading state.
                 setIsLoading(true);
+                setSummary(null);
+                
                 try {
                     const result = await getAllDataForPeriod(insightPeriod, client.uid);
                     if (result.success && result.data) {
+                        // 2. Set new data once it arrives.
                         const summaryData = aggregateLogs(result.data as ClientLog[]);
                         setSummary(summaryData);
                     } else {
-                        throw new Error(result.error || 'Failed to fetch client data.');
+                        setSummary(null); // Ensure UI is blank if there is no data.
+                        if (result.error) {
+                           throw new Error(result.error);
+                        }
                     }
                 } catch (error: any) {
+                    setSummary(null); // Also clear UI on error.
                     toast({ variant: 'destructive', title: 'Error Loading Stats', description: error.message });
                 } finally {
+                    // 3. Turn off loading indicator.
                     setIsLoading(false);
                 }
             };
@@ -182,14 +191,13 @@ export function ClientStatsDashboard({
                 <p className="text-sm text-muted-foreground truncate">{client.email}</p>
             </div>
             <div className="flex-shrink-0 flex gap-2">
-                <Button onClick={onRefresh} disabled={true} size="sm">{isRefreshing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Refresh</Button>
-                <Button onClick={onDeleteClient} variant="destructive" size="sm"><Trash2 className="h-4 w-4" /></Button>
+                <Button onClick={onRefresh} disabled={true} size="sm" className="h-8 px-2">{isRefreshing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Refresh</Button>
+                <Button onClick={onDeleteClient} variant="destructive" size="icon" className="h-8 w-8"><Trash2 className="h-4 w-4" /></Button>
             </div>
         </div>
 
         <Separator />
         
-        {/* STYLISTIC FIX: Changed to 5 columns to add Sex back in */}
         <div className="grid grid-cols-5 gap-2 text-center">
             <StaticInfo title="Weight" value={`${onboarding?.weight || 'N/A'} ${onboarding?.units === 'metric' ? 'kg' : 'lbs'}`} />
             <StaticInfo title="WtHR" value={client.wthr?.toFixed(2) || 'N/A'} />
