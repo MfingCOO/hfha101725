@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { FoodItemRow } from './food-item-row';
 import { toggleFavoriteFood, getFavoriteFoods } from '@/app/actions/nutrition-actions';
 import { getOrEnrichFoodForUser } from '@/app/coach/food-cache/actions';
+import { useSearchStore } from '@/store/search-store';
 
 const RECENT_FOODS_KEY = 'recentFoods';
 const MAX_RECENT_FOODS = 30;
@@ -103,6 +104,8 @@ const IconTab = ({ value, icon: Icon, label, onClick }: { value: string; icon: R
 
 export function NutritionModal({ isOpen, onClose, onAddItems, userId }: NutritionModalProps) {
   const { userProfile } = useAuth();
+  const resetSearchStore = useSearchStore((state) => state.reset);
+
   const [currentMealItems, setCurrentMealItems] = useState<MealItem[]>([]);
   const [activeTab, setActiveTab] = useState('search');
   const [activeView, setActiveView] = useState<'tabs' | 'scanner' | 'manual'>('tabs');
@@ -113,6 +116,11 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
 
   const userCanScan = userProfile?.tier === UserTier.Premium || userProfile?.tier === UserTier.Coaching;
+
+  const handleClose = () => {
+    resetSearchStore();
+    onClose();
+  };
 
   const fetchFavorites = useCallback(async () => {
     if (!userId) return;
@@ -134,8 +142,10 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
       setActiveTab('search');
       setActiveView('tabs');
       setSelectedFood(null);
+      // Ensure search view is reset on open as well
+      resetSearchStore();
     }
-  }, [isOpen, fetchFavorites]);
+  }, [isOpen, fetchFavorites, resetSearchStore]);
 
   const handleFoodSelected = async (food: SimpleFood | EnrichedFood) => {
     console.log(`[NutritionModal] Handling selection for ${food.fdcId}. Starting analysis.`);
@@ -204,7 +214,7 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
   const handleAddMealAndClose = () => {
     onAddItems(currentMealItems);
     handleClearMeal();
-    onClose();
+    handleClose();
   };
 
   const handleToggleFavorite = async () => {
@@ -310,7 +320,7 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
   return (
     <BaseModal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
       title={
         activeView === 'scanner' ? 'Scan Barcode' :
         activeView === 'manual' ? 'Enter Barcode' :

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { FoodItemRow } from './food-item-row';
 import { Loader2, Search } from 'lucide-react';
+import { useSearchStore } from '@/store/search-store';
 
 interface SimpleFoodSearchResult {
   fdcId: number;
@@ -18,11 +19,16 @@ interface SearchViewProps {
 }
 
 export function SearchView({ onFoodSelected }: SearchViewProps) {
-  const [query, setQuery] = useState('');
-  // SURGICAL CHANGE: The results state is now a single array, not an object of three arrays.
-  const [results, setResults] = useState<SimpleFoodSearchResult[]>([]);
+  const {
+    query,
+    results,
+    hasSearched,
+    setQuery,
+    setResults,
+    setHasSearched,
+  } = useSearchStore();
+
   const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
 
   const performSearch = async () => {
     if (query.length < 3) {
@@ -43,7 +49,6 @@ export function SearchView({ onFoodSelected }: SearchViewProps) {
         console.log(`[SearchView] Search API returned status ${response.status}. This is now handled gracefully.`);
       }
 
-      // SURGICAL CHANGE: Handle the new API response shape { results: [...] }.
       const searchData = await response.json().catch(() => null);
       setResults(searchData?.results || []);
 
@@ -65,8 +70,6 @@ export function SearchView({ onFoodSelected }: SearchViewProps) {
     onFoodSelected(food);
   };
 
-  // SURGICAL CHANGE: The `allResults` constant is no longer needed as `results` is now a single, sorted array.
-
   return (
     <div className="flex flex-col gap-4 pt-4">
       <form onSubmit={handleSearchSubmit} className="flex w-full items-center space-x-2">
@@ -83,11 +86,9 @@ export function SearchView({ onFoodSelected }: SearchViewProps) {
       </form>
       <div className="flex flex-col gap-2 flex-1 overflow-y-auto pr-2">
         {isSearching && <Loader2 className="h-6 w-6 animate-spin self-center my-4" />}
-        {/* SURGICAL CHANGE: Check `results.length` directly. */}
         {!isSearching && hasSearched && results.length === 0 && (
           <p className="text-center text-muted-foreground py-4">No results found.</p>
         )}
-        {/* SURGICAL CHANGE: Map over `results` directly to preserve the backend sorting. */}
         {!isSearching && results.map((food) => (
           <FoodItemRow
             key={food.fdcId}
