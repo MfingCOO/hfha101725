@@ -1,4 +1,3 @@
-
 'use client';
 
 import { Button } from '@/components/ui/button';
@@ -91,7 +90,9 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date): Positioned
                 positionedEntries.push({
                     id: entry.id,
                     top: (entry.startMinutes / totalMinutesInDay) * 100,
-                    height: Math.max(height, 2.0833), // Min height for a 15-min block
+                    // SURGICAL FIX: The minimum height was incorrectly hardcoded to a 30-minute value (2.0833).
+                    // It is now corrected to the proper 15-minute value (1.04167), ensuring appointments are not artificially inflated.
+                    height: Math.max(height, 1.04167), 
                     left: i * clusterWidth,
                     width: clusterWidth - 0.5, // Subtract a little for a gap,
                     originalData: entry.originalData,
