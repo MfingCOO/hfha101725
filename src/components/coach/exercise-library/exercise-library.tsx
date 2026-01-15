@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input'; // Import Input component
 import { getExercisesAction, deleteExerciseAction } from '@/app/coach/actions/workout-actions';
 import { CreateExerciseDialog } from '@/app/coach/components/create-exercise-dialog';
 import { Exercise } from '@/types/workout-program';
-import { Loader2, PlusCircle, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Loader2, PlusCircle, MoreVertical, Edit, Trash2, Search } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from 'sonner';
 
@@ -14,6 +15,7 @@ export function ExerciseLibrary() {
     const [isLoading, setIsLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
+    const [searchTerm, setSearchTerm] = useState(''); // State for the search term
 
     const fetchExercises = useCallback(async () => {
         setIsLoading(true);
@@ -55,6 +57,16 @@ export function ExerciseLibrary() {
         }
     };
 
+    // Filter exercises based on search term
+    const filteredExercises = useMemo(() => {
+        if (!searchTerm) {
+            return exercises;
+        }
+        return exercises.filter(exercise =>
+            exercise.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [exercises, searchTerm]);
+
     const handleDialogClose = () => {
         setIsDialogOpen(false);
         setEditingExercise(null);
@@ -75,6 +87,18 @@ export function ExerciseLibrary() {
                 </Button>
             </div>
 
+            {/* Search Input */}
+            <div className="relative mb-4">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                    type="search"
+                    placeholder="Search for an exercise..."
+                    className="pl-8 w-full"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+
             {isLoading ? (
                 <div className="flex justify-center items-center h-40">
                     <Loader2 className="h-8 w-8 animate-spin" />
@@ -84,9 +108,15 @@ export function ExerciseLibrary() {
                     <p>No exercises found.</p>
                     <p className="text-sm">Click "New Exercise" to create the first one.</p>
                 </div>
+            // Display message if no results match search
+            ) : filteredExercises.length === 0 ? (
+                <div className="text-center text-muted-foreground py-10">
+                    <p>No exercises match your search.</p>
+                    <p className="text-sm">Try a different search term or create a new exercise.</p>
+                </div>
             ) : (
-                <div className="space-y-2">
-                    {exercises.map(exercise => (
+                <div className="space-y-2 h-[400px] overflow-y-auto pr-2">
+                    {filteredExercises.map(exercise => (
                         <div key={exercise.id} className="flex items-center justify-between p-3 border rounded-md bg-muted/50">
                             <div className="flex-1">
                                 <p className="font-semibold">{exercise.name}</p>
