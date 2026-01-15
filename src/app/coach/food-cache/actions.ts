@@ -309,3 +309,148 @@ export async function generateNewFdcId(): Promise<number> {
     const lowestFdcId = snapshot.docs[0].data().fdcId;
     return lowestFdcId - 1;
 }
+
+
+const CSV_HEADERS = [
+    'fdcId', 'description', 'brandName', 'calories', 'protein', 'fat', 
+    'carbs', 'sugar', 'fiber', 'servingSizes', 'upfPercentage', 
+    'novaGroup', 'isGlutenFree', 'ingredients'
+];
+
+const parseCsvRow = (row: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (const char of row) {
+        if (char === '"' && inQuotes) {
+            inQuotes = false;
+        } else if (char === '"' && !inQuotes) {
+            inQuotes = true;
+        } else if (char === ',' && !inQuotes) {
+            result.push(current);
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    result.push(current);
+    return result;
+};
+
+const getNovaGroupFromString = (rating: string): NovaGroup => {
+    const lowercasedRating = rating.toLowerCase();
+    const novaGroupMap: { [key: string]: NovaGroup } = {
+        'whole_food': NovaGroup.WHOLE_FOOD,
+        'processed': NovaGroup.PROCESSED,
+        'upf': NovaGroup.UPF,
+    };
+    return novaGroupMap[lowercasedRating] || NovaGroup.UNCLASSIFIED;
+}
+
+export async function bulkSaveFoodsToCache(formData: FormData): Promise<{ success: boolean; error?: string; details?: { total: number, created: number, updated: number } }> {
+    const file = formData.get('file') as File;
+    if (!file) return { success: false, error: 'No file uploaded.' };
+
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        return { success: false, error: 'File size exceeds 5MB limit.' };
+    }
+
+    const text = await file.text();
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length < 2) return { success: false, error: 'CSV file must contain a header and at least one data row.' };
+
+    const header = lines[0].split(',').map(h => h.trim());
+    if (JSON.stringify(header) !== JSON.stringify(CSV_HEADERS)) {
+        return { success: false, error: `Invalid CSV headers. Expected: ${CSV_HEADERS.join(',')}` };
+    }
+
+    const headerMap = header.reduce((acc, curr, i) => ({ ...acc, [curr]: i }), {} as { [key: string]: number });
+    const dataRows = lines.slice(1);
+    
+    let createdCount = 0;
+    let updatedCount = 0;
+
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < dataRows.length; i += BATCH_SIZE) {
+        const batch = adminDb.batch();
+        const chunk = dataRows.slice(i, i + BATCH_SIZE);
+
+        for (const row of chunk) {
+            if (!row.trim()) continue; // Skip empty lines
+            const values = parseCsvRow(row);
+
+            try {
+                const fdcIdStr = values[headerMap.fdcId];
+                let fdcId = fdcIdStr ? parseInt(fdcIdStr, 10) : NaN;
+
+                if (isNaN(fdcId)) {
+                    fdcId = await generateNewFdcId();
+                    createdCount++;
+                } else {
+                    updatedCount++;
+                }
+                
+                const nutrients: Nutrient[] = [
+                    { id: 1008, name: 'Energy', amount: parseFloat(values[headerMap.calories]) || 0, unitName: 'kcal' },
+                    { id: 1003, name: 'Protein', amount: parseFloat(values[headerMap.protein]) || 0, unitName: 'g' },
+                    { id: 1004, name: 'Total lipid (fat)', amount: parseFloat(values[headerMap.fat]) || 0, unitName: 'g' },
+                    { id: 1005, name: 'Carbohydrate, by difference', amount: parseFloat(values[headerMap.carbs]) || 0, unitName: 'g' },
+                    { id: 2000, name: 'Sugars, total including NLEA', amount: parseFloat(values[headerMap.sugar]) || 0, unitName: 'g' },
+                    { id: 1079, name: 'Fiber, total dietary', amount: parseFloat(values[headerMap.fiber]) || 0, unitName: 'g' },
+                ];
+
+                const portionSizes: PortionSize[] = values[headerMap.servingSizes]?.split('|').map(p => {
+                    const [description, gramWeight] = p.split(':');
+                    return { description: description?.trim() || '', gramWeight: parseFloat(gramWeight) || 0 };
+                }).filter(p => p.description && p.gramWeight > 0) || [];
+
+                const upfAnalysis: UpfAnalysis = {
+                    rating: getNovaGroupFromString(values[headerMap.novaGroup] || ''),
+                    justification: 'Manually entered during bulk import.',
+                };
+
+                const isGlutenFree = (values[headerMap.isGlutenFree]?.toLowerCase() === 'true');
+                const glutenAnalysis: GlutenAnalysis = {
+                    isGlutenFree,
+                    justification: 'Manually entered during bulk import.',
+                };
+
+                const foodData: Omit<EnrichedFood, 'analysisDate' | 'source'> & { fdcId: number } = {
+                    fdcId,
+                    description: values[headerMap.description] || '',
+                    brandOwner: values[headerMap.brandName] || '',
+                    ingredients: values[headerMap.ingredients] || '',
+                    nutrients,
+                    portionSizes,
+                    upfPercentage: { 
+                        value: parseInt(values[headerMap.upfPercentage], 10) || 0, 
+                        justification: 'Manually entered during bulk import.' 
+                    },
+                    upfAnalysis,
+                    glutenAnalysis,
+                };
+
+                const docRef = adminDb.collection('global-food-cache').doc(String(fdcId));
+                const dataToSave = {
+                    ...foodData,
+                    source: 'MANUAL_BULK',
+                    searchableDescription: foodData.description.toLowerCase(),
+                    analysisDate: FieldValue.serverTimestamp(),
+                    updatedAt: FieldValue.serverTimestamp(),
+                };
+
+                batch.set(docRef, dataToSave, { merge: true });
+
+            } catch (e: any) {
+                console.warn(`[Food Cache Bulk] Skipping row due to error: ${row}. Error: ${e.message}`);
+                continue; // Skip rows that have parsing errors
+            }
+        }
+        await batch.commit();
+    }
+
+    return {
+        success: true,
+        details: { total: dataRows.length, created: createdCount, updated: updatedCount },
+    };
+}

@@ -1,11 +1,10 @@
 'use client';
-import React, { useState, useCallback, useEffect } from 'react';
-import { hybridFoodSearch } from '@/app/coach/food-cache/actions';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { hybridFoodSearch, bulkSaveFoodsToCache } from '@/app/coach/food-cache/actions';
 import { FoodCacheModal } from '@/components/coach/food-cache/food-cache-modal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-// SURGICAL INSERTION & REMOVAL: Import the shared type, remove the local one.
 import { HybridFoodSearchResult } from '@/types';
 
 interface ManageFoodCacheDialogProps {
@@ -15,7 +14,6 @@ interface ManageFoodCacheDialogProps {
 
 export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDialogProps) {
   const [query, setQuery] = useState('');
-  // SURGICAL UPDATE: Use the imported shared type.
   const [searchResults, setSearchResults] = useState<HybridFoodSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +21,10 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
   const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
   const [selectedFdcId, setSelectedFdcId] = useState<number | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('edit');
+
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const performSearch = useCallback(async () => {
     if (query.length < 2) {
@@ -67,6 +69,41 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
     performSearch();
   };
 
+  const handleBulkAddClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      setIsUploading(true);
+      setUploadStatus(null);
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+          const result = await bulkSaveFoodsToCache(formData);
+          if (result.success && result.details) {
+              setUploadStatus({ 
+                  message: `Success! Processed ${result.details.total} rows. Created: ${result.details.created}, Updated: ${result.details.updated}.`,
+                  type: 'success' 
+              });
+              performSearch(); // Refresh search to show new items
+          } else {
+              setUploadStatus({ message: result.error || 'An unknown error occurred during upload.', type: 'error' });
+          }
+      } catch (e: any) {
+          setUploadStatus({ message: e.message || 'An unexpected client-side error occurred.', type: 'error' });
+      } finally {
+          setIsUploading(false);
+          if (event.target) {
+              event.target.value = ''; // Allow re-uploading the same file
+          }
+      }
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -74,6 +111,13 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
           <DialogHeader>
             <DialogTitle>Manage Food Cache</DialogTitle>
           </DialogHeader>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+            accept=".csv"
+          />
           <div className="py-4">
             <Input
               type="text"
@@ -82,6 +126,12 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
               placeholder="Search local cache or USDA database..."
             />
           </div>
+
+          {uploadStatus && (
+            <p className={`text-sm text-center py-2 px-4 rounded-md ${uploadStatus.type === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-green-500/10 text-green-600'}`}>
+                {uploadStatus.message}
+            </p>
+          )}
 
           {isLoading && <p className='text-center py-4'>Searching...</p>}
           {error && <p className="text-destructive text-center py-4">{error}</p>}
@@ -105,9 +155,18 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
             ))}
           </div>
 
-          <DialogFooter className="sm:justify-between">
-            <Button variant="secondary" onClick={handleOpenCreatorModal}>Create New Food</Button>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          <DialogFooter className="sm:justify-between pt-4">
+            <div className="flex items-center space-x-2">
+              <Button variant="secondary" onClick={handleOpenCreatorModal}>
+                Create New Food
+              </Button>
+              <Button variant="secondary" onClick={handleBulkAddClick} disabled={isUploading}>
+                {isUploading ? 'Uploading...' : 'Bulk Add From CSV'}
+              </Button>
+            </div>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
