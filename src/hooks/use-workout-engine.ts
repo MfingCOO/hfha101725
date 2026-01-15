@@ -158,17 +158,25 @@ function workoutEngineReducer(state: WorkoutEngineState, action: Action): Workou
         const currentBlock = executionFlow[currentBlockIndex];
         if (!currentBlock) return { ...state, status: 'finished' };
 
-        // If we just finished resting, start the next set.
-        if (status === 'resting') {
-            const setToStart = (currentBlock as ExerciseBlock).sets[currentSetIndex];
-            if (setToStart) {
-                 return {
-                    ...state,
-                    status: setToStart.metric === 'time' ? 'exercising' : 'rep_based_pause',
-                    timer: setToStart.metric === 'time' ? parseInt(String(setToStart.value) || '0', 10) : 0,
-                };
+               // If we just finished resting...
+               if (status === 'resting') {
+                // ...and the current block is an ExerciseBlock (i.e., resting between sets)...
+                if (currentBlock.type === 'exercise') {
+                    const setToStart = currentBlock.sets[currentSetIndex];
+                    if (setToStart) {
+                        // ...then start the next set as intended.
+                        return {
+                            ...state,
+                            status: setToStart.metric === 'time' ? 'exercising' : 'rep_based_pause',
+                            timer: setToStart.metric === 'time' ? parseInt(String(setToStart.value) || '0', 10) : 0,
+                        };
+                    }
+                }
+                // Otherwise, if the current block was a RestBlock (between superset rounds),
+                // we do nothing here and let the logic fall through to the section below,
+                // which correctly advances to the next block in the flow.
             }
-        }
+    
 
         // If we just finished a set, decide what to do next.
         if (currentBlock.type === 'exercise') {
