@@ -2,7 +2,7 @@
 import { tool } from 'genkit';
 import { z } from 'zod';
 import { db as adminDb } from '@/lib/firebaseAdmin';
-import { HybridFoodSearchResult } from '@/types';
+import { EnrichedFood, HybridFoodSearchResult } from '@/types';
 
 // Define a schema for a single search result, adding isDirectMatch
 const FoodSearchResultSchema = z.object({
@@ -90,8 +90,16 @@ export const searchUsdaFoodDatabase = tool(
 
     // Process local results
     localSnapshot.docs.forEach(doc => {
-        const food = doc.data();
-        processFoodItem(food, true);
+        const food = doc.data() as EnrichedFood;
+        // Type guard to ensure required properties exist before processing
+        if (food && typeof food.fdcId === 'number' && typeof food.description === 'string') {
+            // Construct a new, correctly-typed object to satisfy the function signature
+            processFoodItem({
+                fdcId: food.fdcId,
+                description: food.description,
+                brandOwner: food.brandOwner
+            }, true);
+        }
     });
 
     // Process USDA results, avoiding duplicates that are already cached
