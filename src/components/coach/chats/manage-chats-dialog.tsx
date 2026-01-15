@@ -1,7 +1,8 @@
 'use client';
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
 import { Button } from "@/components/ui/button";
-import { useEffect, useState, useCallback } from "react";
+import { Input } from "@/components/ui/input"; // Import Input
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Loader2, MessageSquare, MoreVertical, Trash2, PlusCircle, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -29,12 +30,10 @@ import { getChatsAndClientsForCoach, createChatAction, deleteChatAction, joinCha
 import { CreateChatDialog } from './create-chat-dialog';
 import type { Chat as OriginalChat, ClientProfile as OriginalClientProfile } from "@/types";
 
-// Helper to convert string dates from server into sortable numbers
 const toTimestamp = (date: string | undefined | null): number => {
     return date ? new Date(date).getTime() : 0;
 };
 
-// These types correctly represent the data shape after it's been serialized by the server action.
 type SerializableChat = Omit<OriginalChat, 'createdAt' | 'lastClientMessage' | 'lastCoachMessage' | 'lastAutomatedMessage' | 'lastMessage'> & {
     createdAt?: string;
     lastClientMessage?: string;
@@ -43,7 +42,6 @@ type SerializableChat = Omit<OriginalChat, 'createdAt' | 'lastClientMessage' | '
     lastMessage?: string;
 };
 type SerializableClientProfile = Omit<OriginalClientProfile, 'createdAt'> & { createdAt?: string };
-
 
 interface ManageChatsDialogProps {
   open: boolean;
@@ -57,6 +55,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     const [allClients, setAllClients] = useState<SerializableClientProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isActing, setIsActing] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState(""); // State for the search query
     
     const [sortedChats, setSortedChats] = useState<{
         activeCoachingChats: SerializableChat[],
@@ -91,6 +90,9 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
       }
     }, [open, fetchChats]);
 
+    // This memo creates a map for quick client lookup.
+    const clientMap = useMemo(() => new Map(allClients.map(c => [c.uid, c])), [allClients]);
+
     useEffect(() => {
         if (isLoading || !user) return;
 
@@ -108,12 +110,11 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         const now = new Date();
         const miaThresholdHours = 48;
         
-        const active: SerializableChat[] = [];
-        const mia: SerializableChat[] = [];
+        let active: SerializableChat[] = [];
+        let mia: SerializableChat[] = [];
 
         coaching.forEach(chat => {
             const lastClientMsgTime = toTimestamp(chat.lastClientMessage);
-            const needsAttention = !chat.lastCoachMessage || (lastClientMsgTime > toTimestamp(chat.lastCoachMessage));
             const isMia = differenceInHours(now, lastClientMsgTime) >= miaThresholdHours;
 
             if (isMia) {
@@ -122,14 +123,35 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                 active.push(chat);
             }
         });
+
+        // --- SEARCH FILTERING LOGIC ---
+        const lowerCaseQuery = searchQuery.toLowerCase();
+        const filterChats = (chat: SerializableChat) => {
+            if (!lowerCaseQuery) return true; // Show all if search is empty
+
+            if (chat.type === 'coaching') {
+                const clientParticipants = chat.participants.filter(p => !COACH_UIDS.includes(p));
+                const primaryClient = clientParticipants.length > 0 ? clientMap.get(clientParticipants[0]) : null;
+                const chatName = primaryClient ? primaryClient.fullName : chat.name;
+                return chatName?.toLowerCase().includes(lowerCaseQuery) ?? false;
+            } else {
+                return chat.name?.toLowerCase().includes(lowerCaseQuery) ?? false;
+            }
+        };
+
+        const filteredActive = active.filter(filterChats);
+        const filteredMia = mia.filter(filterChats);
+        const filteredGroup = group.filter(filterChats);
         
-        active.sort((a, b) => toTimestamp(b.lastClientMessage) - toTimestamp(a.lastClientMessage));
-        mia.sort((a, b) => toTimestamp(a.lastClientMessage) - toTimestamp(b.lastClientMessage));
-        group.sort((a,b) => toTimestamp(b.lastMessage || b.createdAt) - toTimestamp(a.lastMessage || b.createdAt));
+        // --- END SEARCH FILTERING ---
+        
+        filteredActive.sort((a, b) => toTimestamp(b.lastClientMessage) - toTimestamp(a.lastClientMessage));
+        filteredMia.sort((a, b) => toTimestamp(a.lastClientMessage) - toTimestamp(b.lastClientMessage));
+        filteredGroup.sort((a,b) => toTimestamp(b.lastMessage || b.createdAt) - toTimestamp(a.lastMessage || b.createdAt));
 
-        setSortedChats({ activeCoachingChats: active, miaCoachingChats: mia, groupChats: group });
+        setSortedChats({ activeCoachingChats: filteredActive, miaCoachingChats: filteredMia, groupChats: filteredGroup });
 
-    }, [allChats, allClients, isLoading, user]);
+    }, [allChats, allClients, isLoading, user, searchQuery, clientMap]);
 
     const handleJoinLeave = async (chatId: string, action: 'join' | 'leave') => {
         if (!user) return;
@@ -167,11 +189,9 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     
     const ChatList = ({ list, type }: { list: SerializableChat[], type: 'coaching' | 'group' }) => {
         if (list.length === 0) {
-            return <p className="text-center text-muted-foreground p-8 text-sm">No chats in this category.</p>
+            return <p className="text-center text-muted-foreground p-8 text-sm">No chats found matching your search.</p>
         }
         
-        const clientMap = new Map(allClients.map(c => [c.uid, c]));
-
         return (
              <div className="space-y-2">
                 {list.map(chat => {
@@ -251,18 +271,27 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                     <Loader2 className="h-12 w-12 animate-spin text-primary" />
                 </div>
             ) : (
-                <Tabs defaultValue="active" className="w-full h-full flex flex-col">
-                    <TabsList className="grid w-full grid-cols-3">
-                        <TabsTrigger value="active">Active ({sortedChats.activeCoachingChats.length})</TabsTrigger>
-                        <TabsTrigger value="mia">MIA ({sortedChats.miaCoachingChats.length})</TabsTrigger>
-                        <TabsTrigger value="group">Group ({sortedChats.groupChats.length})</TabsTrigger>
-                    </TabsList>
-                    <div className="flex-1 min-h-0 mt-2 overflow-y-auto">
-                        <TabsContent value="active" className="h-full m-0"><ChatList list={sortedChats.activeCoachingChats} type="coaching" /></TabsContent>
-                        <TabsContent value="mia" className="h-full m-0"><ChatList list={sortedChats.miaCoachingChats} type="coaching" /></TabsContent>
-                        <TabsContent value="group" className="h-full m-0"><ChatList list={sortedChats.groupChats} type="group" /></TabsContent>
+                <div className="w-full h-full flex flex-col">
+                     <div className="mb-4">
+                        <Input 
+                            placeholder="Search by name..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
                     </div>
-                </Tabs>
+                    <Tabs defaultValue="active" className="w-full flex-1 flex flex-col min-h-0">
+                        <TabsList className="grid w-full grid-cols-3">
+                            <TabsTrigger value="active">Active ({sortedChats.activeCoachingChats.length})</TabsTrigger>
+                            <TabsTrigger value="mia">MIA ({sortedChats.miaCoachingChats.length})</TabsTrigger>
+                            <TabsTrigger value="group">Group ({sortedChats.groupChats.length})</TabsTrigger>
+                        </TabsList>
+                        <div className="flex-1 min-h-0 mt-2 overflow-y-auto">
+                            <TabsContent value="active" className="h-full m-0"><ChatList list={sortedChats.activeCoachingChats} type="coaching" /></TabsContent>
+                            <TabsContent value="mia" className="h-full m-0"><ChatList list={sortedChats.miaCoachingChats} type="coaching" /></TabsContent>
+                            <TabsContent value="group" className="h-full m-0"><ChatList list={sortedChats.groupChats} type="group" /></TabsContent>
+                        </div>
+                    </Tabs>
+                 </div>
             )}
         </CoachPageModal>
 
