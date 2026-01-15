@@ -43,17 +43,18 @@ export function FirstUseEducationalModal({
 
         <div className="flex-shrink-0 p-6 space-y-4">
             <div className="text-center">
-            <div className="mx-auto bg-primary/10 rounded-full h-16 w-16 flex items-center justify-center mb-2">
-                <Icon className="h-8 w-8 text-primary" />
-            </div>
-            {isLocked && (
-                <div className="flex justify-center">
-                <Badge variant="secondary" className="bg-amber-500/20 text-amber-300 border-amber-500/30 w-fit">
-                    <Lock className="h-3 w-3 mr-1" />
-                    {content.requiredTier.charAt(0).toUpperCase() + content.requiredTier.slice(1)} Plan Required
-                </Badge>
+                <div className="mx-auto bg-primary/10 rounded-full h-16 w-16 flex items-center justify-center mb-4"> {/* Increased margin bottom */}
+                    <Icon className="h-8 w-8 text-primary" />
                 </div>
-            )}
+                <h2 className="text-lg font-semibold text-white">{content.title}</h2> {/* Added Title */}
+                {isLocked && (
+                    <div className="flex justify-center mt-2"> {/* Added margin top */}
+                        <Badge variant="secondary" className="bg-amber-500/20 text-amber-300 border-amber-500/30 w-fit">
+                            <Lock className="h-3 w-3 mr-1" />
+                            {content.requiredTier.charAt(0).toUpperCase() + content.requiredTier.slice(1)} Plan Required
+                        </Badge>
+                    </div>
+                )}
             </div>
         </div>
 
