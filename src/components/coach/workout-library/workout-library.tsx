@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { getWorkoutsAction, deleteWorkoutAction, duplicateWorkoutAction } from '@/app/coach/actions/workout-actions';
 import { CreateWorkoutDialog } from '@/components/coach/workout-library/create-workout-dialog';
 import { Workout } from '@/types/workout-program';
-import { Loader2, PlusCircle, MoreVertical, Edit, Trash2, Clock, Copy } from 'lucide-react';
+import { Loader2, PlusCircle, MoreVertical, Edit, Trash2, Clock, Copy, Search } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from 'sonner';
 
@@ -14,6 +15,7 @@ export function WorkoutLibrary() {
     const [isLoading, setIsLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
 
     const fetchWorkouts = useCallback(async () => {
         setIsLoading(true);
@@ -36,6 +38,15 @@ export function WorkoutLibrary() {
     useEffect(() => {
         fetchWorkouts();
     }, [fetchWorkouts]);
+
+    const filteredWorkouts = useMemo(() => {
+        if (!searchTerm) {
+            return workouts;
+        }
+        return workouts.filter(workout =>
+            workout.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [workouts, searchTerm]);
 
     const handleOpenDialogForCreate = () => {
         setEditingWorkout(null);
@@ -91,6 +102,17 @@ export function WorkoutLibrary() {
                 </Button>
             </div>
 
+            <div className="relative mb-4">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                    type="search"
+                    placeholder="Search for a workout..."
+                    className="pl-8 w-full"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+
             {isLoading ? (
                 <div className="flex justify-center items-center h-40">
                     <Loader2 className="h-8 w-8 animate-spin" />
@@ -100,9 +122,14 @@ export function WorkoutLibrary() {
                     <p>No workouts found.</p>
                     <p className="text-sm">Click "New Workout" to create the first one.</p>
                 </div>
+            ) : filteredWorkouts.length === 0 ? (
+                <div className="text-center text-muted-foreground py-10">
+                    <p>No workouts match your search.</p>
+                    <p className="text-sm">Try a different search term or create a new workout.</p>
+                </div>
             ) : (
-                <div className="space-y-2">
-                    {workouts.map(workout => (
+                <div className="space-y-2 h-[400px] overflow-y-auto pr-2">
+                    {filteredWorkouts.map(workout => (
                         <div key={workout.id} className="flex items-center justify-between p-3 border rounded-md bg-muted/50">
                             <div className="flex-1 pr-4">
                                 <p className="font-semibold">{workout.name}</p>
