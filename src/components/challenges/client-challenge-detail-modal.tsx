@@ -518,14 +518,30 @@ export function ClientChallengeDetailModal({ challenge: initialChallenge, isOpen
 
     const isPillarTaskCompleteAutomatically = useCallback((date: Date, pillarId: string): boolean => {
         if (!date) return false;
-        const dayLogs = userLogs.filter(log => log.entryDate && isSameDay(new Date(log.entryDate), date));
-        
-        if (pillarId === 'hydration') {
-             const todaysHydration = dayLogs.filter(l => l.pillar === 'hydration').reduce((sum, l) => sum + (l.amount || 0), 0);
-             const goal = 64; // FIX: Removed reference to non-existent userProfile property
-             return todaysHydration >= goal;
+
+        switch (pillarId) {
+            case 'hydration': {
+                const dayLogs = userLogs.filter(log => log.entryDate && isSameDay(new Date(log.entryDate), date));
+                const todaysHydration = dayLogs
+                    .filter(l => l.pillar === 'hydration')
+                    .reduce((sum, l) => sum + (l.amount || 0), 0);
+                const goal = 64;
+                return todaysHydration >= goal;
+            }
+            case 'sleep': {
+                // FIX: Sleep logs are associated with the day the user WAKES UP.
+                const sleepLogs = userLogs.filter(log => log.pillar === 'sleep' && log.wakeUpDay && isSameDay(new Date(log.wakeUpDay), date));
+                return sleepLogs.some(log => log.duration && log.duration > 0);
+            }
+            case 'nutrition':
+            case 'activity':
+            case 'stress': {
+                const dayLogs = userLogs.filter(log => log.entryDate && isSameDay(new Date(log.entryDate), date));
+                return dayLogs.some(log => log.pillar === pillarId);
+            }
+            default:
+                return false;
         }
-        return dayLogs.some(log => log.pillar === pillarId);
     }, [userLogs]);
 
     return (
