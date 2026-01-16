@@ -1,7 +1,7 @@
 'use client';
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input"; // Import Input
+import { Input } from "@/components/ui/input";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Loader2, MessageSquare, MoreVertical, Trash2, PlusCircle, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -29,6 +29,7 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { getChatsAndClientsForCoach, createChatAction, deleteChatAction, joinChat, leaveChat } from '@/app/chats/actions';
 import { CreateChatDialog } from './create-chat-dialog';
 import type { Chat as OriginalChat, ClientProfile as OriginalClientProfile } from "@/types";
+import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 
 const toTimestamp = (date: string | undefined | null): number => {
     return date ? new Date(date).getTime() : 0;
@@ -55,7 +56,8 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     const [allClients, setAllClients] = useState<SerializableClientProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isActing, setIsActing] = useState<string | null>(null);
-    const [searchQuery, setSearchQuery] = useState(""); // State for the search query
+    const [searchQuery, setSearchQuery] = useState("");
+    const [videoCallLink, setVideoCallLink] = useState<string | null>(null);
     
     const [sortedChats, setSortedChats] = useState<{
         activeCoachingChats: SerializableChat[],
@@ -87,10 +89,16 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     useEffect(() => {
       if(open) {
         fetchChats();
+        getSiteSettingsAction().then(result => {
+            if (result.success && result.data?.videoCallLink) {
+                setVideoCallLink(result.data.videoCallLink);
+            }
+        });
+      } else {
+          setVideoCallLink(null);
       }
     }, [open, fetchChats]);
 
-    // This memo creates a map for quick client lookup.
     const clientMap = useMemo(() => new Map(allClients.map(c => [c.uid, c])), [allClients]);
 
     useEffect(() => {
@@ -124,10 +132,9 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             }
         });
 
-        // --- SEARCH FILTERING LOGIC ---
         const lowerCaseQuery = searchQuery.toLowerCase();
         const filterChats = (chat: SerializableChat) => {
-            if (!lowerCaseQuery) return true; // Show all if search is empty
+            if (!lowerCaseQuery) return true;
 
             if (chat.type === 'coaching') {
                 const clientParticipants = chat.participants.filter(p => !COACH_UIDS.includes(p));
@@ -142,8 +149,6 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         const filteredActive = active.filter(filterChats);
         const filteredMia = mia.filter(filterChats);
         const filteredGroup = group.filter(filterChats);
-        
-        // --- END SEARCH FILTERING ---
         
         filteredActive.sort((a, b) => toTimestamp(b.lastClientMessage) - toTimestamp(a.lastClientMessage));
         filteredMia.sort((a, b) => toTimestamp(a.lastClientMessage) - toTimestamp(b.lastClientMessage));
@@ -259,7 +264,18 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             title="Manage Chats"
             description="Review and manage all client and group conversations."
             footer={
-                 <div className="flex justify-end w-full">
+                 <div className="flex w-full items-center justify-between">
+                    <div>
+                        {videoCallLink && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => window.open(videoCallLink, '_blank', 'noopener,noreferrer')}
+                            >
+                                Meeting Chat
+                            </Button>
+                        )}
+                    </div>
                     <Button onClick={() => setIsCreateChatOpen(true)} size="sm">
                         Create New Chat
                     </Button>
