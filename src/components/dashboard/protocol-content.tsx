@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -9,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from '../ui/textarea';
 import { Pause, Play, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useProtocolTimerStore } from '@/store/protocol-timer-store';
 
 interface ContentProps {
     onFormStateChange: (newState: any) => void;
@@ -47,49 +47,66 @@ const HungerScaleDropdown = ({ value, onValueChange, label = "Hunger Level (0-10
     );
 };
 
+const TOTAL_TIMER_SECONDS = 1200; // 20 minutes
 
 const TwentyMinuteTimer = () => {
-    const [secondsLeft, setSecondsLeft] = useState(1200);
-    const [isActive, setIsActive] = useState(false);
+    const { isActive, startTime, pausedElapsed, start, pause, reset } = useProtocolTimerStore();
+    const [, setTick] = useState(0); // A dummy state to force re-renders
 
     useEffect(() => {
         let interval: NodeJS.Timeout | null = null;
-        if (isActive && secondsLeft > 0) {
+        if (isActive) {
+            // If the timer is active, set up an interval to re-render the component every second.
             interval = setInterval(() => {
-                setSecondsLeft(seconds => seconds - 1);
+                setTick(t => t + 1);
             }, 1000);
-        } else if (!isActive && secondsLeft !== 0) {
-            if(interval) clearInterval(interval);
-        } else if (secondsLeft === 0) {
-             if(interval) clearInterval(interval);
-             setIsActive(false);
-             // In a real app, you might play a sound here.
         }
-        return () => { if(interval) clearInterval(interval) };
-    }, [isActive, secondsLeft]);
+        // Clean up the interval when the component unmounts or isActive changes.
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [isActive]);
 
-    const toggle = () => setIsActive(!isActive);
-    const reset = () => {
-        setIsActive(false);
-        setSecondsLeft(1200);
+    // This function calculates the remaining time on every single render.
+    // This is the core of the fix: the UI is always derived from the persistent store state.
+    const getSecondsLeft = () => {
+        if (isActive && startTime) {
+            // Timer is currently running.
+            const elapsedSinceStart = (Date.now() - startTime) / 1000;
+            return Math.max(0, TOTAL_TIMER_SECONDS - (pausedElapsed + elapsedSinceStart));
+        }
+        // Timer is paused or in its initial state.
+        return Math.max(0, TOTAL_TIMER_SECONDS - pausedElapsed);
     };
 
-    const formatTime = () => {
-        const minutes = Math.floor(secondsLeft / 60);
-        const seconds = secondsLeft % 60;
+    const secondsLeft = getSecondsLeft();
+
+    // This effect runs when secondsLeft changes.
+    useEffect(() => {
+        if (secondsLeft <= 0 && isActive) {
+            // When the timer hits zero, automatically pause it.
+            // You could also add a sound effect here.
+            pause();
+        }
+    }, [secondsLeft, isActive, pause]);
+
+    const formatTime = (totalSeconds: number) => {
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = Math.floor(totalSeconds % 60);
         return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     };
 
+    // The buttons are now connected to the global store's actions.
     return (
         <div className="rounded-lg bg-muted p-2 flex items-center justify-between gap-2">
-            <p className="font-mono text-3xl font-bold tracking-widest">{formatTime()}</p>
+            <p className="font-mono text-3xl font-bold tracking-widest">{formatTime(secondsLeft)}</p>
             <div className="flex gap-2">
-                <Button onClick={toggle} variant="secondary" size="sm" className="h-8">
-                    {isActive ? <Pause className="mr-2 h-4 w-4"/> : <Play className="mr-2 h-4 w-4"/>}
-                    {isActive ? 'Pause' : 'Start'}
+                <Button onClick={isActive ? pause : start} variant="secondary" size="sm" className="h-8 w-[90px]">
+                    {isActive ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
+                    {isActive ? 'Pause' : (pausedElapsed > 0 ? 'Resume' : 'Start')}
                 </Button>
                 <Button onClick={reset} variant="destructive" size="sm" className="h-8">
-                    <RotateCcw className="mr-2 h-4 w-4"/>
+                    <RotateCcw className="mr-2 h-4 w-4" />
                     Reset
                 </Button>
             </div>
@@ -100,7 +117,7 @@ const TwentyMinuteTimer = () => {
 export const ProtocolContent = ({ onFormStateChange, formState }: Omit<ContentProps, 'pillar' | 'entryDate' | 'clientProfile'>) => {
     const handleChange = (field: string, value: any) => {
         onFormStateChange({ [field]: value });
-    };    
+    };
 
     const {
         mealDescription = '',
@@ -109,12 +126,12 @@ export const ProtocolContent = ({ onFormStateChange, formState }: Omit<ContentPr
         postMealHunger = 2,
         percentageEaten = 100,
         notes = '',
-    } = formState || {};  
+    } = formState || {};
 
     return (
         <div className="space-y-4">
             <Input value={mealDescription} onChange={e => handleChange('mealDescription', e.target.value)} placeholder="Meal Description" />
-            
+
             <div className="grid grid-cols-2 gap-4">
                 <HungerScaleDropdown value={preMealHunger} onValueChange={(v) => handleChange('preMealHunger', v)} label="Pre-Meal Hunger" />
                 <div className="space-y-1">
@@ -125,14 +142,14 @@ export const ProtocolContent = ({ onFormStateChange, formState }: Omit<ContentPr
                     </Select>
                 </div>
             </div>
-            
+
             <p className="text-xs text-center text-muted-foreground pt-2">Start Timer After Eating 75% of Your Plated Portion and Then Drinking 20 oz of Water</p>
-            
-             <TwentyMinuteTimer />
+
+            <TwentyMinuteTimer />
 
             <div className="grid grid-cols-2 gap-4">
-                 <HungerScaleDropdown value={postMealHunger} onValueChange={(v) => handleChange('postMealHunger', v)} label="Post-Meal Hunger" />
-                 <div className="space-y-1">
+                <HungerScaleDropdown value={postMealHunger} onValueChange={(v) => handleChange('postMealHunger', v)} label="Post-Meal Hunger" />
+                <div className="space-y-1">
                     <Label>Total % Eaten</Label>
                     <Select value={String(percentageEaten)} onValueChange={(v) => handleChange('percentageEaten', Number(v))}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
