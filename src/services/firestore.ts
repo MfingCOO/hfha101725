@@ -167,7 +167,7 @@ export async function saveHydrationSettingsAction(userId: string, settings: { re
         const timezone = clientTimezone || (await clientRef.get()).data()?.timezone || 'UTC';
 
         // Delete all previous hydration reminders
-        const existingRemindersQuery = remindersCollection.where('userId', '==', userId).where('type', '==', 'hydration_reminder');
+        const existingRemindersQuery = remindersCollection.where('userId', '==', userId).where('type', '==', 'hydration_reminder').where('status', '==', 'scheduled');
         const existingRemindersSnapshot = await existingRemindersQuery.get();
         existingRemindersSnapshot.forEach(doc => batch.delete(doc.ref));
 
