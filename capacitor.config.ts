@@ -1,4 +1,3 @@
-
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
@@ -6,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Hunger Free and Happy',
   webDir: 'out',
   server: {
-    url: 'https://hungerfreeandhappy.app',
+    url: 'http://192.168.1.248:3000',
     cleartext: true
   }
 };
