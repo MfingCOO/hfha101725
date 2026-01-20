@@ -915,72 +915,60 @@ export interface HabitHighlights {
 
 export async function getHabitHighlights(userId: string, periodInDays: number): Promise<{ success: boolean; data?: HabitHighlights; error?: any; }> {
     try {
-        const result = await getAllDataForPeriod(periodInDays, userId);
-        if (!result.success) {
-            return { success: false, error: result.error || 'Failed to fetch data' };
-        }
-        const entries = result.data;
-        
-        const dailyData: Record<string, {
-            calories: number,
-            hydration: number,
-            sleep: number,
-            activity: number,
-            upfScore: number,
-            upfMeals: number,
-        }> = {};
+        const endDate = new Date();
+        const startDate = subDays(endDate, periodInDays - 1);
+        const startStr = format(startOfDay(startDate), 'yyyy-MM-dd');
+        const endStr = format(startOfDay(endDate), 'yyyy-MM-dd');
 
-        // Initialize daily data
-        for (let i = 0; i < periodInDays; i++) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            const dateStr = d.toISOString().split('T')[0];
-            dailyData[dateStr] = { calories: 0, hydration: 0, sleep: 0, activity: 0, upfScore: 0, upfMeals: 0 };
-        }
+        const summariesCollection = adminDb.collection(`clients/${userId}/dailySummaries`);
+        const summariesQuery = summariesCollection.where(FieldPath.documentId(), '>=', startStr).where(FieldPath.documentId(), '<=', endStr);
+        const summariesSnapshot = await summariesQuery.get();
+        const summaries = summariesSnapshot.docs.map(doc => doc.data());
 
-        let cravingsLogged = 0;
-        let bingesLogged = 0;
-        let stressEventsLogged = 0;
+        const cravingsCollection = adminDb.collection(`clients/${userId}/cravings`);
+        const cravingsQuery = cravingsCollection.where('entryDate', '>=', Timestamp.fromDate(startDate)).where('entryDate', '<=', Timestamp.fromDate(endDate));
+        const cravingsSnapshot = await cravingsQuery.get();
 
-        for (const entry of entries) {
-            const entryDate = new Date(entry.entryDate || entry.wakeUpDay);
-            const dateStr = entryDate.toISOString().split('T')[0];
-            
-            if (!dailyData[dateStr]) continue;
+        const stressCollection = adminDb.collection(`clients/${userId}/stress`);
+        const stressQuery = stressCollection.where('entryDate', '>=', Timestamp.fromDate(startDate)).where('entryDate', '<=', Timestamp.fromDate(endDate));
+        const stressSnapshot = await stressQuery.get();
 
-            if (entry.pillar === 'nutrition') {
-                if (entry.summary?.allNutrients?.Energy?.value) {
-                    dailyData[dateStr].calories += entry.summary.allNutrients.Energy.value;
-                }
-                if (entry.summary?.upf) {
-                    dailyData[dateStr].upfScore += entry.summary.upf.score;
-                    dailyData[dateStr].upfMeals++;
-                }
-            } else if (entry.pillar === 'hydration') {
-                dailyData[dateStr].hydration += entry.amount || 0;
-            } else if (entry.pillar === 'activity') {
-                dailyData[dateStr].activity += entry.duration || 0;
-            } else if (entry.pillar === 'sleep' && !entry.isNap) {
-                dailyData[dateStr].sleep = entry.duration || 0;
-            } else if (entry.pillar === 'cravings') {
-                if (entry.type === 'craving') cravingsLogged++;
-                if (entry.type === 'binge') bingesLogged++;
-            } else if (entry.pillar === 'stress' && entry.type === 'event') {
-                 stressEventsLogged++;
+        let totalCalories = 0, totalActivity = 0, totalSleep = 0, totalHydration = 0, totalUpfScore = 0;
+        let daysWithCalories = 0, daysWithActivity = 0, daysWithSleep = 0, daysWithHydration = 0, daysWithUpf = 0;
+
+        summaries.forEach(summary => {
+            if (summary.totalCalories > 0) {
+                totalCalories += summary.totalCalories;
+                daysWithCalories++;
             }
-        }
-        
-        const daysWithCalories = Object.values(dailyData).filter(d => d.calories > 0);
-        const daysWithSleep = Object.values(dailyData).filter(d => d.sleep > 0);
-        const daysWithHydration = Object.values(dailyData).filter(d => d.hydration > 0);
-        const totalUpfMeals = Object.values(dailyData).reduce((acc, d) => acc + d.upfMeals, 0);
+            if (summary.totalActivity > 0) {
+                totalActivity += summary.totalActivity;
+                daysWithActivity++;
+            }
+            if (summary.totalSleep > 0) {
+                totalSleep += summary.totalSleep;
+                daysWithSleep++;
+            }
+            if (summary.totalHydration > 0) {
+                totalHydration += summary.totalHydration;
+                daysWithHydration++;
+            }
+            if (summary.averageUpfScore > 0) {
+                totalUpfScore += summary.averageUpfScore;
+                daysWithUpf++;
+            }
+        });
+
+        const cravingsLogged = cravingsSnapshot.docs.filter(doc => doc.data().type === 'craving').length;
+        const bingesLogged = cravingsSnapshot.docs.filter(doc => doc.data().type === 'binge').length;
+        const stressEventsLogged = stressSnapshot.docs.filter(doc => doc.data().type === 'event').length;
 
         const highlights: HabitHighlights = {
-            averageCalories: daysWithCalories.length > 0 ? Object.values(dailyData).reduce((acc, d) => acc + d.calories, 0) / daysWithCalories.length : null,
-            averageActivity: Object.values(dailyData).reduce((acc, d) => acc + d.activity, 0) / periodInDays,
-            averageSleep: daysWithSleep.length > 0 ? Object.values(dailyData).reduce((acc, d) => acc + d.sleep, 0) / daysWithSleep.length : null,
-            averageHydration: daysWithHydration.length > 0 ? Object.values(dailyData).reduce((acc, d) => acc + d.hydration, 0) / daysWithHydration.length : null,
-            averageUpfScore: totalUpfMeals > 0 ? Object.values(dailyData).reduce((acc, d) => acc + d.upfScore, 0) / totalUpfMeals : null,
+            averageCalories: daysWithCalories > 0 ? totalCalories / daysWithCalories : null,
+            averageActivity: totalActivity / periodInDays,
+            averageSleep: daysWithSleep > 0 ? totalSleep / daysWithSleep : null,
+            averageHydration: daysWithHydration > 0 ? totalHydration / daysWithHydration : null,
+            averageUpfScore: daysWithUpf > 0 ? totalUpfScore / daysWithUpf : null,
             cravingsLogged,
             bingesLogged,
             stressEventsLogged,
@@ -1211,34 +1199,62 @@ export async function processAndRescheduleNotification(userId: string, notificat
                 return;
             }
 
-            if (notification.isRecurring) {
-                const scheduledAt = notification.scheduledAt.toDate();
-                let nextScheduledDate = addDays(scheduledAt, 1);
-            
-                if (notification.type === 'hydration_reminder') {
+            // SAFETY CHECK: If status is already 'delivered', do nothing to prevent double-processing.
+            if (notification.status === 'delivered') {
+                console.log(`[ProcessReminder] Notification ${notificationId} already delivered. Aborting.`);
+                return;
+            }
+
+            // Use a switch statement for robust, type-safe handling.
+            switch (notification.type) {
+                case 'chat_message':
+                    // Chat messages are never recurring. Mark as 'delivered' to prevent re-notification.
+                    transaction.update(notificationRef, { status: 'delivered' });
+                    break;
+                
+                case 'hydration_reminder':
+                    // Hydration reminders are recurring. Reschedule for the next day.
+                    const scheduledAt = notification.scheduledAt.toDate();
                     const clientRef = adminDb.doc(`clients/${userId}`);
+                    
+                    // Fetch the user's timezone to calculate the 'next day' correctly.
                     const clientSnap = await transaction.get(clientRef);
                     const timezone = clientSnap.data()?.timezone || 'UTC';
-                    
-                    const nowInUserTz = toZonedTime(new Date(), timezone);
-                    
+
+                    // Get the original time of the reminder (e.g., "17:30").
                     const originalTime = formatInTimeZone(scheduledAt, timezone, 'HH:mm');
                     const [hours, minutes] = originalTime.split(':').map(Number);
                     
+                    // Get the current date in the user's timezone and advance it by one day.
+                    const nowInUserTz = toZonedTime(new Date(), timezone);
                     const tomorrowInUserTz = addDays(nowInUserTz, 1);
+
+                    // Create the next reminder at the original time, but on the new day.
                     const nextReminderInTz = set(tomorrowInUserTz, { hours, minutes, seconds: 0, milliseconds: 0 });
                     
-                    nextScheduledDate = fromZonedTime(nextReminderInTz, timezone);
-                }
-                
-                transaction.update(notificationRef, {
-                    scheduledAt: Timestamp.fromDate(nextScheduledDate),
-                    status: 'scheduled',
-                });
-            } else {
-                transaction.update(notificationRef, { status: 'delivered' });
+                    const nextScheduledDate = fromZonedTime(nextReminderInTz, timezone);
+
+                    transaction.update(notificationRef, {
+                        scheduledAt: Timestamp.fromDate(nextScheduledDate),
+                        status: 'scheduled', // Keep it 'scheduled' for the future.
+                    });
+                    break;
+
+                default:
+                    // Fallback for any other notification types.
+                    if (notification.isRecurring) {
+                        // For a generic recurring notification, just add 1 day.
+                        const nextScheduledDate = addDays(notification.scheduledAt.toDate(), 1);
+                        transaction.update(notificationRef, {
+                            scheduledAt: Timestamp.fromDate(nextScheduledDate),
+                            status: 'scheduled',
+                        });
+                    } else {
+                        // For a generic non-recurring notification, mark it as delivered.
+                        transaction.update(notificationRef, { status: 'delivered' });
+                    }
+                    break;
             }
-            
         });
 
         return { success: true };
@@ -1248,3 +1264,4 @@ export async function processAndRescheduleNotification(userId: string, notificat
         return { success: false, error: error.message };
     }
 }
+

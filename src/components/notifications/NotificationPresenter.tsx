@@ -12,12 +12,17 @@ export const NotificationPresenter: React.FC = () => {
   const { notifications, removeNotification } = useNotification();
   const { openModal } = useDataEntryModal();
 
-  // --- FIX: Add a guard to prevent crash if notifications is not an array ---
   if (!notifications || !Array.isArray(notifications) || notifications.length === 0) {
     return null;
   }
 
   const currentNotification = notifications[0];
+
+  // If the notification is a hydration reminder, do not render this modal.
+  // The banner-style notification is now handled by NotificationContext.
+  if (currentNotification.type === 'hydration_reminder') {
+    return null;
+  }
 
   const handleDismiss = () => {
     if (removeNotification) {
@@ -30,32 +35,33 @@ export const NotificationPresenter: React.FC = () => {
         openModal(currentNotification.pillarId as any);
         removeNotification(currentNotification.id);
     } else if (currentNotification.ctaType === 'openUrl' && currentNotification.ctaUrl) {
+        // This is the corrected line
         window.open(currentNotification.ctaUrl, '_blank');
     } else {
         removeNotification(currentNotification.id);
     }
   };
 
-  const isHydrationReminder = currentNotification.type === 'hydration_reminder';
+  // This variable is no longer needed as we return null for hydration reminders
+  // const isHydrationReminder = currentNotification.type === 'hydration_reminder';
 
   return (
     <BaseModal isOpen={true} onClose={handleDismiss} title={currentNotification.title}>
       <div className="p-4 flex flex-col items-center">
         <div className="mb-6 flex items-center justify-center h-24 w-24">
-          {isHydrationReminder ? (
-            <Droplet className="h-24 w-24 text-blue-400" />
+          {/* Simplified this block since hydration reminders are no longer processed here */}
+          {currentNotification.imageUrl ? (
+            <div className="relative w-full h-full">
+              <Image
+                src={currentNotification.imageUrl}
+                alt={currentNotification.title}
+                layout="fill"
+                objectFit="cover"
+                className="rounded-lg"
+              />
+            </div>
           ) : (
-            currentNotification.imageUrl && (
-              <div className="relative w-full h-full">
-                <Image
-                  src={currentNotification.imageUrl}
-                  alt={currentNotification.title}
-                  layout="fill"
-                  objectFit="cover"
-                  className="rounded-lg"
-                />
-              </div>
-            )
+            <div className="w-full h-full bg-gray-800 rounded-lg"></div> // Placeholder
           )}
         </div>
         <p className="mb-4 text-center">{currentNotification.message}</p>

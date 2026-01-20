@@ -42,8 +42,8 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
 
-  // Separate states for different notification UIs
-  const [chatNotification, setChatNotification] = useState<InAppMessage | null>(null);
+  // Unified state for banner-style notifications
+  const [bannerNotification, setBannerNotification] = useState<InAppMessage | null>(null);
   const [stickyNotifications, setStickyNotifications] = useState<InAppMessage[]>([]);
 
   // Request browser notification permission
@@ -59,7 +59,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (!user) {
       setPendingNotifications([]);
-      setChatNotification(null);
+      setBannerNotification(null);
       setStickyNotifications([]);
       setProcessedIds(new Set());
       return;
@@ -95,11 +95,12 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
         dueNotifications.forEach(notification => {
           newProcessedIds.add(notification.id);
 
-          // --- ROUTE NOTIFICATION BY TYPE ---
-          if (notification.type === 'chat_message') {
-            setChatNotification(notification);
+          // --- ROUTE NOTIFICATION BY TYPE (THE FIX) ---
+          // Both chat and hydration reminders will now use the banner-style notification.
+          if (notification.type === 'chat_message' || notification.type === 'hydration_reminder') {
+            setBannerNotification(notification);
           } else {
-            // Add to the list for the NotificationPresenter
+            // Other notifications can still use the sticky modal if needed.
             setStickyNotifications(prev => [...prev, notification]);
           }
 
@@ -121,9 +122,9 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     return () => clearInterval(intervalId);
   }, [pendingNotifications, user, processedIds]);
 
-  // Function to close the temporary chat notification
-  const handleCloseChatNotification = () => {
-    setChatNotification(null);
+  // Function to close the temporary banner notification
+  const handleCloseBannerNotification = () => {
+    setBannerNotification(null);
   };
 
   // Function to dismiss a sticky notification from the NotificationPresenter
@@ -134,10 +135,10 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   return (
     <NotificationContext.Provider value={{ notifications: stickyNotifications, removeNotification: removeStickyNotification }}>
       {children}
-      {chatNotification && (
+      {bannerNotification && (
         <ChatNotification 
-          notification={chatNotification} 
-          onClose={handleCloseChatNotification} 
+          notification={bannerNotification} 
+          onClose={handleCloseBannerNotification} 
         />
       )}
     </NotificationContext.Provider>

@@ -3,8 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Workout, ExerciseBlock, WorkoutBlock, GroupBlock, RestBlock } from '@/types/workout-program';
 
-// --- STATE, ACTIONS, AND TYPES ---
-export type WorkoutStatus = 'idle' | 'exercising' | 'resting' | 'paused' | 'rep_based_pause' | 'finished';
+export type WorkoutStatus = 'idle' | 'exercising' | 'resting' | 'paused' | 'rep_based_pause' | 'finished' | 'empty';
 
 export interface WorkoutEngineState {
   status: WorkoutStatus;
@@ -14,7 +13,7 @@ export interface WorkoutEngineState {
   timer: number;
   startTime: number | null;
   elapsedTime: number;
-  performanceData: Array<{ blockId: string; reps?: number; weight?: number }>;
+  performanceData: Array<{ blockId: string; setIndex: number; reps: number; weight: number; }>;
 }
 
 export interface WorkoutEngineActions {
@@ -23,18 +22,18 @@ export interface WorkoutEngineActions {
   resume: () => void;
   endWorkout: () => void;
   tick: () => void;
-  completeSet: (log?: { reps: number; weight: number }) => void;
+  completeSet: (log: { reps: number; weight: number }) => void;
   skipRest: () => void;
   skipExercise: () => void;
   reset: () => void;
-  _advance: () => void; // Internal action
+  _advance: () => void;
 }
 
 const initialState: WorkoutEngineState = {
   status: 'idle',
   workout: null,
   executionFlow: [],
-  currentBlockIndex: -1, // Start at -1, so advancing to 0 starts the first block
+  currentBlockIndex: -1, 
   timer: 0,
   startTime: null,
   elapsedTime: 0,
@@ -52,13 +51,16 @@ const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | Rest
 
             for (let i = 0; i < rounds; i++) {
                 exercisesInGroup.forEach((exercise, j) => {
-                    const setToUse = exercise.sets[i] || exercise.sets[0];
+                    const setIndex = exercise.sets[i] ? i : 0;
+                    const setToUse = exercise.sets[setIndex];
+
                     if (setToUse) {
                         const singleSetExerciseBlock: ExerciseBlock = {
                             ...exercise,
                             id: `${exercise.id}-round-${i}-set-${j}`,
                             sets: [setToUse],
                             restBetweenSets: '0',
+                            setIndex: setIndex, 
                             groupInfo: {
                                 name: groupBlock.name,
                                 currentRound: i + 1,
@@ -80,7 +82,7 @@ const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | Rest
         } else if (block.type === 'exercise') {
             const exerciseBlock = block as ExerciseBlock;
             exerciseBlock.sets.forEach((set, i) => {
-                flow.push({ ...exerciseBlock, id: `${exerciseBlock.id}-set-${i}`, sets: [set] });
+                flow.push({ ...exerciseBlock, id: `${exerciseBlock.id}-set-${i}`, sets: [set], setIndex: i });
                 if (i < exerciseBlock.sets.length - 1 && exerciseBlock.restBetweenSets && Number(exerciseBlock.restBetweenSets) > 0) {
                     flow.push({ id: `${exerciseBlock.id}-set-rest-${i}`, type: 'rest', duration: Number(exerciseBlock.restBetweenSets) });
                 }
@@ -92,19 +94,39 @@ const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | Rest
     return flow;
 };
 
+// --- FIX: Re-instating persistence but in a controlled "smart mode" --- 
 export const useWorkoutEngineStore = create<WorkoutEngineState & WorkoutEngineActions>()(
   persist(
     (set, get) => ({
       ...initialState,
       reset: () => set(initialState),
       startWorkout: (workout) => {
+        // Step 2: Ensure a clean start
+        const currentWorkoutId = get().workout?.id;
+        if (currentWorkoutId !== workout.id) {
+            get().reset();
+        }
+
         const newExecutionFlow = createExecutionFlow(workout.blocks);
         if (newExecutionFlow.length === 0) {
-          set({ workout, status: 'finished' });
+          set({ workout, status: 'empty' });
           return;
         }
-        set({ ...initialState, workout, executionFlow: newExecutionFlow, startTime: Date.now() });
-        get()._advance(); // Kick off the first block
+
+        // Only set start time if it's a brand new workout
+        const isResuming = get().workout?.id === workout.id && get().currentBlockIndex > -1;
+        if (!isResuming) {
+            set({ 
+                ...initialState, 
+                workout, 
+                executionFlow: newExecutionFlow, 
+                startTime: Date.now(),
+            });
+            get()._advance();
+        } else {
+             // This is a refresh/resume scenario, keep the existing times and progress
+            set({ status: 'paused' }); // Default to paused on resume
+        }
       },
       pause: () => {
         const { status } = get();
@@ -164,9 +186,15 @@ export const useWorkoutEngineStore = create<WorkoutEngineState & WorkoutEngineAc
       },
       completeSet: (log) => {
         const { performanceData, executionFlow, currentBlockIndex } = get();
-        const block = executionFlow[currentBlockIndex];
-        if (block && block.type === 'exercise') {
-            set({ performanceData: [...performanceData, { blockId: block.id, ...log }]});
+        const block = executionFlow[currentBlockIndex] as ExerciseBlock | undefined;
+        if (block && block.type === 'exercise' && log) {
+          const newPerformanceEntry = {
+            blockId: block.id,
+            setIndex: block.setIndex ?? 0, 
+            reps: log.reps,
+            weight: log.weight,
+          };
+          set({ performanceData: [...performanceData, newPerformanceEntry] });
         }
         get()._advance();
       },
@@ -179,9 +207,11 @@ export const useWorkoutEngineStore = create<WorkoutEngineState & WorkoutEngineAc
     }),
     {
       name: 'workout-engine-storage',
-      partialize: (state) => Object.fromEntries(
-        Object.entries(state).filter(([key]) => !['_advance'].includes(key))
-      ),
+      // Step 1: Only persist the state needed to resume, never persist the status.
+      partialize: (state) => 
+        Object.fromEntries(
+            Object.entries(state).filter(([key]) => !['status'].includes(key))
+        ),
     }
   )
 );

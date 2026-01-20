@@ -34,9 +34,6 @@ export interface ExerciseBlock extends BaseBlock {
   sets: Set[];
   restBetweenSets?: string;
   notes?: string;
-  // LAZER-FOCUSED CHANGE 1: Add optional metadata to the exercise block.
-  // This allows the engine to "tag" an exercise with its superset context.
-  // The player will look for this information. It's optional to prevent any side effects.
   groupInfo?: {
     name: string;
     currentRound: number;
@@ -44,6 +41,8 @@ export interface ExerciseBlock extends BaseBlock {
     exerciseIndex: number;
     totalExercises: number;
   };
+  // --- FIX: Add setIndex to track the set number within its original exercise ---
+  setIndex?: number;
 }
 
 export interface RestBlock extends BaseBlock {

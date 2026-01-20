@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { CheckCircle, Play, Pause, SkipForward } from 'lucide-react';
+import { CheckCircle, Play, Pause, SkipForward, Info } from 'lucide-react';
 import { useWorkoutEngine } from '@/hooks/use-workout-engine';
 import { formatTime, extractExerciseIds } from '@/lib/utils';
 import { getExercisesByIdsAction } from '@/app/exercises/actions';
@@ -48,9 +48,10 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
     const engine = useWorkoutEngine(workout);
     const [exercises, setExercises] = useState<Map<string, Exercise>>(new Map());
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const hasStartedRef = useRef(false);
 
     useEffect(() => {
-        if (!workout) return;
+        if (!workout || !isOpen) return;
         const fetchExercises = async () => {
             const exerciseIds = extractExerciseIds(workout);
             if (exerciseIds.length > 0) {
@@ -63,60 +64,64 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
             }
         };
         fetchExercises();
-    }, [workout, toast]);
+    }, [workout, isOpen, toast]);
 
     const handleClose = useCallback(() => {
-        if (engine.status !== 'finished') {
-            engine.endWorkout();
-        }
+        engine.resetWorkout();
+        hasStartedRef.current = false;
+        setIsSubmitting(false);
         onClose();
-    }, [engine.status, engine.endWorkout, onClose]);
+    }, [engine, onClose]);
 
     useEffect(() => {
-        if (isOpen && workout && engine.status === 'idle') {
+        if (isOpen && workout && !hasStartedRef.current) {
             engine.startWorkout();
+            hasStartedRef.current = true;
         }
-    }, [isOpen, workout, engine.status, engine.startWorkout]);
+    }, [isOpen, workout, engine]);
 
-    useEffect(() => {
-        const completeAndLogWorkout = async () => {
-            if (engine.status === 'finished' && workout && userProfile && !isSubmitting) {
-                setIsSubmitting(true);
+    const completeAndLogWorkout = useCallback(async () => {
+        if (!workout || !userProfile || isSubmitting) {
+            return;
+        }
+        setIsSubmitting(true);
 
-                const performanceLog: PerformanceLog = {
-                    userId: userProfile.uid,
-                    workoutId: workout.id,
-                    programId: programId || null,
-                    completedAt: new Date(),
-                    duration: engine.elapsedTime,
-                    performance: engine.performanceData,
-                };
-
-                const result = await completeWorkoutAction({
-                    userId: userProfile.uid,
-                    workoutId: workout.id,
-                    startTime: engine.startTime ? new Date(engine.startTime) : new Date(),
-                    duration: workout.duration, // CORRECTED: Use the coach's predetermined duration
-                    performanceLog: performanceLog,
-                    programId: programId,
-                    calendarEventId: calendarEventId,
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    timezoneOffset: new Date().getTimezoneOffset(),
-                });
-
-                if (result.success) {
-                    toast({ title: 'Workout Complete!', description: 'Great job! Your performance has been logged.' });
-                    // Reload the page to ensure the calendar UI updates
-                    setTimeout(() => window.location.reload(), 1000);
-                } else {
-                    toast({ variant: 'destructive', title: 'Logging Failed', description: result.error || 'Could not save your workout performance.' });
-                    setTimeout(handleClose, 1000); // On failure, just close the dialog
-                }
-            }
+        const performanceLog: PerformanceLog = {
+            userId: userProfile.uid,
+            workoutId: workout.id,
+            programId: programId || null,
+            completedAt: new Date(),
+            duration: engine.elapsedTime, // This is the ACTUAL time taken, which is correct for the detailed log
+            performance: engine.performanceData,
         };
 
-        completeAndLogWorkout();
-    }, [engine.status, engine.elapsedTime, engine.performanceData, engine.startTime, workout, userProfile, programId, calendarEventId, isSubmitting, handleClose, toast]);
+        const result = await completeWorkoutAction({
+            userId: userProfile.uid,
+            workoutId: workout.id,
+            startTime: engine.startTime ? new Date(engine.startTime) : new Date(),
+            // --- FIX: Use the coach-defined duration for the calendar activity log ---
+            duration: workout.duration, 
+            performanceLog: performanceLog,
+            programId: programId,
+            calendarEventId: calendarEventId,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            timezoneOffset: new Date().getTimezoneOffset(),
+        });
+
+        if (result.success) {
+            toast({ title: 'Workout Complete!', description: 'Great job! Your performance has been logged.' });
+            setTimeout(() => window.location.reload(), 1000); 
+        } else {
+            toast({ variant: 'destructive', title: 'Logging Failed', description: result.error || 'Could not save your workout performance.' });
+            setIsSubmitting(false); 
+        }
+    }, [workout, userProfile, isSubmitting, programId, calendarEventId, engine, toast]);
+
+    useEffect(() => {
+        if (engine.status === 'finished') {
+            completeAndLogWorkout();
+        }
+    }, [engine.status, completeAndLogWorkout]);
 
 
     const currentExerciseBlock = useMemo(() => engine.currentBlock?.type === 'exercise' ? (engine.currentBlock as ExerciseBlock) : null, [engine.currentBlock]);
@@ -131,9 +136,10 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
                 return <TimedExerciseView exercise={currentExercise} timer={engine.timer} groupInfo={currentExerciseBlock?.groupInfo} onSkip={engine.skipExercise} />;
             case 'rep_based_pause':
                 if (!currentExercise || !engine.currentSet) return <p>Loading exercise...</p>;
-                return <RepBasedView key={`${engine.currentBlockIndex}-${engine.currentSetIndex}`} exercise={currentExercise} set={engine.currentSet} onComplete={engine.completeSet} unitSystem={userProfile.unitSystem || 'metric'} groupInfo={currentExerciseBlock?.groupInfo} />;
+                return <RepBasedView key={engine.currentBlock.id} exercise={currentExercise} set={engine.currentSet} onComplete={engine.completeSet} unitSystem={userProfile.unitSystem || 'metric'} groupInfo={currentExerciseBlock?.groupInfo} />;
             case 'paused': return <PausedView onResume={engine.resumeWorkout} />;
             case 'finished': return <FinishedView workoutName={workout.name} />;
+            case 'empty': return <EmptyWorkoutView workoutName={workout.name}/>;
             default: return <p>Preparing your workout...</p>;
         }
     };
@@ -144,7 +150,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
                 <DialogHeader className="p-4 border-b flex-row items-center justify-between">
                     <DialogTitle className="truncate">{workout?.name || 'Workout'}</DialogTitle>
                     <div className="flex items-center space-x-2">
-                        {engine.status !== 'idle' && engine.status !== 'finished' && (
+                        {engine.status !== 'idle' && engine.status !== 'finished' && engine.status !== 'empty' && (
                             engine.status === 'paused' ? (
                                 <Button variant="ghost" size="icon" onClick={engine.resumeWorkout}><Play className="h-5 w-5"/></Button>
                             ) : (
@@ -168,6 +174,17 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
         </Dialog>
     );
 }
+
+// --- Sub-components (no changes below this line) ---
+
+const EmptyWorkoutView = ({ workoutName }: { workoutName: string }) => (
+    <div className="flex flex-col items-center justify-center h-full text-center">
+        <Info className="h-16 w-16 text-blue-500 mb-6" />
+        <h2 className="text-3xl font-bold mb-2">{workoutName}</h2>
+        <p className="text-lg text-muted-foreground">This is a rest or recovery day.</p>
+        <p className="text-sm text-muted-foreground mt-4">There are no exercises to perform. Enjoy your recovery!</p>
+    </div>
+);
 
 const RestView = ({ timer, onSkip }: { timer: number, onSkip: () => void }) => (
     <div className="flex flex-col items-center justify-center h-full w-full">
@@ -199,7 +216,7 @@ const performanceLogSchema = z.object({
 
 type PerformanceLogValues = z.infer<typeof performanceLogSchema>;
 
-const RepBasedView = ({ exercise, set, onComplete, unitSystem, groupInfo }: { exercise: Exercise, set: Set, onComplete: (log: PerformanceLogValues) => void, unitSystem: 'metric' | 'imperial', groupInfo?: ExerciseBlock['groupInfo'] }) => {
+const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exercise, set: Set, onComplete: (log: PerformanceLogValues) => void, unitSystem: 'metric' | 'imperial', groupInfo?: ExerciseBlock['groupInfo'] }) => {
     const form = useForm<PerformanceLogValues>({
         resolver: zodResolver(performanceLogSchema),
         defaultValues: {
