@@ -46,7 +46,7 @@ async function searchUSDA(query: string): Promise<z.infer<typeof FoodSearchResul
     console.error("[Food Cache] CRITICAL: USDA_API_KEY is not configured in environment variables. Search will not work.");
     return []; 
   }
-  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=50&dataType=Branded,SR%20Legacy,Foundation`;
+  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=150&dataType=Branded,SR%20Legacy,Foundation`;
   try {
     const response = await fetch(url);
     if (!response.ok) {
@@ -66,23 +66,31 @@ async function searchUSDA(query: string): Promise<z.infer<typeof FoodSearchResul
   }
 }
 
-export async function hybridFoodSearch(query: string): Promise<HybridFoodSearchResult[]> {
+export async function hybridFoodSearch(query: string, scope: 'all' | 'cached' | 'usda' = 'all'): Promise<HybridFoodSearchResult[]> {
     if (query.length < 2) return [];
     
     const lowercasedQuery = query.toLowerCase();
+    const resultsMap = new Map<number, HybridFoodSearchResult>();
 
-    const usdaPromise = searchUSDA(query);
-    const localPromise = adminDb.collection('global-food-cache')
-        .where('searchableDescription', '>=', lowercasedQuery)
-        .where('searchableDescription', '<=', lowercasedQuery + '\uf8ff')
-        .limit(25)
-        .get();
+    // Promise placeholders
+    let usdaPromise: Promise<any[]> = Promise.resolve([]);
+    let localPromise: Promise<any> = Promise.resolve({ docs: [] });
+
+    if (scope === 'all' || scope === 'usda') {
+        usdaPromise = searchUSDA(query);
+    }
+    if (scope === 'all' || scope === 'cached') {
+        localPromise = adminDb.collection('global-food-cache')
+            .where('searchableDescription', '>=', lowercasedQuery)
+            .where('searchableDescription', '<=', lowercasedQuery + '\uf8ff')
+            .limit(150) // Increased limit for filtered searches
+            .get();
+    }
 
     const [usdaResults, localSnapshot] = await Promise.all([usdaPromise, localPromise]);
 
-    const resultsMap = new Map<number, HybridFoodSearchResult>();
-
-    localSnapshot.docs.forEach(doc => {
+    // Process local results first to give them priority
+    localSnapshot.docs.forEach((doc: any) => {
         const food = doc.data() as EnrichedFood;
         resultsMap.set(food.fdcId, {
             fdcId: food.fdcId,
@@ -92,10 +100,12 @@ export async function hybridFoodSearch(query: string): Promise<HybridFoodSearchR
         });
     });
 
-    if (usdaResults.length > 0) {
+    // Process USDA results, respecting the scope and avoiding duplicates
+    if (scope !== 'cached' && usdaResults.length > 0) {
         const usdaFdcIds = usdaResults.map(f => f.fdcId).filter(id => !resultsMap.has(id));
         
         if (usdaFdcIds.length > 0) {
+            // Check which of the USDA results are already in our cache
             const cachedIds = await checkCachedStatus(usdaFdcIds);
             const cachedIdsSet = new Set(cachedIds);
 
@@ -112,9 +122,19 @@ export async function hybridFoodSearch(query: string): Promise<HybridFoodSearchR
         }
     }
 
-    return Array.from(resultsMap.values()).sort((a, b) => a.description.localeCompare(b.description));
-}
+    // If scope is 'usda' only, filter out any cached items that might have slipped in
+    const finalResults = Array.from(resultsMap.values()).filter(result => {
+        if (scope === 'cached') return result.isCached;
+        // A check to ensure only non-cached items appear in USDA search.
+        if (scope === 'usda') {
+            const correspondingUsdaResult = usdaResults.find(u => u.fdcId === result.fdcId);
+            return correspondingUsdaResult && !result.isCached;
+        }
+        return true;
+    });
 
+    return finalResults.sort((a, b) => a.description.localeCompare(b.description));
+}
 
 export async function getFoodDetails(fdcId: number) {
     const USDA_API_KEY = process.env.USDA_API_KEY;
@@ -192,6 +212,24 @@ export async function getEnrichedFood(fdcId: number): Promise<EnrichedFood | nul
     const docSnap = await foodDocRef.get();
     if (!docSnap.exists) return null;
     return convertTimestampsToISO(docSnap.data()) as EnrichedFood;
+}
+
+export async function getEnrichedFoodsForExport(fdcIds: number[]): Promise<EnrichedFood[]> {
+    if (fdcIds.length === 0) return [];
+
+    const foodCacheRef = adminDb.collection('global-food-cache');
+    const enrichedFoods: EnrichedFood[] = [];
+    const CHUNK_SIZE = 30; // Firestore 'in' query supports up to 30 elements
+
+    for (let i = 0; i < fdcIds.length; i += CHUNK_SIZE) {
+        const chunk = fdcIds.slice(i, i + CHUNK_SIZE);
+        const snapshot = await foodCacheRef.where('fdcId', 'in', chunk).get();
+        snapshot.forEach(doc => {
+            enrichedFoods.push(convertTimestampsToISO(doc.data()) as EnrichedFood);
+        });
+    }
+
+    return enrichedFoods;
 }
 
 export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFood | null> {

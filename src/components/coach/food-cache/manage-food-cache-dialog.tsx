@@ -1,23 +1,32 @@
 'use client';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { hybridFoodSearch, bulkSaveFoodsToCache } from '@/app/coach/food-cache/actions';
+import { hybridFoodSearch, bulkSaveFoodsToCache, getEnrichedFoodsForExport, getFoodDetails } from '@/app/coach/food-cache/actions';
 import { FoodCacheModal } from '@/components/coach/food-cache/food-cache-modal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { HybridFoodSearchResult } from '@/types';
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Label } from '@/components/ui/label';
+import { HybridFoodSearchResult, EnrichedFood } from '@/types';
 
 interface ManageFoodCacheDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+const CSV_HEADERS = [
+    'fdcId', 'description', 'brandName', 'calories', 'protein', 'fat', 
+    'carbs', 'sugar', 'fiber', 'servingSizes', 'upfPercentage', 
+    'novaGroup', 'isGlutenFree', 'ingredients'
+];
+
 export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDialogProps) {
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<HybridFoodSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+  const [searchScope, setSearchScope] = useState<'all' | 'cached' | 'usda'>('all');
+
   const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
   const [selectedFdcId, setSelectedFdcId] = useState<number | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('edit');
@@ -25,6 +34,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const performSearch = useCallback(async () => {
     if (query.length < 2) {
@@ -34,7 +44,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
     setIsLoading(true);
     setError(null);
     try {
-      const results = await hybridFoodSearch(query);
+      const results = await hybridFoodSearch(query, searchScope);
       setSearchResults(results);
     } catch (e) {
       setError('Failed to search for food items.');
@@ -42,7 +52,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
     } finally {
       setIsLoading(false);
     }
-  }, [query]);
+  }, [query, searchScope]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
@@ -73,6 +83,75 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
     fileInputRef.current?.click();
   };
 
+  const handleDownloadCsv = async () => {
+    if (searchResults.length === 0) return;
+    setIsDownloading(true);
+    setError(null);
+
+    try {
+        const cachedFdcIds = searchResults.filter(r => r.isCached).map(r => r.fdcId);
+        const nonCachedFdcIds = searchResults.filter(r => !r.isCached).map(r => r.fdcId);
+
+        const [cachedFoods, nonCachedFoodsDetails] = await Promise.all([
+            cachedFdcIds.length > 0 ? getEnrichedFoodsForExport(cachedFdcIds) : Promise.resolve([]),
+            Promise.all(nonCachedFdcIds.map(id => getFoodDetails(id)))
+        ]);
+
+        const allFoodsForCsv = [...cachedFoods, ...nonCachedFoodsDetails.filter(Boolean)];
+
+        const escapeCsvField = (field: any): string => {
+            const stringField = String(field ?? '');
+            // Escape double quotes by doubling them and wrap the whole field in double quotes
+            return `"${stringField.replace(/"/g, '""')}"`;
+        };
+        
+        const csvRows = allFoodsForCsv.map(food => {
+            if (!food) return null;
+            const getNutrient = (name: string) => food.nutrients.find(n => n.name.toLowerCase().includes(name))?.amount || '';
+            
+            const rowData = {
+                fdcId: food.fdcId,
+                description: food.description || '',
+                brandName: (food as any).brandOwner || '',
+                calories: getNutrient('energy') || getNutrient('calories'),
+                protein: getNutrient('protein'),
+                fat: getNutrient('fat'),
+                carbs: getNutrient('carbohydrate'),
+                sugar: getNutrient('sugars'),
+                fiber: getNutrient('fiber'),
+                servingSizes: (food as any).portionSizes?.map((p: any) => `${p.description}:${p.gramWeight}`).join('|') || '',
+                upfPercentage: (food as any).upfPercentage?.value ?? '',
+                novaGroup: (food as any).upfAnalysis?.rating || '',
+                isGlutenFree: (food as any).glutenAnalysis?.isGlutenFree ?? '',
+                ingredients: food.ingredients || ''
+            };
+
+            return CSV_HEADERS.map(header => escapeCsvField(rowData[header as keyof typeof rowData])).join(',');
+        }).filter(Boolean);
+
+        if (csvRows.length === 0) {
+            setError("No detailed data could be fetched for the selected items.");
+            return;
+        }
+
+        const csvString = [CSV_HEADERS.join(','), ...csvRows].join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `food_cache_export_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+    } catch (error) {
+        console.error("Failed to download CSV", error);
+        setError("Failed to prepare data for download. Check console for details.");
+    } finally {
+        setIsDownloading(false);
+    }
+  };
+
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -90,7 +169,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
                   message: `Success! Processed ${result.details.total} rows. Created: ${result.details.created}, Updated: ${result.details.updated}.`,
                   type: 'success' 
               });
-              performSearch(); // Refresh search to show new items
+              performSearch(); 
           } else {
               setUploadStatus({ message: result.error || 'An unknown error occurred during upload.', type: 'error' });
           }
@@ -99,7 +178,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
       } finally {
           setIsUploading(false);
           if (event.target) {
-              event.target.value = ''; // Allow re-uploading the same file
+              event.target.value = ''; 
           }
       }
   };
@@ -118,12 +197,34 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
             style={{ display: 'none' }}
             accept=".csv"
           />
-          <div className="py-4">
+          <div className="flex items-center space-x-6 py-2 border-b mb-4">
+            <Label className="font-semibold">Search Scope:</Label>
+            <RadioGroup
+                value={searchScope}
+                onValueChange={(value: 'all' | 'cached' | 'usda') => setSearchScope(value)}
+                className="flex items-center space-x-4"
+            >
+                <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="all" id="scope-all" />
+                    <Label htmlFor="scope-all">All Items</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="cached" id="scope-cached" />
+                    <Label htmlFor="scope-cached">In Cache</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="usda" id="scope-usda" />
+                    <Label htmlFor="scope-usda">USDA Only</Label>
+                </div>
+            </RadioGroup>
+          </div>
+
+          <div>
             <Input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search local cache or USDA database..."
+              placeholder={`Search in ${searchScope.charAt(0).toUpperCase() + searchScope.slice(1)}...`}
             />
           </div>
 
@@ -162,6 +263,13 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
               </Button>
               <Button variant="secondary" onClick={handleBulkAddClick} disabled={isUploading}>
                 {isUploading ? 'Uploading...' : 'Bulk Add From CSV'}
+              </Button>
+              <Button 
+                variant="secondary"
+                onClick={handleDownloadCsv}
+                disabled={isDownloading || searchResults.length === 0}
+              >
+                {isDownloading ? 'Downloading...' : 'Download as CSV'}
               </Button>
             </div>
             <Button variant="outline" onClick={() => onOpenChange(false)}>
