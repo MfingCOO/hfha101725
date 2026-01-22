@@ -18,9 +18,8 @@ export const NotificationPresenter: React.FC = () => {
 
   const currentNotification = notifications[0];
 
-  // If the notification is a hydration reminder, do not render this modal.
-  // The banner-style notification is now handled by NotificationContext.
-  if (currentNotification.type === 'hydration_reminder') {
+  // If the notification is a hydration reminder or a chat message, do not render this modal.
+  if (currentNotification.type === 'hydration_reminder' || currentNotification.type === 'chat_message') {
     return null;
   }
 
@@ -42,14 +41,10 @@ export const NotificationPresenter: React.FC = () => {
     }
   };
 
-  // This variable is no longer needed as we return null for hydration reminders
-  // const isHydrationReminder = currentNotification.type === 'hydration_reminder';
-
   return (
     <BaseModal isOpen={true} onClose={handleDismiss} title={currentNotification.title}>
       <div className="p-4 flex flex-col items-center">
         <div className="mb-6 flex items-center justify-center h-24 w-24">
-          {/* Simplified this block since hydration reminders are no longer processed here */}
           {currentNotification.imageUrl ? (
             <div className="relative w-full h-full">
               <Image

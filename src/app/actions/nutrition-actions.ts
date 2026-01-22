@@ -2,7 +2,7 @@
 
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp, FieldPath } from 'firebase-admin/firestore';
-import { searchUSDA } from '@/app/coach/food-cache/actions';
+import { hybridFoodSearch } from '@/app/coach/food-cache/actions';
 import { EnrichedFood, MealItem, SavedMeal, SearchResult, NovaGroup } from '@/types';
 
 // Helper to map string rating to NovaGroup enum
@@ -123,7 +123,7 @@ export async function analyzeAndCacheFood(fdcId: number): Promise<EnrichedFood |
 export async function getFoodSearchResults({ query }: { query: string; }): Promise<SearchResult[]> {
     if (!query) return [];
     try {
-        const results = await searchUSDA(query);
+        const results = await hybridFoodSearch(query);
         return results.map(food => ({
             fdcId: food.fdcId,
             description: food.description,
