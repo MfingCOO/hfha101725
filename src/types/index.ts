@@ -224,7 +224,7 @@ export const EnrichedFoodSchema = z.object({
     brandOwner: z.string().optional(),
     ingredients: z.string().optional(),
     nutrients: z.array(NutrientSchema),
-    source: z.enum(['AI_ANALYSIS', 'USER_PROVIDED']),
+    source: z.enum(['AI_ANALYSIS', 'USER_PROVIDED', 'MANUAL_BULK']),
     analysisDate: z.string(),
     upfAnalysis: UpfAnalysisSchema,
     glutenAnalysis: GlutenAnalysisSchema.optional(),

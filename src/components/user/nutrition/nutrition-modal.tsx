@@ -19,7 +19,7 @@ import { type EnrichedFood, type MealItem, NovaGroup, type Portion } from '@/typ
 import { Button } from '@/components/ui/button';
 import { FoodItemRow } from './food-item-row';
 import { toggleFavoriteFood, getFavoriteFoods } from '@/app/actions/nutrition-actions';
-import { getOrEnrichFoodForUser } from '@/app/coach/food-cache/actions';
+import { getEnrichedFood, getOrEnrichFoodForUser } from '@/app/coach/food-cache/actions';
 import { useSearchStore } from '@/store/search-store';
 
 const RECENT_FOODS_KEY = 'recentFoods';
@@ -30,6 +30,7 @@ interface SimpleFood {
   description: string;
   brandOwner?: string;
   ingredients?: string;
+  isCached?: boolean;
 }
 
 const addRecentFood = (food: EnrichedFood) => {
@@ -154,7 +155,16 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
     setSelectedFood(null);
 
     try {
-      const enrichedFood = await getOrEnrichFoodForUser(food.fdcId);
+      const isCached = 'isCached' in food && food.isCached;
+      let enrichedFood: EnrichedFood | null = null;
+
+      if (isCached) {
+        console.log(`[NutritionModal] Food is cached. Fetching full enriched data for ${food.fdcId}.`);
+        enrichedFood = await getEnrichedFood(food.fdcId);
+      } else {
+        console.log(`[NutritionModal] Food not cached. Enriching data for ${food.fdcId}.`);
+        enrichedFood = await getOrEnrichFoodForUser(food.fdcId);
+      }
       
       if (enrichedFood) {
         console.log(`[NutritionModal] Analysis complete for ${food.fdcId}.`);

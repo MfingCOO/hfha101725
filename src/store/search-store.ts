@@ -8,6 +8,7 @@ interface SimpleFoodSearchResult {
   description: string;
   brandOwner?: string;
   ingredients?: string;
+  isCached?: boolean;
 }
 
 // Define the state and actions for our store

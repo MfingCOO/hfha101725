@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server';
+import { algoliaAdmin, foodCacheIndex } from '@/lib/algoliaAdmin';
 
-// This is a standard Next.js API route.
-// It is not a Server Action and does not use Genkit directly.
 export async function GET(request: Request) {
-  // This console.log is the most important part. 
-  // If this appears in your terminal, we have a working connection.
-  console.log('[API Route] The temporary test endpoint was successfully called.');
-  
-  // We return a simple JSON response to the browser.
-  return NextResponse.json({ message: 'Success! The API route is working.' });
+  // The import above will trigger the console.log in the algoliaAdmin.ts file.
+  // The log will appear in the terminal where `npm run dev` is running.
+  const message = `The API route is working. foodCacheIndex is currently ${foodCacheIndex}. Check the 'npm run dev' terminal for diagnostic logs.`;
+  return NextResponse.json({ message });
 }

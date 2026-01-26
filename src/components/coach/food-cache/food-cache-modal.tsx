@@ -21,7 +21,7 @@ const FormSchema = z.object({
   description: z.string().min(1, 'Description is required'),
   brandOwner: z.string().optional(),
   ingredients: z.string().optional(),
-  source: z.enum(['AI_ANALYSIS', 'USER_PROVIDED']),
+  source: z.enum(['AI_ANALYSIS', 'USER_PROVIDED', 'MANUAL_BULK']),
   analysisDate: z.string(),
   upfAnalysis: z.object({
     rating: z.nativeEnum(NovaGroup),
@@ -178,7 +178,13 @@ export const FoodCacheModal: React.FC<FoodCacheModalProps> = ({ isOpen, onClose,
     setIsLoading(true);
     setError(null);
     try {
-      const result = await saveManualEnrichedFood(data);
+      // Filter out any empty portion size rows before submitting
+      const cleanedData = {
+        ...data,
+        portionSizes: data.portionSizes.filter(p => p.description && p.gramWeight > 0),
+      };
+      const result = await saveManualEnrichedFood(cleanedData);
+
       if (result.success) {
         toast.success(isNew ? 'Food created successfully!' : 'Food updated successfully!');
         onClose();

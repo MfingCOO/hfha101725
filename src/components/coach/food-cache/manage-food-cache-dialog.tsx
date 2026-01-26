@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { hybridFoodSearch, bulkSaveFoodsToCache, getEnrichedFoodsForExport, getFoodDetails } from '@/app/coach/food-cache/actions';
+import { hybridFoodSearch, bulkSaveFoodsToCache, getDetailsForCsvExport } from '@/app/coach/food-cache/actions';
 import { FoodCacheModal } from '@/components/coach/food-cache/food-cache-modal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -89,19 +89,10 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
     setError(null);
 
     try {
-        const cachedFdcIds = searchResults.filter(r => r.isCached).map(r => r.fdcId);
-        const nonCachedFdcIds = searchResults.filter(r => !r.isCached).map(r => r.fdcId);
-
-        const [cachedFoods, nonCachedFoodsDetails] = await Promise.all([
-            cachedFdcIds.length > 0 ? getEnrichedFoodsForExport(cachedFdcIds) : Promise.resolve([]),
-            Promise.all(nonCachedFdcIds.map(id => getFoodDetails(id)))
-        ]);
-
-        const allFoodsForCsv = [...cachedFoods, ...nonCachedFoodsDetails.filter(Boolean)];
+        const allFoodsForCsv = await getDetailsForCsvExport(searchResults);
 
         const escapeCsvField = (field: any): string => {
             const stringField = String(field ?? '');
-            // Escape double quotes by doubling them and wrap the whole field in double quotes
             return `"${stringField.replace(/"/g, '""')}"`;
         };
         
