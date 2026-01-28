@@ -1,6 +1,6 @@
-'use client';
+ 'use client';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { hybridFoodSearch, bulkSaveFoodsToCache, getDetailsForCsvExport } from '@/app/coach/food-cache/actions';
+import { hybridFoodSearch, bulkSaveFoodsToCache, getDetailsForCsvExport, getUnreviewedUserFoods } from '@/app/coach/food-cache/actions';
 import { FoodCacheModal } from '@/components/coach/food-cache/food-cache-modal';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from '@/components/ui/label';
 import { HybridFoodSearchResult, EnrichedFood } from '@/types';
+import { useAuth } from '@/components/auth/auth-provider';
 
 interface ManageFoodCacheDialogProps {
   open: boolean;
@@ -36,6 +37,10 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
+  const [isReviewMode, setIsReviewMode] = useState(false);
+  const [reviewItems, setReviewItems] = useState<EnrichedFood[]>([]);
+  const { user } = useAuth();
+
   const performSearch = useCallback(async () => {
     if (query.length < 2) {
       setSearchResults([]);
@@ -55,11 +60,12 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
   }, [query, searchScope]);
 
   useEffect(() => {
+    if (isReviewMode) return;
     const delayDebounceFn = setTimeout(() => {
       if(open) performSearch();
     }, 300);
     return () => clearTimeout(delayDebounceFn);
-  }, [query, open, performSearch]);
+  }, [query, open, performSearch, isReviewMode]);
 
   const handleOpenEditorModal = (fdcId: number) => {
     setSelectedFdcId(fdcId);
@@ -76,12 +82,38 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
   const handleCloseEditorModal = () => {
     setIsEditorModalOpen(false);
     setSelectedFdcId(null);
-    performSearch();
+    if (isReviewMode) {
+        enterReviewMode(); // Refresh review queue
+    } else {
+        performSearch(); // Refresh search results
+    }
   };
 
   const handleBulkAddClick = () => {
     fileInputRef.current?.click();
   };
+
+  const enterReviewMode = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+        const items = await getUnreviewedUserFoods();
+        setReviewItems(items);
+        setIsReviewMode(true);
+    } catch (e) {
+        setError('Failed to load review queue.');
+        console.error(e);
+    } finally {
+        setIsLoading(false);
+    }
+  }
+
+  const exitReviewMode = () => {
+      setIsReviewMode(false);
+      setError(null);
+      setReviewItems([]);
+      performSearch();
+  }
 
   const handleDownloadCsv = async () => {
     if (searchResults.length === 0) return;
@@ -174,12 +206,53 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
       }
   };
 
+  const MainContent = () => {
+    if (isReviewMode) {
+        return (
+            <div className="space-y-2 max-h-[50vh] overflow-y-auto p-1">
+                <Button variant="link" onClick={exitReviewMode} className="mb-2">← Back to Search</Button>
+                {reviewItems.length === 0 && !isLoading && <p className="text-center text-muted-foreground">No user-submitted foods to review.</p>}
+                {reviewItems.map((food) => (
+                    <div key={food.fdcId} className="p-3 border rounded-lg flex justify-between items-center">
+                        <div>
+                            <p className="font-semibold">{food.description}</p>
+                            <p className="text-sm text-muted-foreground">{food.brandOwner || 'No brand'} - Submitted by user {food.createdBy?.substring(0,5)}...</p>
+                        </div>
+                        <Button variant='secondary' onClick={() => handleOpenEditorModal(food.fdcId)}>Review & Edit</Button>
+                    </div>
+                ))}
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-2 max-h-[50vh] overflow-y-auto p-1">
+            {searchResults.map((food) => (
+                <div key={food.fdcId} className="p-3 border rounded-lg flex justify-between items-center">
+                    <div className='max-w-prose'>
+                        <p className="font-semibold">{food.description}</p>
+                        <p className="text-sm text-muted-foreground">{food.brandOwner}</p>
+                    </div>
+                    <div className="flex items-center space-x-4 flex-shrink-0 ml-4">
+                    {food.isCached && <span className="text-sm font-semibold text-green-500">In Cache</span>}
+                    <Button 
+                        variant={food.isCached ? 'secondary' : 'default'}
+                        onClick={() => handleOpenEditorModal(food.fdcId)}>
+                        {food.isCached ? 'Edit' : 'Add'}
+                    </Button>
+                    </div>
+                </div>
+            ))}
+      </div>
+    );
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Manage Food Cache</DialogTitle>
+            <DialogTitle>{isReviewMode ? 'Review Custom Foods' : 'Manage Food Cache'}</DialogTitle>
           </DialogHeader>
           <input
             type="file"
@@ -188,36 +261,39 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
             style={{ display: 'none' }}
             accept=".csv"
           />
-          <div className="flex items-center space-x-6 py-2 border-b mb-4">
-            <Label className="font-semibold">Search Scope:</Label>
-            <RadioGroup
-                value={searchScope}
-                onValueChange={(value: 'all' | 'cached' | 'usda') => setSearchScope(value)}
-                className="flex items-center space-x-4"
-            >
-                <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="all" id="scope-all" />
-                    <Label htmlFor="scope-all">All Items</Label>
+          {!isReviewMode && (
+            <>
+                <div className="flex items-center space-x-6 py-2 border-b mb-4">
+                    <Label className="font-semibold">Search Scope:</Label>
+                    <RadioGroup
+                        value={searchScope}
+                        onValueChange={(value: 'all' | 'cached' | 'usda') => setSearchScope(value)}
+                        className="flex items-center space-x-4"
+                    >
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="all" id="scope-all" />
+                            <Label htmlFor="scope-all">All Items</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="cached" id="scope-cached" />
+                            <Label htmlFor="scope-cached">In Cache</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="usda" id="scope-usda" />
+                            <Label htmlFor="scope-usda">USDA Only</Label>
+                        </div>
+                    </RadioGroup>
                 </div>
-                <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="cached" id="scope-cached" />
-                    <Label htmlFor="scope-cached">In Cache</Label>
+                <div>
+                    <Input
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={`Search in ${searchScope.charAt(0).toUpperCase() + searchScope.slice(1)}...`}
+                    />
                 </div>
-                <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="usda" id="scope-usda" />
-                    <Label htmlFor="scope-usda">USDA Only</Label>
-                </div>
-            </RadioGroup>
-          </div>
-
-          <div>
-            <Input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={`Search in ${searchScope.charAt(0).toUpperCase() + searchScope.slice(1)}...`}
-            />
-          </div>
+            </>
+          )}
 
           {uploadStatus && (
             <p className={`text-sm text-center py-2 px-4 rounded-md ${uploadStatus.type === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-green-500/10 text-green-600'}`}>
@@ -228,24 +304,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
           {isLoading && <p className='text-center py-4'>Searching...</p>}
           {error && <p className="text-destructive text-center py-4">{error}</p>}
 
-          <div className="space-y-2 max-h-[50vh] overflow-y-auto p-1">
-            {searchResults.map((food) => (
-              <div key={food.fdcId} className="p-3 border rounded-lg flex justify-between items-center">
-                <div className='max-w-prose'>
-                  <p className="font-semibold">{food.description}</p>
-                  <p className="text-sm text-muted-foreground">{food.brandOwner}</p>
-                </div>
-                <div className="flex items-center space-x-4 flex-shrink-0 ml-4">
-                  {food.isCached && <span className="text-sm font-semibold text-green-500">In Cache</span>}
-                  <Button 
-                      variant={food.isCached ? 'secondary' : 'default'}
-                      onClick={() => handleOpenEditorModal(food.fdcId)}>
-                      {food.isCached ? 'Edit' : 'Add'}
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <MainContent />
 
           <DialogFooter className="sm:justify-between pt-4">
             <div className="flex items-center space-x-2">
@@ -262,6 +321,12 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
               >
                 {isDownloading ? 'Downloading...' : 'Download as CSV'}
               </Button>
+              <Button 
+                variant="secondary"
+                onClick={enterReviewMode}
+              >
+                Review Custom Foods
+              </Button>
             </div>
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Close
@@ -276,6 +341,8 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
           onClose={handleCloseEditorModal}
           fdcId={selectedFdcId}
           mode={modalMode}
+          isCoach={true}
+          user={user}
         />
       )}
     </>

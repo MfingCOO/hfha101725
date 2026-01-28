@@ -1,3 +1,4 @@
+
 import { z } from "zod";
 
 // Defines the subscription tiers available in the application.
@@ -232,6 +233,8 @@ export const EnrichedFoodSchema = z.object({
     portionSizes: PortionSizesSchema,
     createdAt: z.any().optional(),
     updatedAt: z.any().optional(),
+    status: z.string().optional(),
+    createdBy: z.string().optional(),
 });
 export type EnrichedFood = z.infer<typeof EnrichedFoodSchema>;
 

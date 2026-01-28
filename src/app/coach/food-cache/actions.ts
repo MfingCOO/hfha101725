@@ -1,6 +1,6 @@
 'use server';
 
-import { db as adminDb } from '@/lib/firebaseAdmin';
+import { db as adminDb, auth } from '@/lib/firebaseAdmin';
 import { FoodData, BrandedFoodItem } from '@/lib/usda-food-types';
 import {
   EnrichedFood,
@@ -19,6 +19,9 @@ import {
 import { z } from 'zod';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { algoliaAdmin } from '@/lib/algoliaAdmin';
+import { cookies } from 'next/headers';
+import { revalidatePath } from 'next/cache';
+
 
 const parsePortionSizes = (value: any): PortionSize[] => {
     if (Array.isArray(value)) {
@@ -348,10 +351,11 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
     const docSnap = await foodDocRef.get();
 
     if (docSnap.exists) {
-        const cachedFood = docSnap.data() as EnrichedFood;
-        if (cachedFood.nutrients && cachedFood.nutrients.length > 0) {
-            return convertTimestampsToISO(cachedFood);
-        }
+        // If the food exists in the cache, return the cached data directly.
+        // This is the definitive fix for the "0-nutrient" bug. It ensures that
+        // if we have data in our database for a food, we use that data
+        // and do not proceed to the AI enrichment flow.
+        return convertTimestampsToISO(docSnap.data()) as EnrichedFood;
     }
 
     const foodDetails = await getFoodDetails(fdcId);
@@ -420,50 +424,87 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
     return convertTimestampsToISO(newEnrichedFood);
 }
 
-export async function saveManualEnrichedFood(foodData: EnrichedFood): Promise<{ success: boolean, error?: string }> {
-    const foodDocRef = adminDb.collection('global-food-cache').doc(String(foodData.fdcId));
+export async function saveManualEnrichedFood(foodData: EnrichedFood, idToken: string): Promise<{ success: boolean; error?: string; food?: EnrichedFood; }> {
+    if (!idToken) {
+        return { success: false, error: 'Authentication token not provided.' };
+    }
+    
+    let decodedToken;
     try {
-        const cleanedPortions = parsePortionSizes(foodData.portionSizes as any);
+        decodedToken = await auth.verifyIdToken(idToken);
+    } catch (error: any) {
+        console.error("[Auth] Error verifying token in saveManualEnrichedFood:", error);
+        return { success: false, error: 'Your session is invalid. Please log in again.' };
+    }
+    
 
+    // 2. Prepare the data for Firestore
+    const { uid: userId, isCoach } = decodedToken;
+    const foodDocRef = adminDb.collection('global-food-cache').doc(String(foodData.fdcId));
+
+    try {
         const { createdAt, updatedAt, ...restOfFoodData } = foodData;
-        
+        const docSnap = await foodDocRef.get();
+
+        // This object will be merged into the document.
         const dataToSave: any = {
-            ...restOfFoodData,
-            portionSizes: cleanedPortions, 
+            ...restOfFoodData, // The bulk of the food data from the form
             searchableDescription: foodData.description.toLowerCase(),
-            analysisDate: Timestamp.fromDate(foodData.analysisDate && !isNaN(new Date(foodData.analysisDate).getTime()) ? new Date(foodData.analysisDate) : new Date()),
             updatedAt: FieldValue.serverTimestamp(),
         };
 
-        const docSnap = await foodDocRef.get();
-        if (docSnap.exists) {
-            await foodDocRef.update(dataToSave);
+        // Convert ISO string date from client to Firestore Timestamp
+        if (foodData.analysisDate && !isNaN(new Date(foodData.analysisDate).getTime())) {
+            dataToSave.analysisDate = Timestamp.fromDate(new Date(foodData.analysisDate));
         } else {
+            dataToSave.analysisDate = FieldValue.serverTimestamp();
+        }
+
+        // 3. Apply business logic based on create vs. update
+        if (docSnap.exists) {
+            // This is an UPDATE
+            const existingData = docSnap.data();
+            // If a coach is editing a food submitted by a user, it's now "approved"
+            if (isCoach && existingData?.source === 'USER_PROVIDED') {
+                dataToSave.source = 'MANUAL_BULK';
+            }
+            // We don't overwrite the original creator or creation date
+        } else {
+            // This is a CREATE
             dataToSave.createdAt = FieldValue.serverTimestamp();
-            await foodDocRef.set(dataToSave, { merge: true });
+            dataToSave.createdBy = userId;
+            // When creating, the source is determined by the user's role
+            dataToSave.source = isCoach ? 'MANUAL_BULK' : 'USER_PROVIDED';
         }
 
-        try {
-            const algoliaObject = {
-                ...dataToSave,
-                objectID: String(foodData.fdcId),
-                analysisDate: dataToSave.analysisDate.toDate().toISOString(),
-                updatedAt: new Date().toISOString(),
-            };
-            delete algoliaObject.createdAt; 
+        // 4. Save to Firestore
+        await foodDocRef.set(dataToSave, { merge: true });
+// After saving, fetch the complete document to get server-generated timestamps
+const finalDoc = await foodDocRef.get();
+const finalData = finalDoc.data();
 
-            await algoliaAdmin.saveObjects({ indexName: 'food_cache', objects: [algoliaObject] });
-        } catch (algoliaError) {
-            console.error(`[Algolia Sync] Failed to sync fdcId ${foodData.fdcId} after manual save.`, algoliaError);
-        }
+if (!finalData) {
+     throw new Error("Failed to retrieve saved food data from Firestore.");
+}
 
-        return { success: true };
-    } catch(error) {
-        console.error("CRITICAL ERROR: Failed to save enriched food to Firestore:", error);
-        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+const finalFoodObject = convertTimestampsToISO(finalData) as EnrichedFood;
+
+        // 5. Sync with Algolia
+try {
+    await algoliaAdmin.saveObjects({ indexName: 'food_cache', objects: [{ objectID: String(foodData.fdcId), ...finalFoodObject }] });
+} catch (algoliaError) {
+    console.error(`[Algolia Sync] Failed to sync fdcId ${foodData.fdcId} after manual save.`, algoliaError);
+    // We don't fail the whole operation for this, just log it.
+}
+      // This line has been removed to fix the saving functionality.
+        return { success: true, food: finalFoodObject };
+    } catch (dbError) {
+        console.error("CRITICAL ERROR: Failed to save to Firestore:", dbError);
+        const errorMessage = dbError instanceof Error ? dbError.message : 'An unknown database error occurred.';
         return { success: false, error: errorMessage };
     }
 }
+
 
 export async function deleteFoodFromCache(fdcId: number): Promise<{ success: boolean; error?: string }> {
     try {
@@ -636,4 +677,42 @@ export async function bulkSaveFoodsToCache(formData: FormData): Promise<{ succes
         success: true,
         details: { total: dataRows.length, created: createdCount, updated: updatedCount },
     };
+}
+
+export async function getUnreviewedUserFoods(): Promise<EnrichedFood[]> {
+    try {
+        const snapshot = await adminDb.collection('global-food-cache')
+            .where('source', '==', 'USER_PROVIDED')
+            // .orderBy('createdAt', 'desc') // This query requires a composite index. Sorting in-memory instead.
+            .get();
+
+        if (snapshot.empty) {
+            return [];
+        }
+
+        const foods = snapshot.docs.map(doc => convertTimestampsToISO(doc.data()) as EnrichedFood);
+        // Manually sort by creation date descending, as we can't use the composite index
+foods.sort((a, b) => {
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return dateB - dateA;
+});
+        return foods;
+    } catch (error) {
+        console.error("[Server Action] Failed to fetch unreviewed user foods:", error);
+        throw new Error("Failed to fetch unreviewed foods.");
+    }
+}
+
+export async function getUnreviewedUserFoodCount(): Promise<number> {
+    try {
+        const snapshot = await adminDb.collection('global-food-cache')
+            .where('source', '==', 'USER_PROVIDED')
+            .count()
+            .get();
+        return snapshot.data().count;
+    } catch (error) {
+        console.error("[Server Action] Failed to fetch unreviewed user food count:", error);
+        return 0; // Return 0 on error
+    }
 }

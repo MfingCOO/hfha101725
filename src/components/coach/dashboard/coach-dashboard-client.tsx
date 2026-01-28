@@ -7,7 +7,7 @@ import { TIER_ACCESS } from "@/types";
 import { Loader2, PlusCircle, User, Check, AlertTriangle, Trophy, Megaphone, Lightbulb, MessageSquare, Image as ImageIcon, Library, Calendar, Database } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { getAllAppUsers } from "@/app/coach/dashboard/actions"; // FIX: Import the new authoritative function
+import { getAllAppUsers } from "@/app/coach/dashboard/actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ClientDetailModal } from "@/components/coach/clients/client-detail-modal";
@@ -25,6 +25,7 @@ import { getCoachingChatIdForClient } from "@/app/coach/clients/actions";
 import { CoachCalendarDialog } from "@/app/coach/calendar/CoachCalendarDialog";
 import { useAuth } from '@/components/auth/auth-provider';
 import { ManageFoodCacheDialog } from '@/components/coach/food-cache/manage-food-cache-dialog';
+import { getUnreviewedUserFoodCount } from '@/app/coach/food-cache/actions';
 
 const getMostRecentSummary = (summaries: ClientProfile['dailySummaries']) => {
     if (!summaries) return null;
@@ -32,7 +33,12 @@ const getMostRecentSummary = (summaries: ClientProfile['dailySummaries']) => {
     return sortedDates.length > 0 ? summaries[sortedDates[0]] : null;
 };
 
-export function CoachDashboardClient({ initialClients }: { initialClients: UserProfile[] }) {
+interface CoachDashboardClientProps {
+  initialClients: UserProfile[];
+  pendingFoodCount: number;
+}
+
+export function CoachDashboardClient({ initialClients, pendingFoodCount: initialPendingFoodCount }: CoachDashboardClientProps) {
     const { toast } = useToast();
     const [allClients, setAllClients] = useState<UserProfile[]>(initialClients);
     const [isLoading, setIsLoading] = useState(false); 
@@ -51,11 +57,11 @@ export function CoachDashboardClient({ initialClients }: { initialClients: UserP
     const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
     const [selectedChatInfo, setSelectedChatInfo] = useState<{id: string, name: string} | null>(null);
     const [isFetchingChatId, setIsFetchingChatId] = useState(false);
+    const [pendingFoodCount, setPendingFoodCount] = useState(initialPendingFoodCount);
 
     const fetchClients = useCallback(async () => {
         setIsLoading(true);
         try {
-            // FIX: Call the new authoritative function to get ALL users
             const result = await getAllAppUsers();
             if (result.success && result.users) {
                 setAllClients(result.users);
@@ -68,10 +74,21 @@ export function CoachDashboardClient({ initialClients }: { initialClients: UserP
             setIsLoading(false);
         }
     }, [toast]);
+
+    const refreshPendingCount = useCallback(async () => {
+        const count = await getUnreviewedUserFoodCount();
+        setPendingFoodCount(count);
+    }, []);
     
     useEffect(() => {
         fetchClients();
     }, [fetchClients]);
+
+    useEffect(() => {
+        if (!isFoodCacheOpen) {
+            refreshPendingCount();
+        }
+    }, [isFoodCacheOpen, refreshPendingCount]);
 
     const handleQuickChatClick = async (client: UserProfile) => {
         if(client.tier !== 'coaching') {
@@ -198,7 +215,12 @@ export function CoachDashboardClient({ initialClients }: { initialClients: UserP
                     <Button variant="outline" onClick={() => setIsPopupsOpen(true)}><Megaphone /> Pop-ups</Button>
                     <Button variant="outline" onClick={() => setIsLibraryOpen(true)}><Library /> Library</Button>
                     <Button variant="outline" onClick={() => setIsCalendarOpen(true)}><Calendar /> Calendar</Button>
-                    <Button variant="outline" onClick={() => setIsFoodCacheOpen(true)}><Database /> Food Cache</Button>
+                    <div className="relative">
+                        <Button variant="outline" onClick={() => setIsFoodCacheOpen(true)} className="w-full"><Database className="mr-2 h-4 w-4" /> Food Cache</Button>
+                        {pendingFoodCount > 0 && 
+                            <Badge variant="destructive" className="absolute -top-2 -right-2">{pendingFoodCount}</Badge>
+                        }
+                    </div>
                 </div>
                 
                 <Card>
@@ -310,7 +332,6 @@ export function CoachDashboardClient({ initialClients }: { initialClients: UserP
                 open={isCalendarOpen}
                 onOpenChange={setIsCalendarOpen}
             />
-            {/* Render the new modal */}
             <ManageFoodCacheDialog
                 open={isFoodCacheOpen}
                 onOpenChange={setIsFoodCacheOpen}

@@ -4,10 +4,11 @@ import * as React from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { BaseModal } from '@/components/ui/base-modal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Star, Bookmark, Clock, Loader2, Barcode, Crown } from 'lucide-react';
+import { Search, Star, Bookmark, Clock, Loader2, Barcode, Crown, PlusSquare } from 'lucide-react';
 import { useAuth } from '@/components/auth/auth-provider';
-import { UserTier } from '@/types';
+import { UserTier, type EnrichedFood, type MealItem, NovaGroup, type Portion, EnrichedFoodSchema } from '@/types';
 import { UpgradeModal } from '@/components/modals/upgrade-modal';
+import { CreateFoodFormModal } from '@/components/modals/CreateFoodFormModal';
 import { SearchView } from './search-view';
 import { FavoritesView } from './favorites-view';
 import { SavedMealsView } from './saved-meals-view';
@@ -15,12 +16,13 @@ import { CurrentMealView } from './current-meal-view';
 import { FoodDetailView } from './food-detail-view';
 import { BarcodeScannerView } from './barcode-scanner-view';
 import { ManualBarcodeInput } from '@/components/user/nutrition/manual-barcode-input';
-import { type EnrichedFood, type MealItem, NovaGroup, type Portion } from '@/types';
 import { Button } from '@/components/ui/button';
 import { FoodItemRow } from './food-item-row';
 import { toggleFavoriteFood, getFavoriteFoods } from '@/app/actions/nutrition-actions';
-import { getEnrichedFood, getOrEnrichFoodForUser } from '@/app/coach/food-cache/actions';
+import { getEnrichedFood, getOrEnrichFoodForUser, saveManualEnrichedFood, generateNewFdcId } from '@/app/coach/food-cache/actions';
 import { useSearchStore } from '@/store/search-store';
+import { toast } from 'sonner';
+
 
 const RECENT_FOODS_KEY = 'recentFoods';
 const MAX_RECENT_FOODS = 30;
@@ -82,7 +84,6 @@ const RecentsView = ({ onFoodSelected }: { onFoodSelected: (food: EnrichedFood) 
   );
 };
 
-
 export interface NutritionModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -97,7 +98,7 @@ interface UIMealItem {
 }
 
 const IconTab = ({ value, icon: Icon, label, onClick }: { value: string; icon: React.ElementType; label: string, onClick?: () => void; }) => (
-  <TabsTrigger value={value} onClick={onClick} className="flex-1 flex flex-col items-center gap-1 p-2 h-auto">
+  <TabsTrigger value={value} onClick={onClick} className="flex-1 flex flex-col items-center gap-1 px-1 py-2 h-auto">
     <Icon className="h-5 w-5" />
     <span className="text-xs">{label}</span>
   </TabsTrigger>
@@ -115,8 +116,10 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
   const [isLoadingFavorites, setIsLoadingFavorites] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [isCreateFoodModalOpen, setIsCreateFoodModalOpen] = useState(false);
 
   const userCanScan = userProfile?.tier === UserTier.Premium || userProfile?.tier === UserTier.Coaching;
+  const userCanCreateFood = userProfile?.tier === UserTier.Basic || userProfile?.tier === UserTier.Premium || userProfile?.tier === UserTier.Coaching;
 
   const handleClose = () => {
     resetSearchStore();
@@ -143,37 +146,38 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
       setActiveTab('search');
       setActiveView('tabs');
       setSelectedFood(null);
-      // Ensure search view is reset on open as well
       resetSearchStore();
     }
   }, [isOpen, fetchFavorites, resetSearchStore]);
 
   const handleFoodSelected = async (food: SimpleFood | EnrichedFood) => {
-    console.log(`[NutritionModal] Handling selection for ${food.fdcId}. Starting analysis.`);
+    console.log(`[NutritionModal] Handling selection for ${food.fdcId}. Fetching full details from server.`);
     setIsAnalyzing(true);
     setActiveView('tabs');
     setSelectedFood(null);
 
     try {
-      const isCached = 'isCached' in food && food.isCached;
-      let enrichedFood: EnrichedFood | null = null;
+      // ALWAYS fetch the definitive record from the server.
+      // The getOrEnrichFoodForUser action is the single source of truth and handles all cases.
+      const enrichedFood = await getOrEnrichFoodForUser(food.fdcId);
 
-      if (isCached) {
-        console.log(`[NutritionModal] Food is cached. Fetching full enriched data for ${food.fdcId}.`);
-        enrichedFood = await getEnrichedFood(food.fdcId);
-      } else {
-        console.log(`[NutritionModal] Food not cached. Enriching data for ${food.fdcId}.`);
-        enrichedFood = await getOrEnrichFoodForUser(food.fdcId);
-      }
-      
       if (enrichedFood) {
-        console.log(`[NutritionModal] Analysis complete for ${food.fdcId}.`);
-        setSelectedFood(enrichedFood);
+        // We use our Zod schema to validate the data from the server. This is a safeguard.
+        const validation = EnrichedFoodSchema.safeParse(enrichedFood);
+        if (validation.success) {
+            console.log(`[NutritionModal] Analysis and validation complete for ${food.fdcId}.`);
+            setSelectedFood(validation.data);
+        } else {
+            console.error(`[NutritionModal] Data validation failed for fdcId: ${food.fdcId}`, validation.error.flatten());
+            toast.error("Food data from server is invalid.");
+        }
       } else {
-        console.error(`[NutritionModal] Analysis failed for fdcId: ${food.fdcId}.`);
+        console.error(`[NutritionModal] Server failed to return food details for fdcId: ${food.fdcId}.`);
+        toast.error("Could not load food details.");
       }
     } catch (error) {
       console.error("[NutritionModal] CRITICAL: An error occurred during food analysis:", error);
+      toast.error("An error occurred while analyzing the food.");
     } finally {
       console.log(`[NutritionModal] Analysis process finished for ${food.fdcId}.`);
       setIsAnalyzing(false);
@@ -258,6 +262,14 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
       }
   }
 
+  const handleCreateFoodClick = () => {
+    if (userCanCreateFood) {
+        setIsCreateFoodModalOpen(true);
+    } else {
+        console.log("User does not have permission to create food.");
+    }
+  };
+
   const renderPrimaryView = () => {
     if (activeView === 'scanner') {
       return (
@@ -293,7 +305,7 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
 
     return (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-            <TabsList className="grid w-full grid-cols-5 h-auto">
+            <TabsList className="grid w-full grid-cols-6 h-auto">
                 <IconTab value="search" icon={Search} label="Search" />
                 <IconTab value="recents" icon={Clock} label="Recents" />
                 <IconTab value="favorites" icon={Star} label="Favorites" />
@@ -304,6 +316,14 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
                     label={userCanScan ? "Scan" : "Upgrade"} 
                     onClick={handleScanClick} 
                 />
+                {userCanCreateFood && (
+                    <IconTab 
+                        value="add" 
+                        icon={PlusSquare} 
+                        label="Add" 
+                        onClick={handleCreateFoodClick} 
+                    />
+                )}
             </TabsList>
             {isLoadingFavorites && !isAnalyzing ? (
             <div className="flex-1 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground"/></div>
@@ -372,6 +392,10 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
         requiredTier={UserTier.Premium}
         featureName="Barcode Scanner"
         reason="Upgrade to a Premium or Coaching plan to get instant food details by scanning barcodes. Fast, easy, and accurate logging is just an upgrade away."
+        />
+       <CreateFoodFormModal 
+            isOpen={isCreateFoodModalOpen}
+            onClose={() => setIsCreateFoodModalOpen(false)}
         />
     </BaseModal>
   );

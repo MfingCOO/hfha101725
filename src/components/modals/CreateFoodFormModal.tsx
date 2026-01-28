@@ -1,221 +1,266 @@
 'use client';
 
-import { useState, FC } from 'react';
+import React, { useState } from 'react';
+import { useForm, useFieldArray, FieldErrors } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '@/components/auth/auth-provider';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Checkbox } from "@/components/ui/checkbox";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { z } from 'zod';
+import { toast } from 'sonner';
+import { type EnrichedFood, NovaGroup } from '@/types';
+import { saveManualEnrichedFood, generateNewFdcId } from '@/app/coach/food-cache/actions';
 
-const initialFormData = {
-  foodName: '',
-  brand: '',
-  servingSize: '',
-  servingSizeUnit: 'g',
-  calories: '',
-  protein: '',
-  carbohydrates: '',
-  fat: '',
-  ingredients: '',
-  isGlutenFree: false,
-  upfPercentage: '',
-  upfRanking: '',
-  micronutrients: {},
-};
+import { BaseModal } from '@/components/ui/base-modal';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Form, FormField, FormItem, FormControl, FormMessage } from '@/components/ui/form';
+import { X } from 'lucide-react';
+
+const FormSchema = z.object({
+  description: z.string().min(1, 'Name is required'),
+  brandOwner: z.string().optional(),
+  servingSize: z.number().min(0, 'Serving size must be 0 or greater'),
+  servingUnit: z.string(),
+  calories: z.number().min(0, 'Calories must be 0 or greater'),
+  protein: z.number().min(0, 'Protein must be 0 or greater'),
+  carbs: z.number().min(0, 'Carbs must be 0 or greater'),
+  fat: z.number().min(0, 'Fat must be 0 or greater'),
+  sugar: z.number().min(0, 'Sugar must be 0 or greater'),
+  fiber: z.number().min(0, 'Fiber must be 0 or greater'),
+  ingredients: z.string().optional(),
+  additionalPortions: z.array(z.object({
+      description: z.string().min(1, 'Portion name is required'),
+      gramWeight: z.number().positive('Portion weight must be positive'),
+  })).optional(),
+});
+
+type FormValues = z.infer<typeof FormSchema>;
 
 interface CreateFoodFormModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-export const CreateFoodFormModal: FC<CreateFoodFormModalProps> = ({ isOpen, onClose }) => {
+export function CreateFoodFormModal({ isOpen, onClose }: CreateFoodFormModalProps) {
+  const [isSaving, setIsSaving] = useState(false);
   const { user } = useAuth();
-  const [formData, setFormData] = useState(initialFormData);
-  const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const form = useForm<FormValues>({
+    resolver: zodResolver(FormSchema),
+    defaultValues: {
+      description: '',
+      brandOwner: '',
+      servingSize: 100,
+      servingUnit: 'g',
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      sugar: 0,
+      fiber: 0,
+      ingredients: '',
+      additionalPortions: [],
+    },
+  });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type, checked } = e.target;
-    if (name.startsWith('micronutrients.')) {
-        const microName = name.split('.')[1];
-        setFormData(prev => ({ 
-            ...prev, 
-            micronutrients: { ...prev.micronutrients, [microName]: value } 
-        }));
-    } else {
-        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-    }
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "additionalPortions",
+  });
+
+  const onInvalid = (errors: FieldErrors) => {
+    console.error("Form validation failed:", errors);
+    toast.error(`Form is invalid. Check console for details.`);
   };
 
-  const handleSelectChange = (name: string, value: string) => {
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async () => {
-    setIsLoading(true);
-    setMessage(null);
-
-    if (!user) {
-      setMessage({ type: 'error', text: 'Authentication failed.' });
-      setIsLoading(false);
-      return;
-    }
-
-    const payload: { [key: string]: any } = {
-      ...formData,
-      servingSize: parseFloat(formData.servingSize) || 0,
-      calories: parseFloat(formData.calories) || 0,
-      protein: parseFloat(formData.protein) || 0,
-      carbohydrates: parseFloat(formData.carbohydrates) || 0,
-      fat: parseFloat(formData.fat) || 0,
-      upfPercentage: formData.upfPercentage ? parseFloat(formData.upfPercentage) : undefined,
-      micronutrients: Object.fromEntries(
-        Object.entries(formData.micronutrients).map(([key, value]) => [key, parseFloat(value as string) || 0])
-      ),
-    };
-
-    // Remove fields that shouldn't be sent if they are empty
-    if (!payload.upfRanking) delete payload.upfRanking;
-    if (Object.keys(payload.micronutrients).length === 0) delete payload.micronutrients;
-
-
+  const handleSave = async (data: FormValues) => {
+    setIsSaving(true);
+    
     try {
+        const newId = await generateNewFdcId();
+        const servingInGrams = data.servingUnit === 'oz' ? data.servingSize * 28.35 : data.servingSize;
+        const ratio = servingInGrams > 0 ? 100 / servingInGrams : 0;
+
+        const foodData: EnrichedFood = {
+          fdcId: newId,
+          description: data.description,
+          brandOwner: data.brandOwner || '',
+          ingredients: data.ingredients || '',
+          source: 'USER_PROVIDED',
+          analysisDate: new Date().toISOString(),
+          upfAnalysis: {
+            rating: NovaGroup.UNCLASSIFIED,
+            justification: 'User-provided food, not analyzed.'
+          },
+          upfPercentage: {
+            value: 0,
+            justification: 'Not analyzed.'
+          },
+          glutenAnalysis: {
+            isGlutenFree: false,
+            justification: 'Not analyzed.'
+          },
+          nutrients: [
+            { id: 1008, name: 'Energy', amount: data.calories * ratio, unitName: 'kcal' },
+            { id: 1003, name: 'Protein', amount: data.protein * ratio, unitName: 'g' },
+            { id: 1005, name: 'Carbohydrate, by difference', amount: data.carbs * ratio, unitName: 'g' },
+            { id: 1004, name: 'Total lipid (fat)', amount: data.fat * ratio, unitName: 'g' },
+            { id: 2000, name: 'Sugars, total including NLEA', amount: data.sugar * ratio, unitName: 'g' },
+            { id: 1079, name: 'Fiber, total dietary', amount: data.fiber * ratio, unitName: 'g' },
+          ],
+          portionSizes: [
+            { description: `Serving (${data.servingSize}${data.servingUnit})`, gramWeight: servingInGrams },
+            ...(data.additionalPortions || []).filter(p => p.description && p.gramWeight > 0),
+          ],
+           // @ts-ignore
+          status: 'pending_review',
+        };
+
+        if (!user) {
+          toast.error("Authentication error. Please log in again.");
+          setIsSaving(false);
+          return;
+      }
       const token = await user.getIdToken();
-      const response = await fetch('/api/coach/create-food', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(payload),
-      });
+      const result = await saveManualEnrichedFood(foodData, token);      
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || 'An unknown error occurred.');
 
-      setMessage({ type: 'success', text: `Successfully created: ${formData.foodName}` });
-      setFormData(initialFormData);
-
-    } catch (error: any) {
-      setMessage({ type: 'error', text: error.message });
+        if (result.success) { // Note: we are also removing the check for 'result.food'
+          toast.success('Custom food submitted for review!');
+          form.reset();
+          onClose();
+        } else {
+          toast.error(result.error || 'Failed to create custom food.');
+        }
+    } catch (e) {
+        console.error(e);
+        toast.error('An unexpected error occurred.');
     } finally {
-      setIsLoading(false);
+        setIsSaving(false);
     }
   };
-
-  const handleClose = () => {
-    setMessage(null);
-    onClose();
-  }
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Create a New Custom Food</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto px-2">
-
-          {/* --- CORE FIELDS --- */}
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="foodName" className="text-right">Name *</Label>
-            <Input id="foodName" name="foodName" value={formData.foodName} onChange={handleChange} className="col-span-3" required />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="brand" className="text-right">Brand</Label>
-            <Input id="brand" name="brand" value={formData.brand} onChange={handleChange} className="col-span-3" />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="servingSize" className="text-right">Serving Size *</Label>
-            <Input id="servingSize" name="servingSize" type="number" value={formData.servingSize} onChange={handleChange} className="col-span-3" required/>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="servingSizeUnit" className="text-right">Unit *</Label>
-            <Select onValueChange={(v) => handleSelectChange('servingSizeUnit', v)} defaultValue={formData.servingSizeUnit}>
-                <SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="g">grams (g)</SelectItem>
-                    <SelectItem value="ml">milliliters (ml)</SelectItem>
-                    <SelectItem value="oz">ounces (oz)</SelectItem>
-                    <SelectItem value="fl oz">fluid ounces (fl oz)</SelectItem>
-                    <SelectItem value="each">each</SelectItem>
-                </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="calories" className="text-right">Calories *</Label>
-            <Input id="calories" name="calories" type="number" value={formData.calories} onChange={handleChange} className="col-span-3" required/>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="protein" className="text-right">Protein (g) *</Label>
-            <Input id="protein" name="protein" type="number" value={formData.protein} onChange={handleChange} className="col-span-3" required/>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="carbohydrates" className="text-right">Carbs (g) *</Label>
-            <Input id="carbohydrates" name="carbohydrates" type="number" value={formData.carbohydrates} onChange={handleChange} className="col-span-3" required/>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="fat" className="text-right">Fat (g) *</Label>
-            <Input id="fat" name="fat" type="number" value={formData.fat} onChange={handleChange} className="col-span-3" required/>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="ingredients" className="text-right">Ingredients</Label>
-            <Input id="ingredients" name="ingredients" value={formData.ingredients} onChange={handleChange} className="col-span-3" />
+    <BaseModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Create Custom Food"
+    >
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(handleSave, onInvalid)} className="space-y-4">
+          <FormField control={form.control} name="description" render={({ field }) => (
+            <FormItem>
+              <Label>Name *</Label>
+              <FormControl><Input {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="brandOwner" render={({ field }) => (
+            <FormItem>
+              <Label>Brand</Label>
+              <FormControl><Input {...field} /></FormControl>
+            </FormItem>
+          )} />
+          
+          <div className="grid grid-cols-2 gap-4">
+            <FormField control={form.control} name="servingSize" render={({ field }) => (
+                <FormItem>
+                    <Label>Serving Size *</Label>
+                    <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
+                    <FormMessage />
+                </FormItem>
+            )} />
+             <FormField control={form.control} name="servingUnit" render={({ field }) => (
+                <FormItem>
+                    <Label>Unit *</Label>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl><SelectTrigger><SelectValue/></SelectTrigger></FormControl>
+                        <SelectContent>
+                            <SelectItem value="g">grams (g)</SelectItem>
+                            <SelectItem value="oz">ounces (oz)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <FormMessage />
+                </FormItem>
+            )} />
           </div>
 
-          {/* --- NEW PROCESSING & DIETARY FIELDS --- */}
-          <div className="items-center gap-4 flex">
-            <Checkbox id="isGlutenFree" name="isGlutenFree" checked={formData.isGlutenFree} onCheckedChange={(c) => setFormData(p => ({...p, isGlutenFree: c as boolean}))} />
-            <Label htmlFor="isGlutenFree" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Gluten-Free</Label>
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="upfRanking" className="text-right">Processing</Label>
-            <Select onValueChange={(v) => handleSelectChange('upfRanking', v)} value={formData.upfRanking}>
-                <SelectTrigger className="col-span-3"><SelectValue placeholder="Select ranking..." /></SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="whole_food">Whole Food</SelectItem>
-                    <SelectItem value="processed">Processed</SelectItem>
-                    <SelectItem value="UPF">Ultra-Processed (UPF)</SelectItem>
-                </SelectContent>
-            </Select>
-          </div>
-           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="upfPercentage" className="text-right">UPF %</Label>
-            <Input id="upfPercentage" name="upfPercentage" type="number" value={formData.upfPercentage} onChange={handleChange} className="col-span-3" />
+          <p className="text-xs text-muted-foreground -mt-2">Enter nutrition info as it appears on the label for the serving size above.</p>
+
+          <div className="grid grid-cols-3 gap-4">
+             <FormField control={form.control} name="calories" render={({ field }) => (
+                <FormItem>
+                    <Label>Calories *</Label>
+                    <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
+                    <FormMessage />
+                </FormItem>
+            )} />
+            <FormField control={form.control} name="protein" render={({ field }) => (
+                <FormItem>
+                    <Label>Protein (g) *</Label>
+                    <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
+                    <FormMessage />
+                </FormItem>
+            )} />
+            <FormField control={form.control} name="carbs" render={({ field }) => (
+                <FormItem>
+                    <Label>Carbs (g) *</Label>
+                    <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
+                    <FormMessage />
+                </FormItem>
+            )} />
+            <FormField control={form.control} name="fat" render={({ field }) => (
+                <FormItem>
+                    <Label>Fat (g) *</Label>
+                    <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
+                    <FormMessage />
+                </FormItem>
+            )} />
+             <FormField control={form.control} name="sugar" render={({ field }) => (
+                <FormItem>
+                    <Label>Sugar (g) *</Label>
+                    <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
+                    <FormMessage />
+                </FormItem>
+            )} />
+            <FormField control={form.control} name="fiber" render={({ field }) => (
+                <FormItem>
+                    <Label>Fiber (g) *</Label>
+                    <FormControl><Input type="number" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} /></FormControl>
+                    <FormMessage />
+                </FormItem>
+            )} />
           </div>
 
-          {/* --- MICRONUTRIENTS ACCORDION --- */}
-          <Accordion type="single" collapsible className="w-full">
-            <AccordionItem value="item-1">
-              <AccordionTrigger>Optional: Add Micronutrients</AccordionTrigger>
-              <AccordionContent className="space-y-4 pt-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="micronutrients.vitaminA" className="text-right text-xs">Vitamin A (mcg)</Label>
-                    <Input id="micronutrients.vitaminA" name="micronutrients.vitaminA" type="number" onChange={handleChange} className="col-span-3" />
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="micronutrients.vitaminC" className="text-right text-xs">Vitamin C (mg)</Label>
-                    <Input id="micronutrients.vitaminC" name="micronutrients.vitaminC" type="number" onChange={handleChange} className="col-span-3" />
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="micronutrients.iron" className="text-right text-xs">Iron (mg)</Label>
-                    <Input id="micronutrients.iron" name="micronutrients.iron" type="number" onChange={handleChange} className="col-span-3" />
-                </div>
-                 <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="micronutrients.calcium" className="text-right text-xs">Calcium (mg)</Label>
-                    <Input id="micronutrients.calcium" name="micronutrients.calcium" type="number" onChange={handleChange} className="col-span-3" />
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+          <FormField control={form.control} name="ingredients" render={({ field }) => (
+              <FormItem>
+                <Label>Ingredients</Label>
+                <FormControl><Textarea {...field} /></FormControl>
+              </FormItem>
+          )} />
 
-        </div>
-        <DialogFooter>
-          {message && <p className={`${message.type === 'success' ? 'text-green-600' : 'text-red-600'} text-sm`}>{message.text}</p>}
-          <Button variant="outline" onClick={handleClose}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={isLoading}>{isLoading ? 'Creating...' : 'Save Food'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+           <div>
+                <Label className="mb-2 block">Additional Portions (Optional)</Label>
+                {fields.map((field, index) => (
+                    <div key={field.id} className="flex items-center gap-2 mb-2">
+                        <Input {...form.register(`additionalPortions.${index}.description`)} placeholder="e.g., 1 cup" className="flex-grow" />
+                        <Input type="number" {...form.register(`additionalPortions.${index}.gramWeight`, { valueAsNumber: true })} placeholder="Weight" className="w-24" />
+                        <span className="text-sm text-muted-foreground">g</span>
+                        <Button type="button" variant="destructive" size="icon" onClick={() => remove(index)}><X className="h-4 w-4" /></Button>
+                    </div>
+                ))}
+                 <Button type="button" variant="outline" size="sm" onClick={() => append({ description: '', gramWeight: 0 })}>
+                    + Add Portion
+                </Button>
+            </div>
+
+          <div className="flex justify-end gap-2 pt-4">
+            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Food'}</Button>
+          </div>
+        </form>
+      </Form>
+    </BaseModal>
   );
-};
+}
