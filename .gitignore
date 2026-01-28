@@ -41,3 +41,8 @@ encode-key.js
 next-env.d.ts
 # Genkit local cache and traces
 .genkit/
+
+# Capacitor native folders
+/android/
+/ios/
+/pwa-assets/
