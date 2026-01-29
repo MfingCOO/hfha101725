@@ -1,43 +1,42 @@
-# Dependency directories
-# These are installed during the build process
-node_modules/
+# Firebase
+.firebase/database_export/
+.firebase/hosting.YnVpbGQ.cache
 
-# Next.js build output
-# This is generated when you run `npm run build`
-.next/
-
-# Vercel directory
-.vercel/
-
-# TypeScript cache file
-*.tsbuildinfo
-
-# Local Environment Variables
-# These contain secrets and local settings, never commit them!
+# Misc
+.DS_Store
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Log files
-# Generic rule for all log files
+.env
+.hstr
+.idea/
+.project
+.settings
+.vscode/
+*.iml
 *.log
-# More specific debug logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+*.suo
+npm-debug.log
 
-# Secrets
-# The Firebase service account key MUST BE KEPT SECRET
-firebase-service-account-key.json
+# Node
+/node_modules/
 
-# Development scripts & diagnostics
-# These are helper scripts, not part of the production app
-diagnose*.js
+# Nuxt
+/dist/
+/.nuxt/
+/.output/
+/pwa-assets/
+
+# Capacitor
+/android/
+/ios/
+certs/
+
+# Custom
 encode-key.js
-
-# Next.js generated type file
-# This file is auto-generated and doesn't need to be in source control
 next-env.d.ts
 # Genkit local cache and traces
 .genkit/
+
+# Capacitor native folders
+/android/
+/ios/
+/pwa-assets/
