@@ -27,12 +27,10 @@ service cloud.firestore {
       allow read, write: if isCoach(request.auth.uid);
     }
 
-    // CORRECTED RULE: Users can read and update their own scheduled reminders/pop-ups
     match /user_scheduled_reminders/{reminderId} {
       allow read, update: if request.auth.uid == resource.data.userId;
     }
 
-    // Users can read and write their own sticky-popups
     match /sticky-popups/{popupId} {
       allow read, write: if request.auth.uid == resource.data.userId;
     }
@@ -43,6 +41,12 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow create, update: if request.auth.uid == userId;
     }
+    
+    // Reports can only be read and written by coaches (via admin SDK)
+    // This denies all client-side access for security.
+    match /reports/{reportId} {
+      allow read, write: if false;
+    }
 
     // Clients collection can be read/written by coaches
     // Individual client docs can be read by their owner.
@@ -50,8 +54,6 @@ service cloud.firestore {
       allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
       allow list, write: if isCoach(request.auth.uid);
       
-      // All client sub-collections can be read by the owner or a coach
-      // and written to by the owner. Coaches get write access via admin SDK.
       match /{collection}/{docId} {
         allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
         allow create, update, delete: if request.auth.uid == clientId;
@@ -64,10 +66,11 @@ service cloud.firestore {
       allow write: if request.auth.uid in resource.data.participants;
 
       // Messages can be read by participants or any coach.
-      // Messages can be created by participants.
+      // Messages can ONLY be created by participants who are NOT BANNED.
       match /messages/{messageId} {
         allow read: if isCoach(request.auth.uid) || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-        allow create: if request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create: if request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+                      && get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data.isBannedFromChat != true;
       }
     }
   }

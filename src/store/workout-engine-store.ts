@@ -2,8 +2,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Workout, ExerciseBlock, WorkoutBlock, GroupBlock, RestBlock } from '@/types/workout-program';
+import { playBeep, playLongBeep } from '@/lib/audio';
 
-export type WorkoutStatus = 'idle' | 'exercising' | 'resting' | 'paused' | 'rep_based_pause' | 'finished' | 'empty';
+export type WorkoutStatus = 'idle' | 'preparing' | 'exercising' | 'resting' | 'paused' | 'rep_based_pause' | 'finished' | 'empty';
 
 export interface WorkoutEngineState {
   status: WorkoutStatus;
@@ -94,14 +95,12 @@ const createExecutionFlow = (blocks: WorkoutBlock[]): Array<ExerciseBlock | Rest
     return flow;
 };
 
-// --- FIX: Re-instating persistence but in a controlled "smart mode" --- 
 export const useWorkoutEngineStore = create<WorkoutEngineState & WorkoutEngineActions>()(
   persist(
     (set, get) => ({
       ...initialState,
       reset: () => set(initialState),
       startWorkout: (workout) => {
-        // Step 2: Ensure a clean start
         const currentWorkoutId = get().workout?.id;
         if (currentWorkoutId !== workout.id) {
             get().reset();
@@ -113,30 +112,37 @@ export const useWorkoutEngineStore = create<WorkoutEngineState & WorkoutEngineAc
           return;
         }
 
-        // Only set start time if it's a brand new workout
         const isResuming = get().workout?.id === workout.id && get().currentBlockIndex > -1;
-        if (!isResuming) {
-            set({ 
-                ...initialState, 
-                workout, 
-                executionFlow: newExecutionFlow, 
-                startTime: Date.now(),
-            });
-            get()._advance();
-        } else {
-             // This is a refresh/resume scenario, keep the existing times and progress
-            set({ status: 'paused' }); // Default to paused on resume
+        if (isResuming) {
+            set({ status: 'paused' });
+            return;
         }
+        
+        // --- FIX: Start with a "preparing" countdown ---
+        set({
+          ...initialState,
+          workout,
+          executionFlow: newExecutionFlow,
+          status: 'preparing',
+          timer: 4, // 3 beeps, 1 long beep
+        });
       },
       pause: () => {
         const { status } = get();
-        if (['exercising', 'resting', 'rep_based_pause'].includes(status)) {
+        if (['preparing', 'exercising', 'resting', 'rep_based_pause'].includes(status)) {
           set({ status: 'paused' });
         }
       },
       resume: () => {
-        const { status, executionFlow, currentBlockIndex } = get();
+        const { status, executionFlow, currentBlockIndex, timer } = get();
         if (status !== 'paused') return;
+
+        // If we were in the middle of the pre-workout countdown, just go back to it
+        if (timer > 0 && currentBlockIndex === -1) {
+            set({ status: 'preparing' });
+            return;
+        }
+
         const block = executionFlow[currentBlockIndex];
         if (!block) return;
         if (block.type === 'rest') set({ status: 'resting' });
@@ -170,18 +176,40 @@ export const useWorkoutEngineStore = create<WorkoutEngineState & WorkoutEngineAc
             nextTimer = parseInt(String(firstSet.value) || '0', 10);
           }
         }
-        set({ currentBlockIndex: nextBlockIndex, status: nextStatus, timer: nextTimer });
+        set({ 
+            currentBlockIndex: nextBlockIndex, 
+            status: nextStatus, 
+            timer: nextTimer, 
+            startTime: get().startTime ?? Date.now() // Set start time on first advance
+        });
       },
       tick: () => {
         const { status, timer, startTime } = get();
-        if (!['exercising', 'resting'].includes(status) || timer <= 0) return;
+        if (!['preparing', 'exercising', 'resting'].includes(status) || timer <= 0) return;
+
         const newTimer = timer - 1;
         const newElapsedTime = startTime ? Math.floor((Date.now() - startTime) / 1000) : get().elapsedTime;
+
+        // Standard countdown beeps
+        if (newTimer === 10 || (newTimer <= 3 && newTimer >= 1)) {
+            playBeep();
+        }
+
+        // Zero-second long beep
+        if (newTimer === 0) {
+            playLongBeep();
+        }
+
         if (newTimer > 0) {
           set({ timer: newTimer, elapsedTime: newElapsedTime });
         } else {
+          // Timer is finished, advance the workout state
           set({ timer: 0, elapsedTime: newElapsedTime });
-          get()._advance();
+          if (status === 'preparing') {
+            get()._advance(); // First advance into the workout
+          } else {
+            get()._advance(); // Advance to the next block
+          }
         }
       },
       completeSet: (log) => {
@@ -207,7 +235,6 @@ export const useWorkoutEngineStore = create<WorkoutEngineState & WorkoutEngineAc
     }),
     {
       name: 'workout-engine-storage',
-      // Step 1: Only persist the state needed to resume, never persist the status.
       partialize: (state) => 
         Object.fromEntries(
             Object.entries(state).filter(([key]) => !['status'].includes(key))

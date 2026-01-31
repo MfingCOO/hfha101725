@@ -23,8 +23,15 @@ const db = getFirestore(app);
 const auth = getAuth(app);
 const storage = getStorage(app);
 
-// Conditionally initialize messaging only on the client side
-const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
-
+let messaging = null;
+// Conditionally initialize messaging only on the client side and handle unsupported environments.
+if (typeof window !== 'undefined') {
+    try {
+        messaging = getMessaging(app);
+    } catch (err) {
+        console.error("Firebase Messaging is not supported in this browser or environment:", err);
+        messaging = null;
+    }
+}
 
 export { app, db, auth, storage, messaging };

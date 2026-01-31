@@ -1,11 +1,10 @@
 'use server';
 
-import { db as adminDb, admin, auth } from '@/lib/firebaseAdmin';
+import { db as adminDb, admin } from '@/lib/firebaseAdmin';
 import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';
 import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
-import { initializeApp, getApps, App, cert, getApp } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 
 // Helper for serialization
@@ -96,7 +95,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
         
         return { success: true, data: serializableData as Chat[] };
     } catch (error: any) {
-        console.error("Error fetching user's chats (admin): ", error);
+        console.error("Error fetching user\'s chats (admin): ", error);
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
     }
 }
@@ -156,32 +155,12 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
     }
 }
 
-
 export async function getSignedUrlAction(fileName: string, path: string, contentType: string): Promise<{ success: boolean, signedUrl?: string, publicUrl?: string, error?: string }> {
     try {
-      const STORAGE_ADMIN_APP_NAME = 'storage-admin-app-instance';
-  
-      const getStorageAdminApp = (): App => {
-          if (getApps().some(app => app.name === STORAGE_ADMIN_APP_NAME)) {
-              return getApp(STORAGE_ADMIN_APP_NAME);
-          }
-  
-          const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-          if (!serviceAccountKey) {
-              throw new Error('CRITICAL: FIREBASE_SERVICE_ACCOUNT_KEY is not set for signed URL generation.');
-          }
-          const serviceAccount = JSON.parse(serviceAccountKey);
-  
-          return initializeApp({
-              credential: cert(serviceAccount),
-              storageBucket: 'hunger-free-and-happy-app.firebasestorage.app',
-          }, STORAGE_ADMIN_APP_NAME);
-      };
-  
-      const storageAdminApp = getStorageAdminApp();
-      const authenticatedStorage = getStorage(storageAdminApp);
+      // CORRECTED: Use the default storage instance from the initialized admin SDK.
+      // This removes the conflicting secondary app initialization.
+      const bucket = getStorage().bucket('hunger-free-and-happy-app.firebasestorage.app');
       
-      const bucket = authenticatedStorage.bucket();
       const uniqueFileName = `${path}/${Date.now()}-${fileName.replace(/\s+/g, '_')}`;
       const file = bucket.file(uniqueFileName);
   
@@ -189,18 +168,18 @@ export async function getSignedUrlAction(fileName: string, path: string, content
         version: 'v4',
         action: 'write',
         expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+        contentType,
       });
-
   
       const publicUrl = `https://storage.googleapis.com/${bucket.name}/${uniqueFileName}`;
   
       return { success: true, signedUrl, publicUrl };
   
     } catch (error: any) {
-      console.error("Error generating signed URL with surgical fix: ", error);
+      console.error("Error generating signed URL: ", error);
       return { success: false, error: error.message || 'Failed to generate signed URL.' };
     }
-  }
+}
   
 
 const PostMessageInputSchema = z.object({
@@ -322,7 +301,7 @@ export async function deleteMessageAction(input: z.infer<typeof DeleteMessageInp
         const isAuthor = requesterId === authorId;
 
         if (!isCoach && !isAuthor) {
-            throw new Error("You don't have permission to delete this message.");
+            throw new Error("You don\'t have permission to delete this message.");
         }
         
         await messageRef.delete();
@@ -337,7 +316,7 @@ export async function deleteMessageAction(input: z.infer<typeof DeleteMessageInp
 
 export async function deleteChatAction(chatId: string, requesterId: string) {
     if (!COACH_UIDS.includes(requesterId)) {
-        return { success: false, error: "You don't have permission to perform this action." };
+        return { success: false, error: "You don\'t have permission to perform this action." };
     }
     
     const chatRef = adminDb.collection('chats').doc(chatId);
@@ -553,5 +532,44 @@ export async function createCoachingChatOnFirstLogin(user: ClientProfile): Promi
     } catch (error: any) {
         console.error('Error in createCoachingChatOnFirstLogin:', error);
         return { success: false, error: error.message };
+    }
+}
+
+const ReportMessageInputSchema = z.object({
+    chatId: z.string(),
+    messageId: z.string(),
+    reportingUserId: z.string(), // Added for clarity and validation
+});
+
+export async function reportMessageAction(input: z.infer<typeof ReportMessageInputSchema>) {
+    const { chatId, messageId, reportingUserId } = ReportMessageInputSchema.parse(input);
+
+    try {
+        const messageRef = adminDb.doc(`chats/${chatId}/messages/${messageId}`);
+        const messageDoc = await messageRef.get();
+
+        if (!messageDoc.exists) {
+            throw new Error("Cannot report a message that does not exist.");
+        }
+        const messageData = messageDoc.data();
+        if (!messageData) throw new Error("Message data is empty.");
+
+        const report = {
+            messageId,
+            chatId,
+            messageContent: messageData.text || '[No Text Content]',
+            reportedUserId: messageData.userId,
+            reportingUserId: reportingUserId,
+            timestamp: FieldValue.serverTimestamp(),
+            status: 'pending',
+        };
+
+        await adminDb.collection('reports').add(report);
+
+        return { success: true };
+
+    } catch (error: any) {
+        console.error("reportMessageAction Error:", error);
+        return { success: false, error: { message: error.message || "Failed to report message." } };
     }
 }
