@@ -1,5 +1,6 @@
-include ':app'
-include ':capacitor-cordova-android-plugins'
-project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+// This is the main settings file for your project.
 
+include ':app'
+
+// Apply the capacitor-specific settings from the other file.
 apply from: 'capacitor.settings.gradle'
