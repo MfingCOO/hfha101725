@@ -19,6 +19,10 @@ npm-debug.log
 # Node
 /node_modules/
 
+# Next.js
+**/.next/
+/out/
+
 # Nuxt
 /dist/
 /.nuxt/

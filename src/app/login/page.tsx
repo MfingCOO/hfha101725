@@ -1,6 +1,7 @@
 import { LoginForm } from "@/components/auth/login-form";
 import { Logo } from "@/components/icons/logo";
 import Link from 'next/link';
+import { ForgotPasswordModal } from '@/components/auth/ForgotPasswordModal';
 
 export default function LoginPage() {
     return (
@@ -10,6 +11,9 @@ export default function LoginPage() {
                 <h1 className="text-2xl font-semibold">Hunger-Free and Happy</h1>
             </div>
             <LoginForm />
+            <div className="mt-4">
+              <ForgotPasswordModal />
+            </div>
             <div className="mt-4 text-center text-xs text-muted-foreground max-w-md">
                 View our{' '}
                 <Link href="/tos" className="underline hover:text-primary">

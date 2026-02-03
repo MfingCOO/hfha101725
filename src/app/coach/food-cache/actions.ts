@@ -21,6 +21,8 @@ import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { algoliaAdmin } from '@/lib/algoliaAdmin';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
+import { enrichFoodDetailsFlow } from '@/ai/flows/nutrition/enrich-food-details-flow';
+import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 
 
 const parsePortionSizes = (value: any): PortionSize[] => {
@@ -351,40 +353,40 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
     const docSnap = await foodDocRef.get();
 
     if (docSnap.exists) {
-        // If the food exists in the cache, return the cached data directly.
-        // This is the definitive fix for the "0-nutrient" bug. It ensures that
-        // if we have data in our database for a food, we use that data
-        // and do not proceed to the AI enrichment flow.
         return convertTimestampsToISO(docSnap.data()) as EnrichedFood;
     }
 
     const foodDetails = await getFoodDetails(fdcId);
     if (!foodDetails) return null;
 
-    const aiInput = { description: foodDetails.description, ingredients: foodDetails.ingredients || '' };
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (!appUrl) throw new Error("NEXT_PUBLIC_APP_URL is not set");
+    // Get the model name from site settings
+    const settings = await getSiteSettingsAction();
+    const modelNameFromDb = settings.data?.aiModelSettings?.pro;
 
-    let enrichedDetailsFromAI: any;
+    if (!modelNameFromDb) {
+        console.error('[Server Action CRITICAL] Pro AI model not configured in site settings. Cannot enrich food.');
+        return null;
+    }
+    const modelName = `googleai/${modelNameFromDb}`;
+
+    // Prepare the input for the AI flow, now including the required modelName
+    const aiInput = {
+        description: foodDetails.description,
+        ingredients: foodDetails.ingredients || '',
+        modelName: modelName
+    };
+
+    let aiResult: any;
     try {
-        const response = await fetch(`${appUrl}/api/flows/enrichFoodDetailsFlow`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ input: aiInput }),
-        });
-        if (!response.ok) {
-            console.error(`AI flow failed with status ${response.status}`);
-            return null;
-        }
-        enrichedDetailsFromAI = await response.json();
+        // Call the server action directly for a stable, secure execution
+        aiResult = await enrichFoodDetailsFlow(aiInput);
     } catch (error) {
-        console.error('Calling the AI enrichment flow failed.', error);
+        console.error('[CRITICAL] Direct call to enrichFoodDetailsFlow failed.', error);
         return null;
     }
 
-    const aiResult = enrichedDetailsFromAI?.result;
     if (!aiResult) {
-        console.error('AI Result was empty or malformed.');
+        console.error('AI Result was empty or malformed after direct flow execution.');
         return null;
     }
 
@@ -398,6 +400,7 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
         portionSizes: PortionSizesSchema.parse(aiResult.portionSizes),
     };
 
+    // Save the new object to Firestore and Algolia
     try {
         const { createdAt, updatedAt, ...restOfData } = newEnrichedFood;
         const dataToSave: any = {
@@ -423,6 +426,7 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
 
     return convertTimestampsToISO(newEnrichedFood);
 }
+
 
 export async function saveManualEnrichedFood(foodData: EnrichedFood, idToken: string): Promise<{ success: boolean; error?: string; food?: EnrichedFood; }> {
     if (!idToken) {

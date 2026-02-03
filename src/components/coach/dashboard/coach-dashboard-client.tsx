@@ -24,6 +24,7 @@ import { ManageFoodCacheDialog } from '@/components/coach/food-cache/manage-food
 import { getUnreviewedUserFoodCount } from '@/app/coach/food-cache/actions';
 import { ModerationDialog } from '@/components/coach/dialogs/ModerationDialog';
 import { getPendingReportsCountAction } from '@/app/actions/moderation-actions';
+import { getUnreadChatCountForCoach } from "@/app/chats/actions";
 
 interface CoachDashboardClientProps {
   initialClients: UserProfile[];
@@ -53,6 +54,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [isFetchingChatId, setIsFetchingChatId] = useState(false);
     const [pendingFoodCount, setPendingFoodCount] = useState(initialPendingFoodCount);
     const [pendingReportCount, setPendingReportCount] = useState(initialPendingReportCount);
+    const [unreadChatCount, setUnreadChatCount] = useState(0);
 
     const fetchClients = useCallback(async () => {
         setIsLoading(true);
@@ -94,6 +96,25 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     useEffect(() => {
         if (!isModerationOpen) { refreshPendingReportCount(); }
     }, [isModerationOpen, refreshPendingReportCount]);
+    useEffect(() => {
+        if (!user) return;
+    
+        const fetchUnreadCount = async () => {
+            const result = await getUnreadChatCountForCoach(user.uid);
+            if (result.success && typeof result.count !== 'undefined') {
+                setUnreadChatCount(result.count);
+            }
+        };
+    
+        // Fetch immediately on component mount
+        fetchUnreadCount();
+    
+        // Then fetch every 30 seconds to keep the count live
+        const intervalId = setInterval(fetchUnreadCount, 30000);
+    
+        // Cleanup the interval on component unmount to prevent memory leaks
+        return () => clearInterval(intervalId);
+    }, [user]);
 
     const handleQuickChatClick = async (client: UserProfile) => {
         if (client.tier !== 'coaching') {
@@ -140,7 +161,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     );
 
     const managementButtons = [
-        { label: 'Chats', icon: MessageSquare, action: () => setIsChatsOpen(true) },
+        { label: 'Chats', icon: MessageSquare, action: () => setIsChatsOpen(true), count: unreadChatCount },
         { label: 'Challenges', icon: Trophy, action: () => setIsChallengesOpen(true) },
         { label: 'Pop-ups', icon: Megaphone, action: () => setIsPopupsOpen(true) },
         { label: 'Library', icon: Library, action: () => setIsLibraryOpen(true) },

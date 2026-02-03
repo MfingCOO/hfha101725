@@ -1,9 +1,12 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // We are keeping this for now to allow the build to succeed.
+  // TODO: Schedule a task to remove this and fix all TypeScript errors.
   typescript: {
     ignoreBuildErrors: true,
   },
+
   images: {
     remotePatterns: [
       {

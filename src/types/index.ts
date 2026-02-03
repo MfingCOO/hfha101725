@@ -70,6 +70,7 @@ export interface UserProfile {
     bingeFreeSince?: any;
     lastInteraction?: any; 
     lastStreakNotification?: any;
+    achievedStreakMilestones?: number[];
     // CORRECTED: Restoring dailySummaries to its correct map structure
     dailySummaries?: {
         [date: string]: {
@@ -99,10 +100,12 @@ export interface UserProfile {
     calorieGoal?: number;
     calorieGoalRange?: { min: number; max: number; };
     averageWakeUpTime?: string;
+    bedtime?: string;
     fcmTokens?: string[];
     dismissedPopupIds?: string[];
     idealBodyWeight?: number; // ADDED
     hasLoggedInBefore?: boolean; // STEP 1: ADDED 'FIRST-LOGIN' FLAG
+    hasHadCoachingChat?: boolean;
     timezone?: string; // ADDED TO FIX REGRESSION
     timezoneOffset?: number; // ADDED TO FIX REGRESSION
     unitSystem?: 'metric' | 'imperial'; // ADDED
@@ -155,6 +158,8 @@ export interface Chat {
     lastAutomatedMessage?: any;
     lastCoachMessage?: any; 
     lastClientMessage?: any;
+    mutedBy?: string[];
+    lastClientMessageTimestamp?: any;
 }
 
 export interface ChatMessage {
