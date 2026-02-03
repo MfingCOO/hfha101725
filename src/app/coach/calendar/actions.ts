@@ -4,8 +4,9 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { endOfDay } from 'date-fns';
+import { endOfDay, format } from 'date-fns';
 import type { AvailabilitySettings, SiteSettings } from '@/types';
+import { createUserNotification } from '@/services/reminders';
 
 const eventSchema = z.object({
     id: z.string().optional(),
@@ -95,6 +96,16 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         const eventRef = id ? adminDb.collection('coachCalendar').doc(id) : adminDb.collection('coachCalendar').doc();
         
         await eventRef.set(finalEventData, { merge: true });
+
+        if (dataToSave.coachId && dataToSave.clientName) {
+            await createUserNotification(dataToSave.coachId, {
+                type: 'appointment_booked',
+                title: 'New Appointment Booked',
+                message: `${dataToSave.clientName} has booked a call with you for ${format(dataToSave.start, 'PPP p')}`,
+                pillarId: 'calendar',
+                deliverAt: Timestamp.now()
+            });
+        }
 
         return { success: true, id: eventRef.id };
     } catch (error: any) {

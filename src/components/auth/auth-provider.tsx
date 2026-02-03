@@ -90,9 +90,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isCoach, setIsCoach] = useState(false);
 
   useEffect(() => {
-    if (userProfile) {
-        createCoachingChatOnFirstLogin(userProfile as ClientProfile).catch(console.error);
-    }
+    // if (userProfile && userProfile.uid && userProfile.fullName) {
+    //     createCoachingChatOnFirstLogin(userProfile.uid, userProfile.fullName).catch(console.error);
+    // }
   }, [userProfile]);
 
   useEffect(() => {

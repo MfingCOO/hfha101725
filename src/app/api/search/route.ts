@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { EnrichedFood } from '@/types';
+import { hybridFoodSearch } from '@/app/coach/food-cache/actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -187,31 +188,18 @@ function calculateRelevance(food: UsdaFoodItem, queryLower: string): number {
 }
 
 async function searchLocalCache(query: string) {
-    if (query.length < 2) return [];
-    const lowercasedQuery = query.toLowerCase();
-    try {
-        const snapshot = await adminDb.collection('global-food-cache')
-            .where('searchableDescription', '>=', lowercasedQuery)
-            .where('searchableDescription', '<=', lowercasedQuery + '\uf8ff')
-            .limit(25)
-            .get();
-
-        if (snapshot.empty) return [];
-
-        return snapshot.docs.map(doc => {
-            const food = doc.data() as EnrichedFood;
-            return {
-                fdcId: food.fdcId,
-                description: food.description,
-                brandOwner: food.brandOwner || '',
-                isCached: true,
-                relevanceScore: 99999, // High score to boost to top
-            };
-        });
-    } catch (error) {
-        console.error('[API Search Route] Local cache search error:', error);
-        return [];
-    }
+  if (query.length < 2) return [];
+  try {
+    const results = await hybridFoodSearch(query, 'cached');
+    return results.map(food => ({
+      ...food,
+      relevanceScore: 99999, // High score to boost to top
+      isCached: true,
+    }));
+  } catch (error) {
+    console.error('[API Search Route] Local cache (Algolia) search error:', error);
+    return [];
+  }
 }
 
 async function searchUSDA(query: string) {

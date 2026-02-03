@@ -1,4 +1,3 @@
-'use server';
 
 import { admin, db } from '@/lib/firebaseAdmin';
 import { UserProfile, UserTier } from '@/types';
@@ -25,7 +24,7 @@ export interface Challenge {
 
 export interface Reminder {
     id: string;
-    type: 'log' | 'reflect' | 'upgrade' | 'streak-congrats' | 'indulgence-prep' | 'indulgence-enjoy' | 'indulgence-recover' | 'custom-popup';
+    type: 'log' | 'reflect' | 'upgrade' | 'streak-congrats' | 'indulgence-prep' | 'indulgence-enjoy' | 'indulgence-recover' | 'custom-popup' | 'appointment_reminder' | 'mia_alert' | 'challenge_checkin' | 'appointment_booked';
     title: string;
     message: string;
     pillarId: string;
@@ -54,7 +53,7 @@ function serializeTimestamps(obj: any): any {
     return obj;
 }
 
-async function createUserNotification(userId: string, reminder: Omit<Reminder, 'id'>) {
+export async function createUserNotification(userId: string, reminder: Omit<Reminder, 'id'>) {
     if (!userId) return;
 
     try {

@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { NotificationPresenter } from '@/components/notifications/NotificationPresenter';
 import { DataEntryModalProvider } from '@/contexts/DataEntryModalContext';
+import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
 
 export default function RootLayout({
   children,
@@ -37,12 +38,14 @@ export default function RootLayout({
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <AppCheckProvider>
+              <PushNotificationProvider>
                 <NotificationProvider>
                   <DataEntryModalProvider>
                     {children}
                     <NotificationPresenter />
                   </DataEntryModalProvider>
                 </NotificationProvider>
+              </PushNotificationProvider>
             </AppCheckProvider>
           </AuthProvider>
         </QueryClientProvider>

@@ -96,10 +96,9 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
           newProcessedIds.add(notification.id);
 
           // --- ROUTE NOTIFICATION BY TYPE (THE FIX) ---
-          // Both chat and hydration reminders will now use the banner-style notification.
-          if (notification.type === 'chat_message' || notification.type === 'hydration_reminder') {
+          if (notification.type === 'hydration_reminder') {
             setBannerNotification(notification);
-          } else {
+          } else if (notification.type !== 'chat_message') {
             // Other notifications can still use the sticky modal if needed.
             setStickyNotifications(prev => [...prev, notification]);
           }

@@ -111,14 +111,14 @@ export const searchUsdaFoodDatabase = tool(
 
     // 3. Sort results using the multi-level hierarchy
     const sortedResults = Array.from(resultsMap.values()).sort((a, b) => {
-        // Tier 1: Cached items are supreme
-        if (a.isCached && !b.isCached) return -1;
-        if (!a.isCached && b.isCached) return 1;
-
-        // Tier 2: Higher relevance score is better
+        // Tier 1: Higher relevance score is better
         if (a.relevanceScore !== b.relevanceScore) {
             return b.relevanceScore - a.relevanceScore;
         }
+
+        // Tier 2: Cached items are a tie-breaker
+        if (a.isCached && !b.isCached) return -1;
+        if (!a.isCached && b.isCached) return 1;
 
         // Tier 3: Alphabetical as a final tie-breaker
         return a.description.localeCompare(b.description);

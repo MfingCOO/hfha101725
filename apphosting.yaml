@@ -3,7 +3,12 @@ run:
   runtime: nodejs20
 build:
   command: npm run build
+cache: false
 env:
+  - variable: NEXT_PUBLIC_ALGOLIA_APP_ID
+    secret: NEXT_PUBLIC_ALGOLIA_APP_ID
+  - variable: ALGOLIA_ADMIN_API_KEY
+    secret: ALGOLIA_ADMIN_API_KEY
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY
   - variable: USDA_API_KEY

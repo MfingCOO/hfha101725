@@ -31,8 +31,8 @@ export function useWorkoutEngine(workout: Workout | null) {
 
   // --- TIMER EFFECT ---
   useEffect(() => {
-    // If the timer is active in the global store, set up an interval.
-    if (['exercising', 'resting'].includes(status)) {
+    // --- FIX: Ensure the timer runs during the 'preparing' phase as well. ---
+    if (['preparing', 'exercising', 'resting'].includes(status)) {
       const interval = setInterval(() => {
         tick(); // Call the tick action on the global store.
       }, 1000);
@@ -43,7 +43,6 @@ export function useWorkoutEngine(workout: Workout | null) {
   }, [status, tick]);
 
   // --- START WORKOUT ACTION ---
-  // This function is exposed to the UI and will trigger the workout to start in the store.
   const startWorkout = useCallback(() => {
     if (workout) {
       startWorkoutAction(workout);
@@ -88,6 +87,7 @@ export function useWorkoutEngine(workout: Workout | null) {
     startTime,
     elapsedTime,
     performanceData,
+    executionFlow, // --- FIX: Expose the execution flow to the UI
     startWorkout,
     pauseWorkout: pause,
     resumeWorkout: resume,

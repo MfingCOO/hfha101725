@@ -4,6 +4,7 @@
 import { useEffect } from 'react';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { app } from '@/lib/firebase';
+import { initAudio } from '@/lib/audio';
 
 let isAppCheckInitialized = false;
 
@@ -14,6 +15,10 @@ let isAppCheckInitialized = false;
  */
 export function AppCheckProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
+    // === New: Initialize Global Audio ===
+    initAudio();
+    // =====================================
+
     // Handler to catch the specific null rejection from Firebase App Check
     const handleRejection = (event: PromiseRejectionEvent) => {
       if (event.reason === null) {

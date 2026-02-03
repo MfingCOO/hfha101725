@@ -36,11 +36,11 @@ export const FoodItemRow = ({ food, subDescription, onClick, actions, children }
             onClick={onClick}
         >
             <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm truncate">{description}</p>
+                <p className="font-semibold text-[10px] leading-tight truncate">{description}</p>
                 {subDescription ? (
-                    <div className="text-xs text-muted-foreground truncate">{subDescription}</div>
+                    <div className="text-[10px] text-muted-foreground truncate">{subDescription}</div>
                 ) : (
-                    <p className="text-xs text-muted-foreground truncate">{food.brandOwner || 'Generic'}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{food.brandOwner || 'Generic'}</p>
                 )}
             </div>
             {actions && <div className="ml-2">{actions}</div>}

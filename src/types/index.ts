@@ -1,3 +1,4 @@
+
 import { z } from "zod";
 
 // Defines the subscription tiers available in the application.
@@ -69,6 +70,7 @@ export interface UserProfile {
     bingeFreeSince?: any;
     lastInteraction?: any; 
     lastStreakNotification?: any;
+    achievedStreakMilestones?: number[];
     // CORRECTED: Restoring dailySummaries to its correct map structure
     dailySummaries?: {
         [date: string]: {
@@ -98,10 +100,12 @@ export interface UserProfile {
     calorieGoal?: number;
     calorieGoalRange?: { min: number; max: number; };
     averageWakeUpTime?: string;
+    bedtime?: string;
     fcmTokens?: string[];
     dismissedPopupIds?: string[];
     idealBodyWeight?: number; // ADDED
     hasLoggedInBefore?: boolean; // STEP 1: ADDED 'FIRST-LOGIN' FLAG
+    hasHadCoachingChat?: boolean;
     timezone?: string; // ADDED TO FIX REGRESSION
     timezoneOffset?: number; // ADDED TO FIX REGRESSION
     unitSystem?: 'metric' | 'imperial'; // ADDED
@@ -154,6 +158,8 @@ export interface Chat {
     lastAutomatedMessage?: any;
     lastCoachMessage?: any; 
     lastClientMessage?: any;
+    mutedBy?: string[];
+    lastClientMessageTimestamp?: any;
 }
 
 export interface ChatMessage {
@@ -224,7 +230,7 @@ export const EnrichedFoodSchema = z.object({
     brandOwner: z.string().optional(),
     ingredients: z.string().optional(),
     nutrients: z.array(NutrientSchema),
-    source: z.enum(['AI_ANALYSIS', 'USER_PROVIDED']),
+    source: z.enum(['AI_ANALYSIS', 'USER_PROVIDED', 'MANUAL_BULK']),
     analysisDate: z.string(),
     upfAnalysis: UpfAnalysisSchema,
     glutenAnalysis: GlutenAnalysisSchema.optional(),
@@ -232,6 +238,8 @@ export const EnrichedFoodSchema = z.object({
     portionSizes: PortionSizesSchema,
     createdAt: z.any().optional(),
     updatedAt: z.any().optional(),
+    status: z.string().optional(),
+    createdBy: z.string().optional(),
 });
 export type EnrichedFood = z.infer<typeof EnrichedFoodSchema>;
 
