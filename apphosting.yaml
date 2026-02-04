@@ -8,8 +8,6 @@ cache: false
 env:
   - variable: NEXT_PUBLIC_ALGOLIA_APP_ID
     secret: NEXT_PUBLIC_ALGOLIA_APP_ID
-  - variable: NEXT_PUBLIC_ALGOLIA_SEARCH_ONLY_API_KEY
-    secret: NEXT_PUBLIC_ALGOLIA_SEARCH_ONLY_API_KEY
   - variable: ALGOLIA_ADMIN_API_KEY
     secret: ALGOLIA_ADMIN_API_KEY
   - variable: GEMINI_API_KEY
