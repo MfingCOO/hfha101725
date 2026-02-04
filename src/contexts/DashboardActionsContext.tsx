@@ -3,7 +3,33 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type { Chat } from '@/services/firestore';
 import { useAuth } from '@/components/auth/auth-provider';
-import { getChatsForClient } from '@/app/chats/actions';
+import { getChatsForClient, getChatMetadataForUser } from '@/app/chats/actions';
+
+/**
+ * Safely converts various timestamp formats to milliseconds since epoch.
+ * Handles Firestore Timestamps, JS Date objects, ISO strings, and numbers.
+ */
+function getMillis(timestamp: any): number {
+    if (!timestamp) return 0;
+    // Firestore Timestamp object
+    if (typeof timestamp.toMillis === 'function') {
+        return timestamp.toMillis();
+    }
+    // JavaScript Date object
+    if (typeof timestamp.getTime === 'function') {
+        return timestamp.getTime();
+    }
+    // ISO-8601 string
+    if (typeof timestamp === 'string') {
+        const date = new Date(timestamp);
+        return isNaN(date.getTime()) ? 0 : date.getTime();
+    }
+    // Number (already in milliseconds)
+    if (typeof timestamp === 'number') {
+        return timestamp;
+    }
+    return 0;
+}
 
 // 1. Define the types for the state and actions
 interface DashboardState {
@@ -37,12 +63,21 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   
   // State for the data
   const [chats, setChats] = useState<Chat[]>([]);
-  
+  const [chatMetadata, setChatMetadata] = useState<Record<string, { lastReadTimestamp: any }>>({});
+
   // State for the UI actions (dialogs)
   const [isChallengesOpen, setIsChallengesOpen] = useState(false);
   const [isChatsOpen, setIsChatsOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const fetchChatMetadata = useCallback(async () => {
+    if (!user) return;
+    const result = await getChatMetadataForUser(user.uid);
+    if (result.success && result.data) {
+        setChatMetadata(result.data);
+    }
+  }, [user]);
 
   const fetchChats = useCallback(async () => {
     if (!user) return;
@@ -50,25 +85,40 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     if (result.success && result.data) {
       setChats(result.data);
     }
-  }, [user]);
+    await fetchChatMetadata();
+  }, [user, fetchChatMetadata]);
 
   useEffect(() => {
     if (!user) return;
     fetchChats();
-    // The polling `setInterval` has been removed.
   }, [user, fetchChats]);
 
   const hasUnreadChats = useMemo(() => {
     if (!user || !chats) return false;
-    return chats.some(chat => {
-      const lastSenderId = chat.lastMessageSenderId;
-      // An unread message exists if the last sender was not the current user.
-      // This also correctly handles the case where lastMessageSenderId is null or undefined initially.
-      return lastSenderId && lastSenderId !== user.uid;
-    });
-  }, [chats, user]);
 
-  // Memoize the context values to prevent unnecessary re-renders
+    return chats.some(chat => {
+        const lastMessage = chat.lastMessage as any;
+        if (!lastMessage || !lastMessage.senderId || !lastMessage.timestamp) {
+            return false;
+        }
+
+        if (lastMessage.senderId === user.uid) {
+            return false;
+        }
+
+        const lastReadTimestamp = chatMetadata[chat.id]?.lastReadTimestamp;
+        const lastMessageMillis = getMillis(lastMessage.timestamp);
+
+        if (!lastReadTimestamp) {
+            return lastMessageMillis > 0;
+        }
+        
+        const lastReadMillis = getMillis(lastReadTimestamp);
+
+        return lastMessageMillis > lastReadMillis;
+    });
+  }, [chats, user, chatMetadata]);
+
   const stateValue = useMemo(() => ({
     chats,
     hasUnreadChats,

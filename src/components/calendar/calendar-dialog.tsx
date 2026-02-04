@@ -27,6 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, format } from 'date-fns';
+import { useAdMob } from '@/hooks/useAdMob';
 
 const NutrientRow = ({ name, value, unit, goal, isTrackOnly = false }: { name: string, value: number, unit: string, goal: number, isTrackOnly?: boolean }) => {
     const percentage = goal > 0 && !isTrackOnly ? (value / goal) * 100 : value > 0 ? 100 : 0;
@@ -184,7 +185,7 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
   const [settingsDefaultTab, setSettingsDefaultTab] = useState('account');
   const [settingsDefaultAccordion, setSettingsDefaultAccordion] = useState<string | undefined>(undefined);
   const [userTimezone, setUserTimezone] = useState<string>('');
-  
+  const { prepareInterstitialAd, showInterstitialAd } = useAdMob();
   const [viewDateRange, setViewDateRange] = useState<{ start: Date, end: Date } | null>(null);
 
   useEffect(() => {
@@ -196,6 +197,17 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
       setSelectedDate(initialDate);
     }
   }, [initialDate]);
+
+  useEffect(() => {
+    if (isOpen && process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
+        prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: process.env.NODE_ENV !== 'production' });
+    }
+}, [isOpen, prepareInterstitialAd]);
+
+const handleClose = async () => {
+    await showInterstitialAd();
+    onClose();
+};
 
   const fetchClientProfile = useCallback(async () => {
     if (!initialClient.uid) return;
@@ -254,7 +266,6 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
   });
 
   const allEntries = useMemo(() => {
-    // This now correctly uses the single source of truth for all calendar data.
     return calendarData?.data || [];
 }, [calendarData]);
 
@@ -288,7 +299,7 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
 
   return (
     <>
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="w-[90vw] max-w-7xl h-[90dvh] flex flex-col p-0">
          <DialogHeader className="p-0 -m-2"><DialogTitle srOnly>{initialClient.fullName}&apos;s Calendar</DialogTitle><DialogDescription srOnly>View and manage calendar entries.</DialogDescription></DialogHeader>
         

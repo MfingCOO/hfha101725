@@ -7,7 +7,6 @@ import * as React from 'react';
 import { useEffect } from 'react';
 import { BottomNavBar } from '@/components/layout/bottom-nav-bar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
-import { GoogleAd } from '@/components/ads/google-ad';
 import { ChallengesDialog } from '@/components/challenges/challenges-dialog';
 import { ChatsDialog } from '@/components/chats/chats-dialog';
 import { DashboardProvider, useDashboardActions } from '@/contexts/DashboardActionsContext';
@@ -139,11 +138,6 @@ export default function ClientLayout({
               <div className="p-4 sm:p-6 lg:p-8 pb-24">
                 {children}
               </div>
-              {userProfile?.tier === 'free' && (
-                <div className="sticky bottom-16 w-full p-2 bg-background/80 backdrop-blur-sm">
-                  <GoogleAd slotId={process.env.NEXT_PUBLIC_AD_SLOT_ID_2!} />
-                </div>
-              )}
              </ErrorBoundary>
             </main>
             <BottomNavBar />

@@ -25,14 +25,6 @@ export default function RootLayout({
       <head>
         <title>Hunger Free and Happy</title>
         <meta name="description" content="A wellness application." />
-         {process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID && (
-            <Script
-              async
-              src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID}`}
-              crossOrigin="anonymous"
-              strategy="afterInteractive"
-            />
-          )}
       </head>
       <body className={`${inter.className} h-full`}>
         <QueryClientProvider client={queryClient}>
