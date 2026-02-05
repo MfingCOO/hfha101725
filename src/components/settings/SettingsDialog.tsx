@@ -35,7 +35,6 @@ import {
   updateUserPasswordAction,
   updateClientProfileAndGoalsAction,
   updateClientSettingsAction,
-  createStripePortalSession
 } from '@/app/client/settings/actions';
 import { getSiteSettingsAction, updateSiteSettingsAction } from '@/app/coach/site-settings/actions';
 import type { TrackingSettings, ClientProfile, NutritionalGoals } from '@/types';
@@ -160,9 +159,9 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
             ...clientData,
             customGoals: {
                 ...clientData.customGoals,
-                activityLevel: watchedGoals.activityLevel,
-                calculationMode: watchedGoals.calculationMode,
-                calorieModifier: watchedGoals.calorieModifier,
+                activityLevel: watchedGoals.activityLevel ?? 'light',
+                calculationMode: watchedGoals.calculationMode ?? 'ideal',
+                calorieModifier: watchedGoals.calorieModifier ?? 0,
                 protein: typeof watchedGoals.customMacros?.protein === 'number' ? watchedGoals.customMacros.protein : undefined,
                 fat: typeof watchedGoals.customMacros?.fat === 'number' ? watchedGoals.customMacros.fat : undefined,
                 carbs: watchedGoals.customMacros?.carbs === '' ? undefined : (typeof watchedGoals.customMacros?.carbs === 'number' ? watchedGoals.customMacros.carbs : undefined),
@@ -346,14 +345,23 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
   const handleManageBilling = async () => {
     if (!user) return;
     setIsSaving(true);
-    const { url, error } = await createStripePortalSession(user.uid);
-    if (url) {
-        window.location.href = url;
-    } else {
-        toast({ variant: 'destructive', title: 'Error', description: error || "Could not open billing portal." });
+    try {
+        const response = await fetch('/api/stripe/create-portal-session', {
+            method: 'POST',
+        });
+        const { url, error } = await response.json();
+        if (response.ok && url) {
+            window.location.href = url;
+        } else {
+            toast({ variant: 'destructive', title: 'Error', description: error || "Could not open billing portal." });
+        }
+    } catch (err: any) {
+        toast({ variant: 'destructive', title: 'Error', description: err.message || "An unexpected error occurred." });
+    } finally {
+        setIsSaving(false);
     }
-    setIsSaving(false);
   }
+  
 
   const calculationMode = watchedGoals.calculationMode;
   

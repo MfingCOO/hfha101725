@@ -104,37 +104,47 @@ allChats = await Promise.all(chatsWithDataPromises);
 // Action to get chats for a specific client
 export async function getChatsForClient(userId: string): Promise<{ success: boolean; data?: Chat[]; error?: any; }> {
     try {
-        const openChatsQuery = adminDb.collection('chats').where('type', '==', 'open').get();
         const userProfileSnap = await adminDb.collection('userProfiles').doc(userId).get();
-
-        const [openChatsSnapshot, userProfile] = await Promise.all([openChatsQuery, userProfileSnap]);
-
-        const openChats = openChatsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
-        
-        let userChatIds: string[] = [];
-        if (userProfile.exists) {
-            userChatIds = (userProfile.data() as UserProfile).chatIds || [];
+        if (!userProfileSnap.exists) {
+            // If user profile doesn't exist, they have no chats.
+            return { success: true, data: [] };
         }
+        
+        const userProfile = userProfileSnap.data() as UserProfile;
+        const userChatIds = userProfile.chatIds || [];
+        const userTier = userProfile.tier;
 
-        let userChats: Chat[] = [];
+        const chatPromises: Promise<any>[] = [];
+
+        // 1. Fetch chats the user is directly a member of.
         if (userChatIds.length > 0) {
-            const chunks = [];
+            const chunks: string[][] = [];
             for (let i = 0; i < userChatIds.length; i += 30) {
                 chunks.push(userChatIds.slice(i, i + 30));
             }
-            const queryPromises = chunks.map(chunk => 
-                adminDb.collection('chats').where(FieldPath.documentId(), 'in', chunk).get()
-            );
-            const snapshots = await Promise.all(queryPromises);
-            snapshots.forEach(snapshot => {
-                snapshot.forEach(docSnap => {
-                    userChats.push({ id: docSnap.id, ...docSnap.data() } as Chat);
-                });
+            chunks.forEach(chunk => {
+                chatPromises.push(adminDb.collection('chats').where(FieldPath.documentId(), 'in', chunk).get());
             });
         }
+
+        // ** START TIER-BASED CHAT FIX **
+        // 2. Only fetch 'open' chats if the user is on a premium tier.
+        if (userTier === 'premium' || userTier === 'coaching') {
+            chatPromises.push(adminDb.collection('chats').where('type', '==', 'open').get());
+        }
+        // ** END TIER-BASED CHAT FIX **
+
+        const snapshots = await Promise.all(chatPromises);
+
+        const allChats: Chat[] = [];
+        snapshots.forEach(snapshot => {
+            snapshot.forEach((docSnap: any) => {
+                allChats.push({ id: docSnap.id, ...docSnap.data() } as Chat);
+            });
+        });
         
-        const combinedChats = [...userChats, ...openChats];
-        const uniqueChats = Array.from(new Map(combinedChats.map(chat => [chat.id, chat])).values());
+        // Remove duplicates (in case a user is in an open chat already)
+        const uniqueChats = Array.from(new Map(allChats.map(chat => [chat.id, chat])).values());
 
         const serializableData = uniqueChats.map(serializeTimestamps);
         
@@ -150,6 +160,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
     }
 }
+
 
 
 // Action to get all of a user's chat metadata (like last read times)
@@ -260,6 +271,8 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
 
         const messageText = text || fileName || 'Attachment';
 
+        // ** START ROBUST DOT FIX **
+        // This transaction now includes marking the chat as read for the sender.
         await adminDb.runTransaction(async (transaction) => {
             const messagesCollectionRef = chatDocRef.collection('messages');
             const messageData: any = {
@@ -281,13 +294,21 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 }
             };
 
-            // If the message is from a client, update the specific client timestamp field.
             if (!COACH_UIDS.includes(userId)) {
                 updateData.lastClientMessageTimestamp = FieldValue.serverTimestamp();
             }
             
+            // Mark chat as read for the SENDER within the same transaction
+            const senderMetadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
+            transaction.set(senderMetadataRef, {
+                userId: userId,
+                chatId: chatId,
+                lastReadTimestamp: FieldValue.serverTimestamp(),
+            }, { merge: true });
+
             transaction.update(chatDocRef, updateData);
         });
+        // ** END ROBUST DOT FIX **
 
         const recipients = chatData.participants.filter(pId => pId !== userId);
         const mutedBy = chatData.mutedBy || [];
@@ -303,22 +324,20 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 body: `${userName}: ${messageText}`.slice(0, 100),
             };
 
-            // ** START: DIRECT NOTIFICATION LOGIC **
             try {
                 const userRef = adminDb.collection("userProfiles").doc(recipientId);
                 const userDoc = await userRef.get();
 
                 if (userDoc.exists) {
                     const userData = userDoc.data();
-                    // Ensure user has FCM tokens to receive notifications
                     if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
                         const message = {
                             notification: {
                                 title: notificationPayload.title,
                                 body: notificationPayload.body,
                             },
-                            tokens: userData.fcmTokens.filter((t: any) => t), // Ensure no null/empty tokens
-                            apns: { // iOS specific configuration
+                            tokens: userData.fcmTokens.filter((t: any) => t),
+                            apns: {
                                 payload: { aps: { sound: 'default' } },
                             },
                         };
@@ -329,13 +348,8 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 }
             } catch (error) {
                 console.error(`Error sending push notification directly to user ${recipientId}:`, error);
-                // Do not block the main action if a notification fails
             }
-            // ** END: DIRECT NOTIFICATION LOGIC **
         });
-
-        await Promise.all(notificationPromises);
-
 
         await Promise.all(notificationPromises);
         

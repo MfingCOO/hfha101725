@@ -13,7 +13,6 @@ import { getLatestChallengeForClient, joinChallengeAction } from '@/app/challeng
 import { Skeleton } from '../ui/skeleton';
 import { Badge } from '../ui/badge';
 import { InsightsDialog } from '../insights/insights-dialog';
-import { GoogleAd } from '../ads/google-ad';
 import { useDashboardActions } from '@/contexts/DashboardActionsContext';
 import { differenceInCalendarDays, format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
@@ -29,7 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Loader2 } from 'lucide-react';
-import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { FirstUseEducationalModal } from '../modals/FirstUseEducationalModal';
 import { educationalContentLibrary, EducationalContent } from '@/lib/educational-content';
@@ -39,8 +38,9 @@ import { ProgramWidget } from '@/components/client/ProgramWidget';
 import { ProgramListDialog } from '@/components/programs/program-list-dialog';
 import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
 import quotes from '@/lib/quotes.json';
+import { useAdMob } from '@/hooks/useAdMob';
+import { BannerAdPosition, BannerAdSize } from '@capacitor-community/admob';
 
-// FIX: Define Pillar type locally to resolve import error
 import { LucideIcon } from 'lucide-react';
 import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
 export interface Pillar {
@@ -50,35 +50,37 @@ export interface Pillar {
   color: string;
   bgColor: string;
   borderColor: string;
-  requiredTier: 'free' | 'basic' | 'premium'; // Simplified for local definition
+  requiredTier: UserTier;
+
 }
 
 const pillarsAndTools: Pillar[] = [
-  { id: 'nutrition', label: 'Nutrition', icon: UtensilsCrossed, color: 'text-foreground', bgColor: 'bg-amber-400', borderColor: 'border-amber-600', requiredTier: 'free' },
-  { id: 'activity', label: 'Activity', icon: Flame, color: 'text-foreground', bgColor: 'bg-orange-400', borderColor: 'border-orange-600', requiredTier: 'free' },
-  { id: 'sleep', label: 'Sleep', icon: Moon, color: 'text-foreground', bgColor: 'bg-indigo-400', borderColor: 'border-indigo-600', requiredTier: 'free' },
-  { id: 'stress', label: 'Stress Relief', icon: CloudSun, color: 'text-foreground', bgColor: 'bg-green-400', borderColor: 'border-green-600', requiredTier: 'basic' },
-  { id: 'hydration', label: 'Hydration', icon: Droplet, color: 'text-foreground', bgColor: 'bg-blue-400', borderColor: 'border-blue-600', requiredTier: 'free' },
-  { id: 'protocol', label: '75/20/20 Protocol', icon: UserCheck, color: 'text-foreground', bgColor: 'bg-teal-400', borderColor: 'border-teal-600', requiredTier: 'basic' },
-  { id: 'planner', label: 'Indulgence Planner', icon: Salad, color: 'text-foreground', bgColor: 'bg-lime-400', borderColor: 'border-lime-600', requiredTier: 'basic' },
-  { id: 'cravings', label: 'Cravings/Binges', icon: Apple, color: 'text-foreground', bgColor: 'bg-red-400', borderColor: 'border-red-600', requiredTier: 'basic' },
-  { id: 'insights', label: 'Insights', icon: Lightbulb, color: 'text-foreground', bgColor: 'bg-yellow-400', borderColor: 'border-yellow-600', requiredTier: 'basic' },
-  { id: 'measurements', label: 'Measurements', icon: Scale, color: 'text-foreground', bgColor: 'bg-gray-400', borderColor: 'border-gray-600', requiredTier: 'free' },
+  { id: 'nutrition', label: 'Nutrition', icon: UtensilsCrossed, color: 'text-foreground', bgColor: 'bg-amber-400', borderColor: 'border-amber-600', requiredTier: UserTier.Free },
+  { id: 'activity', label: 'Activity', icon: Flame, color: 'text-foreground', bgColor: 'bg-orange-400', borderColor: 'border-orange-600', requiredTier: UserTier.Free },
+  { id: 'sleep', label: 'Sleep', icon: Moon, color: 'text-foreground', bgColor: 'bg-indigo-400', borderColor: 'border-indigo-600', requiredTier: UserTier.Free },
+  { id: 'stress', label: 'Stress Relief', icon: CloudSun, color: 'text-foreground', bgColor: 'bg-green-400', borderColor: 'border-green-600', requiredTier: UserTier.Basic },
+  { id: 'hydration', label: 'Hydration', icon: Droplet, color: 'text-foreground', bgColor: 'bg-blue-400', borderColor: 'border-blue-600', requiredTier: UserTier.Free },
+  { id: 'protocol', label: '75/20/20 Protocol', icon: UserCheck, color: 'text-foreground', bgColor: 'bg-teal-400', borderColor: 'border-teal-600', requiredTier: UserTier.Basic },
+  { id: 'planner', label: 'Indulgence Planner', icon: Salad, color: 'text-foreground', bgColor: 'bg-lime-400', borderColor: 'border-lime-600', requiredTier: UserTier.Basic },
+  { id: 'cravings', label: 'Cravings/Binges', icon: Apple, color: 'text-foreground', bgColor: 'bg-red-400', borderColor: 'border-red-600', requiredTier: UserTier.Basic },
+  { id: 'insights', label: 'Insights', icon: Lightbulb, color: 'text-foreground', bgColor: 'bg-yellow-400', borderColor: 'border-yellow-600', requiredTier: UserTier.Basic },
+  { id: 'measurements', label: 'Measurements', icon: Scale, color: 'text-foreground', bgColor: 'bg-gray-400', borderColor: 'border-gray-600', requiredTier: UserTier.Free },
 ];
+
 
 const topRowButtons = pillarsAndTools.slice(0, 5);
 const bottomRowButtons = pillarsAndTools.slice(5, 10);
 
-// FIX: Helper to safely create a Date object from various sources
 const safeNewDate = (dateSource: any): Date | null => {
     if (!dateSource) return null;
     if (dateSource instanceof Date) return dateSource;
     if (typeof dateSource === 'string' || typeof dateSource === 'number') return new Date(dateSource);
-    if (dateSource.toDate && typeof dateSource.toDate === 'function') return dateSource.toDate(); // Firestore Timestamp
+    if (dateSource.toDate && typeof dateSource.toDate === 'function') return dateSource.toDate();
     return null;
 }
 
 export function DashboardClient() {
+  const { showBannerAd } = useAdMob();
   const { onOpenChallenges } = useDashboardActions();
   const { user, userProfile } = useAuth();
   const { toast } = useToast();
@@ -94,7 +96,7 @@ export function DashboardClient() {
   
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [initialCalendarDate, setInitialCalendarDate] = useState<Date | undefined>(undefined);
-  const [highlightedEntryId, setHighlightedEntryId] = useState<string | undefined>(undefined); // FIX: State for highlighting
+  const [highlightedEntryId, setHighlightedEntryId] = useState<string | undefined>(undefined);
 
   const [isResettingStreak, setIsResettingStreak] = useState(false);
   const [isResetStreakAlertOpen, setIsResetStreakAlertOpen] = useState(false);
@@ -115,6 +117,18 @@ export function DashboardClient() {
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (userProfile && process.env.NEXT_PUBLIC_ADMOB_BANNER_ID) {
+        showBannerAd({
+            adId: process.env.NEXT_PUBLIC_ADMOB_BANNER_ID,
+            adSize: BannerAdSize.BANNER,
+            position: BannerAdPosition.BOTTOM_CENTER,
+            margin: 0,
+            isTesting: process.env.NODE_ENV !== 'production',
+        });
+    }
+  }, [userProfile, showBannerAd]);
 
   const hasSeenFeature = useCallback((featureId: string) => {
     if (typeof window === 'undefined') return false;
@@ -140,6 +154,18 @@ export function DashboardClient() {
   const handlePillarClick = (pillar: Pillar) => {
     if (!userProfile || !isMounted) return;
 
+    const currentTierIndex = TIER_ACCESS.indexOf(userProfile.tier);
+    const requiredTierIndex = TIER_ACCESS.indexOf(pillar.requiredTier as UserTier);
+
+    // First, check if the user's tier is high enough.
+    if (currentTierIndex < requiredTierIndex) {
+        // If it's not, set the active pillar and open the real upgrade modal.
+        setActivePillar(pillar);
+        setIsUpgradeModalOpen(true);
+        return; // Stop here.
+    }
+
+    // If they have access, continue with the original logic.
     const content = educationalContentLibrary[pillar.id];
     const hasSeen = hasSeenFeature(pillar.id);
 
@@ -150,6 +176,7 @@ export function DashboardClient() {
         executePillarAction(pillar);
     }
   };
+
 
   const handleEducationalModalConfirm = () => {
     if (!educationalModalContent) return;
@@ -217,8 +244,7 @@ export function DashboardClient() {
   }, [user?.uid]);
 
 
- // Per your request, this function is now disabled to make the banner non-interactive.
-const handleOpenCalendarForIndulgence = (plan: any) => {
+ const handleOpenCalendarForIndulgence = (plan: any) => {
   return;
 };
 
@@ -227,7 +253,7 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
     if (onOpenCalendar) {
         (onOpenCalendar as any)._open = () => {
             setInitialCalendarDate(new Date());
-            setHighlightedEntryId(undefined); // Ensure no highlight on generic open
+            setHighlightedEntryId(undefined);
             setIsCalendarOpen(true);
         }
     }
@@ -236,7 +262,6 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
     if (modalType) {
       const pillarToOpen = pillarsAndTools.find(p => p.id === modalType);
       if (pillarToOpen) {
-        // Use existing component state to open the dialog
         setActivePillar(pillarToOpen);
         setDataEntryDialogOpen(true);
       }
@@ -246,7 +271,7 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
   const handleDataEntryDialogClose = (wasSaved: boolean) => {
     setDataEntryDialogOpen(false);
     setActivePillar(null);
-    closeModal(); // Reset the context state
+    closeModal();
     if (wasSaved) {
       fetchDashboardData();
     }
@@ -374,7 +399,7 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
     const isParticipant = latestChallenge.participants.includes(user?.uid || '');
     const now = new Date();
     const challengeStartDate = safeNewDate(latestChallenge.dates.from);
-    if(!challengeStartDate) return null; // Defensive check
+    if(!challengeStartDate) return null;
     const isUpcoming = challengeStartDate > now;
     const canJoin = !isParticipant && TIER_ACCESS.indexOf(userProfile?.tier || UserTier.Free) >= TIER_ACCESS.indexOf(UserTier.Premium);
     const needsUpgrade = !isParticipant && TIER_ACCESS.indexOf(userProfile?.tier || UserTier.Free) < TIER_ACCESS.indexOf(UserTier.Premium);
@@ -444,23 +469,6 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
         {bottomRowButtons.map(renderPillarButton)}
       </div>
       
-         {/* Ad Slot 1 for Free Tier */}
-  {userProfile?.tier === UserTier.Free && (
-    <div className="my-4">
-      {process.env.NEXT_PUBLIC_AD_SLOT_ID_1 ? (
-        <GoogleAd slotId={process.env.NEXT_PUBLIC_AD_SLOT_ID_1} />
-      ) : (
-        process.env.NODE_ENV === 'development' && (
-          <div className="text-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
-            <p><strong>Ad Slot 1 is not configured.</strong></p>
-            <p>Please set <code>NEXT_PUBLIC_AD_SLOT_ID_1</code> in your .env file.</p>
-          </div>
-        )
-      )}
-    </div>
-  )}
-
-      
       {renderChallengeSection()}
 
       <ProgramWidget 
@@ -527,21 +535,6 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
             </CardContent>
         </Card>
       )}
-  {/* Ad Slot 2 for Free Tier */}
-  {userProfile?.tier === UserTier.Free && (
-    <div className="my-4">
-      {process.env.NEXT_PUBLIC_AD_SLOT_ID_2 ? (
-        <GoogleAd slotId={process.env.NEXT_PUBLIC_AD_SLOT_ID_2} />
-      ) : (
-        process.env.NODE_ENV === 'development' && (
-          <div className="text-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
-            <p><strong>Ad Slot 2 is not configured.</strong></p>
-            <p>Please set <code>NEXT_PUBLIC_AD_SLOT_ID_2</code> in your .env file.</p>
-          </div>
-        )
-      )}
-    </div>
-  )}
 
       <ProgramListDialog
         isOpen={isProgramListOpen}
@@ -569,13 +562,17 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
         onClose={() => setInsightsDialogOpen(false)}
       />
 
-      <UpgradeModal 
+      <UpgradeModal
         isOpen={isUpgradeModalOpen}
-        onClose={() => setIsUpgradeModalOpen(false)}
-        requiredTier={UserTier.Premium} 
-        featureName="Workout Programs"
-        reason="Access to workout programs is a premium feature. Upgrade your account to subscribe and take your journey to the next level!"
+        onClose={() => {
+            setIsUpgradeModalOpen(false);
+            setActivePillar(null); // Clear context when closing
+        }}
+        requiredTier={activePillar?.requiredTier || UserTier.Premium}
+        featureName={activePillar?.label || 'Premium Features'}
+        reason={activePillar ? `Access to the ${activePillar.label} pillar requires a subscription.` : 'Access to this feature requires an upgrade.'}
       />
+
       
       {isMounted && educationalModalContent && (
         <FirstUseEducationalModal 
@@ -593,7 +590,7 @@ const handleOpenCalendarForIndulgence = (plan: any) => {
             onClose={() => setIsCalendarOpen(false)}
             client={userProfile as ClientProfile}
             initialDate={initialCalendarDate}
-            highlightedEntryId={highlightedEntryId} // FIX: Pass highlighted entry ID
+            highlightedEntryId={highlightedEntryId}
         />
        )}
        

@@ -1,21 +1,16 @@
-
-
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
-import { Button, buttonVariants } from "../ui/button";
-import { Loader2, MessageSquare, PlusCircle, ArrowRight, MoreVertical, LogOut, CalendarPlus } from "lucide-react";
-import type { Chat, Challenge, UserTier } from "@/services/firestore";
-import Image from "next/image";
+import { Button } from "../ui/button";
+import { Loader2, MoreVertical, LogOut, CalendarPlus } from "lucide-react";
+import type { Chat, Challenge } from "@/services/firestore";
 import { Badge } from "../ui/badge";
 import { EmbeddedChatDialog } from "../coach/chats/embedded-chat-dialog";
-import { ClientChallengeDetailModal } from "../challenges/client-challenge-detail-modal";
-import { getChallengeDetailsForCoach, getChallengesForCoach } from "@/app/coach/actions";
+import { getChallengesForCoach } from "@/app/coach/actions";
+import { getChatMetadataForUser, joinChat as joinChatAction, leaveChat as leaveChatAction } from "@/app/chats/actions";
 import { useToast } from "@/hooks/use-toast";
-import { joinChat as joinChatAction, leaveChatAction, markChatAsRead } from "@/services/firestore";
-import { TIER_ACCESS } from "@/types";
+import { TIER_ACCESS, UserTier } from "@/types";
 import { UpgradeModal } from "../modals/upgrade-modal";
 import {
   AlertDialog,
@@ -35,40 +30,55 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { BookingDialog } from "../client/booking/BookingDialog";
 import { useDashboardActions, useDashboardState } from "@/contexts/DashboardActionsContext";
-import { cn } from "@/lib/utils";
 
+// Helper to convert Firestore Timestamps to ISO strings for client-side use
+function serializeTimestamps(data: any): any {
+    if (!data) return data;
+    if (Array.isArray(data)) {
+        return data.map(item => serializeTimestamps(item));
+    }
+    if (typeof data === 'object') {
+        const newObj: { [key: string]: any } = {};
+        for (const key in data) {
+            const value = data[key];
+            if (value && typeof value.toDate === 'function') {
+                newObj[key] = value.toDate().toISOString();
+            } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+                newObj[key] = serializeTimestamps(value); // Recurse for nested objects
+            } else {
+                newObj[key] = value;
+            }
+        }
+        return newObj;
+    }
+    return data;
+}
 
-type SerializableChat = Omit<Chat, 'createdAt' | 'lastClientMessage' | 'lastCoachMessage' | 'lastAutomatedMessage'> & {
+// Corrected type for client-side chat objects after serialization
+type SerializableChat = Omit<Chat, 'createdAt' | 'lastMessage'> & {
     createdAt?: string;
-    lastClientMessage?: string;
-    lastCoachMessage?: string;
-    lastAutomatedMessage?: string;
-    lastMessage?: string;
-    lastMessageSenderId?: string;
+    lastMessage?: {
+        text: string;
+        senderId: string;
+        timestamp: string;
+    }
 };
 
 type SerializableChallenge = Omit<Challenge, 'dates' | 'createdAt' | 'progress'> & {
     dates: { from: string, to: string };
     createdAt?: string;
-    progress?: {
-        [userId: string]: {
-            [date: string]: {
-                [task: string]: boolean
-            }
-        }
-    };
+    progress?: { [key: string]: any };
 };
 
 export function ClientChatList() {
     const { user, userProfile, loading: authLoading } = useAuth();
-    // This component now gets its data from context, which is updated in real-time.
     const { chats, fetchChats } = useDashboardState();
     const { toast } = useToast();
     const [isLoadingDetails, setIsLoadingDetails] = useState(false);
     const [allChallenges, setAllChallenges] = useState<SerializableChallenge[]>([]);
+    const [chatMetadata, setChatMetadata] = useState<Record<string, { lastReadTimestamp: string }>>({});
     
     const [selectedChat, setSelectedChat] = useState<{ id: string; name: string } | null>(null);
-    const [selectedChallengeForModal, setSelectedChallengeForModal] = useState<SerializableChallenge | null>(null);
     const [upgradeModal, setUpgradeModal] = useState<{ isOpen: boolean; requiredTier: UserTier } | null>(null);
     const [joinAlert, setJoinAlert] = useState<{ isOpen: boolean; chat: SerializableChat | null }>({ isOpen: false, chat: null });
     const [leaveAlert, setLeaveAlert] = useState<{ isOpen: boolean; chat: SerializableChat | null }>({ isOpen: false, chat: null });
@@ -76,32 +86,39 @@ export function ClientChatList() {
     const [isLeaving, setIsLeaving] = useState(false);
     const [isBookingOpen, setIsBookingOpen] = useState(false);
     
-    const allChats = chats || [];
+    // Memoize serialized chats to prevent re-renders
+    const serializedChats: SerializableChat[] = useMemo(() => serializeTimestamps(chats || []), [chats]);
 
     useEffect(() => {
         if (user) {
             getChallengesForCoach().then(res => {
                 if (res.success && res.data) {
-                    setAllChallenges(res.data as SerializableChallenge[]);
+                    setAllChallenges(serializeTimestamps(res.data));
+                }
+            });
+            // Fetch the user's read status for all chats
+            getChatMetadataForUser(user.uid).then(res => {
+                if (res.success && res.data) {
+                    setChatMetadata(serializeTimestamps(res.data));
                 }
             })
         }
     }, [user]);
 
     const { myChats, availableChats } = useMemo(() => {
-        const myChats = allChats.filter((chat: Chat) => chat.participants.includes(user?.uid || ''));
-        const availableChats = allChats.filter((chat: Chat) => !chat.participants.includes(user?.uid || '') && chat.type === 'open');
+        const myChats = serializedChats.filter((chat) => chat.participants.includes(user?.uid || ''));
+        const availableChats = serializedChats.filter((chat) => !chat.participants.includes(user?.uid || '') && chat.type === 'open');
         return { myChats, availableChats };
-    }, [allChats, user]);
+    }, [serializedChats, user]);
     
 
     const handleJoinClick = (chat: SerializableChat) => {
-        const requiredTier: UserTier = 'premium';
+        const requiredTier = 'premium';
         const currentTierIndex = userProfile ? TIER_ACCESS.indexOf(userProfile.tier) : 0;
-        const requiredTierIndex = TIER_ACCESS.indexOf(requiredTier);
+        const requiredTierIndex = TIER_ACCESS.indexOf(requiredTier as UserTier);
 
         if (currentTierIndex < requiredTierIndex) {
-            setUpgradeModal({ isOpen: true, requiredTier });
+            setUpgradeModal({ isOpen: true, requiredTier: requiredTier as UserTier });
         } else {
             setJoinAlert({ isOpen: true, chat });
         }
@@ -149,7 +166,6 @@ export function ClientChatList() {
         );
     }
     
-    // A single, universal component for list items.
     const ChatListItem = ({ chat, isUnread }: { chat: SerializableChat, isUnread: boolean }) => (
         <div 
             onClick={() => setSelectedChat({ id: chat.id, name: chat.name })}
@@ -158,7 +174,7 @@ export function ClientChatList() {
              {isUnread && <div className="h-2.5 w-2.5 rounded-full bg-blue-500 flex-shrink-0" />}
             <div className="flex-1 min-w-0">
                 <p className="font-semibold">{chat.name}</p>
-                <p className="text-sm text-muted-foreground line-clamp-2">{chat.description}</p>
+                <p className="text-sm text-muted-foreground line-clamp-2">{chat.description || 'No description.'}</p>
             </div>
             <div className="flex items-center">
                 <Button 
@@ -202,7 +218,19 @@ export function ClientChatList() {
             {myChats.length > 0 ? (
                 <div className="space-y-3">
                     {myChats.map(chat => {
-                        const isUnread = chat.lastMessageSenderId !== user?.uid;
+                        // ** START: DEFINITIVE BLUE DOT FIX **
+                        const lastRead = chatMetadata[chat.id]?.lastReadTimestamp;
+                        const lastMessageTime = chat.lastMessage?.timestamp;
+                        let isUnread = false;
+                        
+                        // A chat is unread ONLY if the last message is from another user AND it's newer than the last time this user read the chat.
+                        if (chat.lastMessage && chat.lastMessage.senderId !== user?.uid) {
+                            if (!lastRead || (lastMessageTime && new Date(lastMessageTime) > new Date(lastRead))) {
+                                isUnread = true;
+                            }
+                        }
+                        // ** END: DEFINITIVE BLUE DOT FIX **
+
                         return (
                             <ChatListItem 
                                 key={chat.id} 
@@ -227,7 +255,7 @@ export function ClientChatList() {
                                         <p className="font-semibold">{chat.name}</p>
                                         {chat.type === 'challenge' && <Badge variant="secondary">Challenge</Badge>}
                                     </div>
-                                    <p className="text-sm text-muted-foreground line-clamp-2">{chat.description}</p>
+                                    <p className="text-sm text-muted-foreground line-clamp-2">{chat.description || 'No description.'}</p>
                                 </div>
                                 <div className="w-full pt-2 border-t border-white/10">
                                      <Button onClick={() => handleJoinClick(chat)} size="sm" className="w-full">

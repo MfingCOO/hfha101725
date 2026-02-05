@@ -1,18 +1,14 @@
 'use client';
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onIdTokenChanged, User, signOut } from 'firebase/auth';
-import { doc, onSnapshot, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore'; // Import Timestamp
+import { doc, onSnapshot, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore';
 import { auth, db, messaging } from '@/lib/firebase';
 import { Loader2 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { UserProfile, ClientProfile } from '@/types';
 import { COACH_UIDS } from '@/lib/coaches';
 import { getToken } from 'firebase/messaging';
-import { createCoachingChatOnFirstLogin } from '@/app/chats/actions';
 
-// ========================================================================================
-// THE FIX: This helper function recursively finds and converts all Timestamps to strings.
-// ========================================================================================
 function serializeTimestamps(obj: any): any {
   if (!obj) return obj;
   if (Array.isArray(obj)) {
@@ -55,7 +51,7 @@ function AuthRedirector({ children }: { children: ReactNode }) {
     const pathname = usePathname();
 
     useEffect(() => {
-        if (loading) return;
+        if (loading || !pathname) return;
 
         const isPublicPage = PUBLIC_PATHS.some(p => pathname.startsWith(p));
         const isClientRoute = pathname.startsWith('/client');
@@ -88,12 +84,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isCoach, setIsCoach] = useState(false);
-
-  useEffect(() => {
-    // if (userProfile && userProfile.uid && userProfile.fullName) {
-    //     createCoachingChatOnFirstLogin(userProfile.uid, userProfile.fullName).catch(console.error);
-    // }
-  }, [userProfile]);
 
   useEffect(() => {
     let unsubscribeUserProfile: (() => void) | undefined;
@@ -129,7 +119,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-
     const unsubscribeAuth = onIdTokenChanged(auth, async (authUser) => {
       setLoading(true);
       if (unsubscribeUserProfile) unsubscribeUserProfile();
@@ -146,8 +135,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let hasInitialized = false;
 
         const combinedProfileUpdater = () => {
-             const combined = { ...tempUserProfile, ...tempClientProfile } as UserProfile;
-             // By serializing here, we ensure the entire userProfile object is plain.
+             // FIX: Ensure stripeCustomerId from client data is included
+             const combined = { 
+                ...tempUserProfile, 
+                ...tempClientProfile,
+                stripeCustomerId: tempClientProfile.stripeCustomerId || tempUserProfile.stripeCustomerId
+            } as UserProfile;
              setUserProfile(serializeTimestamps(combined));
              if(!hasInitialized) {
                 setLoading(false);
@@ -158,7 +151,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userProfileDocRef = doc(db, 'userProfiles', authUser.uid);
         unsubscribeUserProfile = onSnapshot(userProfileDocRef, (snap) => {
           if (snap.exists()) {
-            // The raw data from Firestore is stored temporarily.
             tempUserProfile = snap.data();
             combinedProfileUpdater();
           } else {
@@ -174,7 +166,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const clientProfileDocRef = doc(db, 'clients', authUser.uid);
             unsubscribeClientProfile = onSnapshot(clientProfileDocRef, (snap) => {
               if (snap.exists()) {
-                // The raw data from Firestore is stored temporarily.
                 tempClientProfile = snap.data();
               }
               combinedProfileUpdater();

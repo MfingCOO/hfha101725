@@ -1,10 +1,10 @@
 
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
-import { getMessaging } from "firebase/messaging";
+import { getMessaging, Messaging } from "firebase/messaging";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -20,10 +20,24 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
+
+// Enable offline persistence
+enableIndexedDbPersistence(db)
+  .catch((err) => {
+    if (err.code == 'failed-precondition') {
+      // This error occurs if multiple tabs are open, as persistence can only be
+      // enabled in one tab at a time. This is a normal and expected scenario.
+      console.warn("Firestore persistence failed: multiple tabs open.");
+    } else if (err.code == 'unimplemented') {
+      // The current browser does not support all of the features required for persistence.
+      console.error("Firestore persistence is not supported in this browser.");
+    }
+  });
+
 const auth = getAuth(app);
 const storage = getStorage(app);
 
-let messaging = null;
+let messaging: Messaging | null = null;
 // Conditionally initialize messaging only on the client side and handle unsupported environments.
 if (typeof window !== 'undefined') {
     try {

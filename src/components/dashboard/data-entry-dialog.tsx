@@ -16,12 +16,11 @@ import { useToast } from '@/hooks/use-toast';
 import { saveDataAction, saveHydrationSettingsAction } from '@/services/firestore';
 import { useAuth } from '../auth/auth-provider';
 import type { ClientProfile, MealItem, Nutrient } from '@/types';
-
+import { useAdMob } from '@/hooks/useAdMob';
 import { updateClientWthr } from '@/app/coach/clients/actions';
 import { getTodaysContextualData, triggerSummaryRecalculation } from '@/app/calendar/actions';
 import { BaseModal } from '@/components/ui/base-modal';
 import InsightPopup from '@/components/app/InsightPopup';
-// import { runProactiveCoachAction } from "@/app/client/actions";
 import { NutritionContent } from './nutrition-content';
 import { ActivityContent } from './activity-content';
 import { SleepContent } from './sleep-content';
@@ -144,14 +143,15 @@ export function DataEntryDialog({
     const currentUserId = userId || user?.uid;
     const logId = initialData?.id;
     const [userTimezone, setUserTimezone] = useState('');
+    const { prepareInterstitialAd, showInterstitialAd } = useAdMob();
+
     useEffect(() => {
         setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
     }, []);
  
     const onFormStateChange = useCallback((newState: any) => {
         setFormState(prevState => ({ ...prevState, ...newState }));
-    }, []); // The empty dependency array is critical. 
-
+    }, []);
 
     const getInitialFormState = useCallback((pillarId: string, initialData: any, contextData: any, clientData: ClientProfile | null) => {
         const { lastNightSleep, todaysHydration } = contextData || {};
@@ -252,6 +252,12 @@ export function DataEntryDialog({
     }, []);    
 
     useEffect(() => {
+        if (open && pillar?.id === 'nutrition' && process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID) {
+            prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID, isTesting: process.env.NODE_ENV !== 'production' });
+        }
+    }, [open, pillar?.id, prepareInterstitialAd]);
+
+    useEffect(() => {
         if (!open || !pillar) return;
     
         const loadData = async () => {
@@ -328,7 +334,6 @@ export function DataEntryDialog({
 
         switch (pillar.id) {
             case 'hydration':
-    // This now ONLY prepares the log entry, ignoring settings.
     dataToSave = {
         log: {
             amount: formState.amount || 0,
@@ -367,15 +372,9 @@ export function DataEntryDialog({
                 };
                 break;
             
-                // INSERT THIS NEW, CORRECT CODE
-
                 case 'nutrition':
-                    // This new block is "dumber" and more reliable. It does no math.
-                    // It just takes the 'mealSummary' object passed up from the child.
                     const mealSummary = formState.mealSummary || {};
                     
-                    // This creates the final object to be saved on the individual nutrition log.
-                    // This structure guarantees that all the macros you requested are included.
                     const summaryToSave = {
                         totalMealCalories: mealSummary.calories || 0,
                         totalMealUpfCalories: (mealSummary.calories || 0) * ((mealSummary.avgUpf || 0) / 100),
@@ -388,7 +387,7 @@ export function DataEntryDialog({
                         hungerBefore: formState.hungerBefore,
                         notes: formState.notes || '',
                         items: (formState.items || []).map((item:any) => { const { portionSizes, ...rest } = item; return rest; }),
-                        summary: summaryToSave, // We save the complete summary object.
+                        summary: summaryToSave,
                         entryDate: entryDate,
                     };
                     break;
@@ -500,11 +499,14 @@ export function DataEntryDialog({
                 router.refresh();
                 const responseType = pillar.id === 'cravings'
 
-                    ? formState.activeTab // This will be 'craving' or 'binge'
+                    ? formState.activeTab
                     : (pillar.id === 'stress' && formState.activeTab === 'event')
                     ? 'stress'
                     : null;
 
+                 if (pillar.id === 'nutrition') {
+                    await showInterstitialAd();
+                }
 
             if (responseType && responseContent[responseType]) {
                 setActionableResponseContent(responseContent[responseType]);
@@ -516,24 +518,6 @@ export function DataEntryDialog({
                 if (pillar.id === 'measurements' && dataToSave.waist > 0 && currentUserId) {
                     await updateClientWthr(currentUserId, dataToSave.waist);
                 }
-
-                                // if (pillar.id === 'cravings' || pillar.id === 'stress') {
-                //     toast({ title: "💡", description: "Analyzing your log for insights..." });
-
-                //     try {
-                //         const coachResult = await runProactiveCoachAction(currentUserId, { type: formState.activeTab, notes: formState.notes });
-                //         if (coachResult.success) {
-                //             setInsight(coachResult.coachResponse);
-                //             setIsInsightOpen(true);
-                //         } else {
-                //             throw new Error(coachResult.error);
-                //         }
-                //     } catch (error) {
-                //         console.error("Failed to get AI insight:", error);
-                //         toast({ title: "Error", description: "Couldn't get an insight at this time.", variant: "destructive" });
-                //     }
-                // }
-
 
             } else {
                 throw new Error(result.error?.toString() || "Failed to save data.");

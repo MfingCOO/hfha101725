@@ -4,7 +4,7 @@ import Stripe from 'stripe';
 import { headers } from 'next/headers';
 import { Timestamp } from 'firebase-admin/firestore';
 import { auth, db as adminDb } from '@/lib/firebaseAdmin';
-import type { ClientProfile, NutritionalGoals } from '@/types';
+import type { ClientProfile, UserTier } from '@/types';
 import { calculateNutritionalGoals } from '@/services/goals';
 
 const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
@@ -24,7 +24,6 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
         throw new Error("Webhook Error: Customer ID is missing in the Stripe session.");
     }
 
-    // --- FIX: Hardcode the default coach ID for all new signups ---
     const DEFAULT_COACH_ID = 'yue7fVPBQZg45vmfXXUH5PdG7jE2';
 
     let uid = '';
@@ -43,7 +42,6 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
 
         const batch = adminDb.batch();
 
-        // 1. Create the userProfile document
         const userProfileRef = adminDb.collection('userProfiles').doc(uid);
         batch.set(userProfileRef, {
             uid: uid,
@@ -54,10 +52,9 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
             stripeCustomerId: customerId,
             chatIds: [],
             challengeIds: [],
-            coachId: DEFAULT_COACH_ID, // SURGICAL INSERTION: Assign the default coach
+            coachId: DEFAULT_COACH_ID,
         });
 
-        // 2. Prepare the client document data
         const { password, ...onboardingData } = data;
 
         const clientDataForGoals: Partial<ClientProfile> = {
@@ -67,7 +64,7 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
             tier: data.tier,
             onboarding: onboardingData,
             stripeCustomerId: customerId,
-            coachId: DEFAULT_COACH_ID, // SURGICAL INSERTION: Assign the default coach
+            coachId: DEFAULT_COACH_ID,
         };
 
         const initialGoals = calculateNutritionalGoals(clientDataForGoals as ClientProfile);
@@ -96,7 +93,6 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
 
 export async function POST(req: NextRequest) {
     const body = await req.text();
-    // THE FIX: Added await to the headers() call.
     const signature = (await headers()).get('stripe-signature') as string;
 
     let event: Stripe.Event;
@@ -119,22 +115,42 @@ export async function POST(req: NextRequest) {
                 const session = event.data.object as Stripe.Checkout.Session;
                 await createUserFromStripe(session);
                 break;
+            
             case 'customer.subscription.updated':
             case 'customer.subscription.deleted':
                 console.log(`[WEBHOOK] Received ${event.type} event.`);
                 const subscription = event.data.object as Stripe.Subscription;
                 const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
-                
-                const users = await adminDb.collection('userProfiles').where('stripeCustomerId', '==', customerId).limit(1).get();
-                if (!users.empty) {
-                    const userDoc = users.docs[0];
-                    const newTier = subscription.items.data[0]?.price.metadata.tier as | 'free' | 'ad-free' | 'basic' | 'premium' | 'coaching' || 'free';
-                    await userDoc.ref.update({ tier: event.type === 'customer.subscription.deleted' ? 'free' : newTier });
-                    console.log(`[WEBHOOK] Updated user ${userDoc.id} tier to ${newTier}.`);
-                } else {
-                     console.warn(`[WEBHOOK] Could not find user for stripeCustomerId: ${customerId}`);
+
+                if (!customerId) {
+                    throw new Error("Webhook Error: Customer ID is missing in the subscription event.");
                 }
+
+                await adminDb.runTransaction(async (transaction) => {
+                    const userProfileQuery = adminDb.collection('userProfiles').where('stripeCustomerId', '==', customerId).limit(1);
+                    const userProfileSnapshot = await transaction.get(userProfileQuery);
+
+                    if (userProfileSnapshot.empty) {
+                        console.warn(`[WEBHOOK] Transaction failed: Could not find user for stripeCustomerId: ${customerId}`);
+                        return;
+                    }
+
+                    const userProfileDoc = userProfileSnapshot.docs[0];
+                    const uid = userProfileDoc.id;
+                    const clientDocRef = adminDb.collection('clients').doc(uid);
+
+                    const isDeletion = event.type === 'customer.subscription.deleted';
+                    const newTier = isDeletion 
+                        ? 'free' 
+                        : subscription.items.data[0]?.price.metadata.tier as UserTier || 'free';
+
+                    transaction.update(userProfileDoc.ref, { tier: newTier });
+                    transaction.update(clientDocRef, { tier: newTier });
+
+                    console.log(`[WEBHOOK] Transaction success: Updated user ${uid} to tier ${newTier}.`);
+                });
                 break;
+
             default:
                 console.log(`[WEBHOOK] Unhandled event type: ${event.type}`);
         }

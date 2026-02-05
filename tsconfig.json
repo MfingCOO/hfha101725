@@ -33,7 +33,8 @@
       "node",
       "react",
       "react-dom"
-    ]
+    ],
+    "strictNullChecks": true
   },
   "include": [
     "next-env.d.ts",
