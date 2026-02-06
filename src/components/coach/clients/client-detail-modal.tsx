@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { ClientStatsDashboard } from './client-stats-dashboard';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { ClientProfile } from '@/types';
-// FIX: getClientByIdAction is now needed for the 'read it again' logic.
 import { getCoachingChatIdForClient, deleteClientAction, getClientByIdAction } from '@/app/coach/clients/actions';
 import { calculateDailySummaries } from '@/ai/flows/calculate-daily-summaries';
 
@@ -41,19 +40,15 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
   const [chatInfo, setChatInfo] = useState<{ id: string; name: string } | null>(null);
   const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
 
-  // FIX: This function now implements the correct 'update and re-read' logic.
   const handleRefreshAndRefetch = useCallback(async (showToast = true) => {
     if (!initialClient.uid) return;
     setIsRefreshing(true);
     try {
-        // 1. Trigger the summary calculation. We don't need its return value.
-        await calculateDailySummaries({ clientId: initialClient.uid });
-
-        // 2. 'Read it again': Re-fetch the entire client profile.
+        // FIX: Added the required 'dryRun: false' parameter.
+        await calculateDailySummaries({ clientId: initialClient.uid, dryRun: false });
         const updatedClientResult = await getClientByIdAction(initialClient.uid);
 
         if (updatedClientResult.success && updatedClientResult.data) {
-            // 3. Update the state with the complete, fresh client object.
             setClient(updatedClientResult.data);
             if (showToast) {
                 toast({
@@ -116,7 +111,7 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
   return (
     <>
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[90vw] h-[90dvh] max-w-4xl flex flex-col">
+      <DialogContent className="w-[95vw] sm:max-w-2xl lg:max-w-4xl h-[90vh] flex flex-col">
         <DialogHeader className="p-4 border-b">
           <DialogTitle srOnly>{client?.fullName || "Client"}'s Command Center</DialogTitle>
         </DialogHeader>
@@ -136,17 +131,15 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
                                 </div>
                             </AccordionTrigger>
                             <AccordionContent className="p-4 pt-0">
-                                {/* FIX: Removed the unnecessary key prop. */}
                                 <ClientStatsDashboard 
                                     client={client}
                                     onDeleteClient={() => setDeleteClientAlertOpen(true)}
-                                    onRefresh={() => handleRefreshAndRefetch(true)}
                                     isRefreshing={isRefreshing}
                                 />
                             </AccordionContent>
                         </AccordionItem>
                         
-                         <div className="grid grid-cols-2 gap-4">
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                              <Button onClick={() => setIsChatDialogOpen(true)} disabled={!chatInfo}>
                                 <MessageSquare className="mr-2 h-4 w-4" />
                                 Open Chat
