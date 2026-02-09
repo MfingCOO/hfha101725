@@ -1,4 +1,3 @@
-
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
@@ -76,10 +75,16 @@ export const unifiedNotificationEngine = onSchedule("every 1 minutes", async (ev
 async function sendPushNotification(notification: any): Promise<void> {
   const { userId, title, message, ctaUrl } = notification;
 
-  // Get the user's push tokens from the 'clients' collection
-  const clientDoc = await db.collection("clients").doc(userId).get();
-  const clientData = clientDoc.data();
-  const tokens = clientData?.fcmTokens; // Assuming tokens are stored in an array 'fcmTokens'
+  // CORRECTED: Get the user's push tokens from the 'userProfiles' collection
+  const userProfileDoc = await db.collection("userProfiles").doc(userId).get();
+  
+  if (!userProfileDoc.exists) {
+    console.log(`User profile not found for user ${userId}. Cannot send notification.`);
+    return;
+  }
+  
+  const userProfileData = userProfileDoc.data();
+  const tokens = userProfileData?.fcmTokens; // Assuming tokens are stored in an array 'fcmTokens'
 
   if (!tokens || tokens.length === 0) {
     console.log(`No push tokens found for user ${userId}. Cannot send notification.`);
@@ -132,4 +137,3 @@ function calculateNextOccurrence(lastScheduledAt: Timestamp, pattern: any): Time
     // Default to sending in 24 hours if pattern is unknown
     return Timestamp.fromMillis(lastScheduledAt.toMillis() + 24 * 60 * 60 * 1000);
 }
-

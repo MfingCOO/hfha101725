@@ -4,6 +4,8 @@ import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp, FieldPath } from 'firebase-admin/firestore';
 import { hybridFoodSearch } from '@/app/coach/food-cache/actions';
 import { EnrichedFood, MealItem, SavedMeal, SearchResult, NovaGroup } from '@/types';
+import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
+// We no longer need to import `runFlow` or the flow itself.
 
 // Helper to map string rating to NovaGroup enum
 const toNovaGroup = (rating: string): NovaGroup => {
@@ -29,7 +31,6 @@ const convertTimestamps = (data: any): any => {
     for (const key in data) {
       if (Object.prototype.hasOwnProperty.call(data, key)) {
         const value = data[key];
-        // Also handle nested objects that might be Timestamps in disguise
         if (value && typeof value === 'object' && 'seconds' in value && 'nanoseconds' in value && Object.keys(value).length === 2) {
              newObj[key] = new Timestamp(value.seconds, value.nanoseconds).toDate().toISOString();
         } else {
@@ -73,18 +74,40 @@ export async function analyzeAndCacheFood(fdcId: number): Promise<EnrichedFood |
       throw new Error(`Failed to parse details for fdcId: ${fdcId}`);
     }
 
-    const { enrichFoodDetailsFlow } = await import('@/ai/flows/nutrition/enrich-food-details-flow');
+    // START: THE NEW, CORRECT APPROACH
+    const settings = await getSiteSettingsAction();
+    const modelName = settings.data?.aiModelSettings?.flash;
 
-    const analysisResult = await enrichFoodDetailsFlow.run({ 
-        description: foodDetails.description,
-        ingredients: foodDetails.ingredients,
-    });
-
-    if (!analysisResult || !analysisResult.result) {
-      throw new Error('AI analysis failed: The flow did not return a result object.');
+    if (!modelName) {
+        throw new Error('Flash AI model not configured in site settings.');
     }
 
-    const analysisOutput = analysisResult.result;
+    const aiInput = {
+        description: foodDetails.description,
+        ingredients: foodDetails.ingredients,
+        modelName: modelName,
+    };
+
+    // Call the flow via its HTTP endpoint to avoid type issues
+    const flowApiUrl = new URL('/api/flows/enrichFoodDetailsFlow', process.env.NEXT_PUBLIC_APP_URL);
+    const response = await fetch(flowApiUrl.toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: aiInput }),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Action CRITICAL] API call to enrichFoodDetailsFlow failed.', { status: response.status, error: errorText });
+        throw new Error(`AI analysis API call failed with status ${response.status}`);
+    }
+
+    const analysisOutput = await response.json();
+    // END: THE NEW, CORRECT APPROACH
+
+    if (!analysisOutput) {
+      throw new Error('AI analysis failed: The flow did not return a result object.');
+    }
 
     const enrichedFood: EnrichedFood = {
       ...foodDetails,
@@ -194,23 +217,18 @@ export async function getFavoriteFoods(userId: string): Promise<EnrichedFood[]> 
 }
 
 export async function saveUserMeal(userId: string, mealName: string, mealItems: MealItem[]): Promise<{ success: boolean; mealId?: string }> {
-  // FIX: Fetch authoritative data for all items before saving.
   const fdcIds = mealItems.map(item => item.fdcId);
   const enrichedFoods = await getEnrichedFoodsByFdcIds(fdcIds);
   const foodMap = new Map(enrichedFoods.map(f => [f.fdcId, f]));
 
   if (enrichedFoods.length !== fdcIds.length) {
       console.warn(`[Action VALIDATION] saveUserMeal for user ${userId}. Not all fdcIds could be enriched. Found ${enrichedFoods.length} of ${fdcIds.length}.`);
-      // Optionally, fail the request if any item can't be found.
-      // return { success: false };
   }
 
-  // FIX: Reconstruct the meal items using the authoritative description from the cache.
   const itemsToSave: MealItem[] = mealItems.map(item => {
     const enrichedFood = foodMap.get(item.fdcId);
     return {
       ...item,
-      // Overwrite the description with the authoritative one from the database.
       description: enrichedFood?.description || item.description || 'Unknown Food',
     };
   });
@@ -218,7 +236,7 @@ export async function saveUserMeal(userId: string, mealName: string, mealItems: 
   const savedMeal = {
     uid: userId,
     name: mealName,
-    items: itemsToSave, // Use the corrected items list.
+    items: itemsToSave, 
     createdAt: new Date(),
     totalCalories: itemsToSave.reduce((acc, item) => acc + (item.calories || 0), 0),
   };
@@ -263,10 +281,9 @@ export async function getSavedMeals(userId: string): Promise<SavedMeal[]> {
         }) as SavedMeal;
     });
 
-    // Enrich meals with full food details before returning
     const fdcIds = [...new Set(meals.flatMap(m => m.items.map(i => i.fdcId)))];
     if (fdcIds.length === 0) {
-        return meals; // No items to enrich
+        return meals;
     }
 
     const enrichedFoods = await getEnrichedFoodsByFdcIds(fdcIds);
@@ -277,14 +294,12 @@ export async function getSavedMeals(userId: string): Promise<SavedMeal[]> {
         items: meal.items
             .map(item => ({
                 ...item,
-                // Attach the full food object to each item
                 enrichedFood: foodMap.get(item.fdcId)
             }))
-            // Filter out any items that couldn't be enriched to prevent errors
             .filter(item => item.enrichedFood)
     }));
 
-    return enrichedMeals as any; // Return the fully enriched meals
+    return enrichedMeals as any;
 
 } catch (error) {
     console.error(`[Action CRITICAL] getSavedMeals for user ${userId} failed:`, error);
