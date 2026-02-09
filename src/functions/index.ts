@@ -137,3 +137,6 @@ function calculateNextOccurrence(lastScheduledAt: Timestamp, pattern: any): Time
     // Default to sending in 24 hours if pattern is unknown
     return Timestamp.fromMillis(lastScheduledAt.toMillis() + 24 * 60 * 60 * 1000);
 }
+
+// Export the test notification function for debugging and development
+export { sendTestNotification } from "./test-notifications";
