@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/auth/auth-provider';
 import { processAndRescheduleNotification } from '@/services/firestore';
 import { ChatNotification } from '@/components/notifications/ChatNotification';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
 export interface InAppMessage {
   id: string;
@@ -46,14 +47,34 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   const [bannerNotification, setBannerNotification] = useState<InAppMessage | null>(null);
   const [stickyNotifications, setStickyNotifications] = useState<InAppMessage[]>([]);
 
-  // Request browser notification permission
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'default') {
-        Notification.requestPermission();
+  // Helper function to correctly schedule a native notification
+  const showNativeNotification = async (notification: InAppMessage) => {
+    try {
+      let permStatus = await LocalNotifications.checkPermissions();
+      if (permStatus.display !== 'granted') {
+        permStatus = await LocalNotifications.requestPermissions();
       }
+
+      if (permStatus.display === 'granted') {
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              id: new Date().getTime(), // Use a simple unique ID for the notification
+              title: notification.title,
+              body: notification.message,
+              channelId: 'reminders', // Route to the 'reminders' channel
+              smallIcon: 'ic_stat_icon_config_default', // Use the default icon defined in the native project
+            },
+          ],
+        });
+        console.log('Native notification scheduled successfully.');
+      } else {
+        console.error('User denied notification permissions.');
+      }
+    } catch (e) {
+      console.error('Error scheduling native notification:', e);
     }
-  }, []);
+  };
 
   // Listen for scheduled notifications from Firestore
   useEffect(() => {
@@ -95,38 +116,32 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
         dueNotifications.forEach(notification => {
           newProcessedIds.add(notification.id);
 
-          // --- ROUTE NOTIFICATION BY TYPE (THE FIX) ---
+          // --- This section for IN-APP UI is preserved ---
           if (notification.type === 'hydration_reminder') {
             setBannerNotification(notification);
           } else if (notification.type !== 'chat_message') {
-            // Other notifications can still use the sticky modal if needed.
             setStickyNotifications(prev => [...prev, notification]);
           }
+          // --- End of IN-APP UI logic ---
 
-          // Trigger browser notification for all types
-          if (Notification.permission === 'granted') {
-            new Notification(notification.title, {
-              body: notification.message,
-              icon: notification.imageUrl || '/logo.png',
-            });
-          }
+          // --- THIS IS THE FIX ---
+          // Trigger a NATIVE system notification using the Capacitor plugin
+          showNativeNotification(notification);
           
           processAndRescheduleNotification(user.uid, notification.id);
         });
 
         setProcessedIds(newProcessedIds);
       }
-    }, 10000);
+    }, 10000); // Check every 10 seconds
 
     return () => clearInterval(intervalId);
   }, [pendingNotifications, user, processedIds]);
 
-  // Function to close the temporary banner notification
   const handleCloseBannerNotification = () => {
     setBannerNotification(null);
   };
 
-  // Function to dismiss a sticky notification from the NotificationPresenter
   const removeStickyNotification = useCallback((id: string) => {
     setStickyNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
