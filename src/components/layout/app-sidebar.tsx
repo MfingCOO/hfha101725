@@ -36,7 +36,6 @@ import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useAuth } from '../auth/auth-provider';
 import { useDashboardActions } from '@/contexts/DashboardActionsContext';
 
-
 const clientMenuItems = [
   { href: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true },
   { href: '#', label: 'Calendar', icon: Calendar, isLink: false, id: 'calendar' },
@@ -51,11 +50,9 @@ const coachMenuItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { isCoach } = useAuth();
-  const { onOpenChallenges, onOpenChats, onOpenCalendar } = useDashboardActions();
-
+  const { onOpenChallenges, onOpenChats, onOpenCalendar, onOpenSettings } = useDashboardActions();
 
   const menuItems = isCoach ? coachMenuItems : clientMenuItems;
-  const settingsHref = isCoach ? '/settings' : '/client/settings';
 
   const handleItemClick = (item: any) => {
     if (!item.isLink) {
@@ -84,7 +81,7 @@ export function AppSidebar() {
               {item.isLink ? (
                   <Link href={item.href!}>
                     <SidebarMenuButton
-                      isActive={pathname.startsWith(item.href!)}
+                      isActive={!!pathname && pathname.startsWith(item.href!)}
                       tooltip={item.label}
                     >
                       <item.icon />
@@ -109,15 +106,13 @@ export function AppSidebar() {
        <SidebarFooter>
          <SidebarMenu>
             <SidebarMenuItem>
-                <Link href={settingsHref}>
-                    <SidebarMenuButton
-                        isActive={pathname.startsWith(settingsHref)}
-                        tooltip={"Settings"}
-                    >
-                        <Settings />
-                        <span>Settings</span>
-                    </SidebarMenuButton>
-                </Link>
+                <SidebarMenuButton
+                    tooltip={"Settings"}
+                    onClick={onOpenSettings} 
+                >
+                    <Settings />
+                    <span>Settings</span>
+                </SidebarMenuButton>
             </SidebarMenuItem>
             <div className="p-2 border-t mt-auto">
               <UserNav />

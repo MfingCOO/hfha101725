@@ -1,0 +1,5 @@
+# See https://www.robotstxt.org/robotstxt.html for documentation
+#
+# Allow all crawlers access to all content by default.
+User-agent: *
+Disallow:
