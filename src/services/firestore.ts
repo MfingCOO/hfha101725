@@ -172,7 +172,7 @@ export async function saveHydrationSettingsAction(userId: string, settings: { re
         existingRemindersSnapshot.forEach(doc => batch.delete(doc.ref));
 
         // Create new reminders if enabled
-        if (settings.remindersEnabled && settings.reminderTimes?.length > 0) {
+        if (settings.remindersEnabled && settings.reminderTimes && settings.reminderTimes.length > 0) {
             settings.reminderTimes.forEach((time: string) => {
                 if (typeof time !== 'string' || !time.includes(':')) {
                     console.error('[Hydration Settings] Found and skipped an invalid time value:', time);
@@ -1193,8 +1193,11 @@ export async function processAndRescheduleNotification(userId: string, notificat
             }
 
             const notification = docSnap.data();
-
-            if (notification?.userId !== userId) {
+            if (!notification) {
+                console.warn(`[ProcessReminder] Notification data object not found for doc ${notificationId}.`);
+                return;
+            }            
+            if (notification.userId !== userId) {
                 console.error(`[ProcessReminder] Security violation: User ${userId} attempted to process notification ${notificationId} for user ${notification.userId}.`);
                 return;
             }

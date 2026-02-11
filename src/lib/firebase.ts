@@ -1,10 +1,10 @@
-
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 import { getMessaging, Messaging } from "firebase/messaging";
+import { Capacitor } from '@capacitor/core'; // <-- 1. THIS LINE IS ADDED
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -38,12 +38,12 @@ const auth = getAuth(app);
 const storage = getStorage(app);
 
 let messaging: Messaging | null = null;
-// Conditionally initialize messaging only on the client side and handle unsupported environments.
-if (typeof window !== 'undefined') {
+// Conditionally initialize messaging only on the client side AND if not a native platform.
+if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) { // <-- 2. THIS CONDITION IS MODIFIED
     try {
         messaging = getMessaging(app);
     } catch (err) {
-        console.error("Firebase Messaging is not supported in this browser or environment:", err);
+        console.error("Firebase Web Messaging is not supported in this browser or environment:", err);
         messaging = null;
     }
 }
