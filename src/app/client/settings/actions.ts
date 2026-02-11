@@ -1,8 +1,6 @@
-
-
 'use server';
 
-import { db as adminDb, auth as adminAuth, admin } from '@/lib/firebaseAdmin';
+import { db as adminDb, auth as adminAuth } from '@/lib/firebaseAdmin';
 import type { TrackingSettings, ClientProfile, NutritionalGoals } from '@/types';
 import { uploadImageAction } from '@/app/coach/actions';
 import { calculateNutritionalGoals } from '@/services/goals';
@@ -91,6 +89,12 @@ export async function createStripePortalSession(clientId: string): Promise<{ url
             throw new Error("Client profile not found.");
         }
 
+        const portalConfigId = process.env.STRIPE_PORTAL_CONFIG_ID;
+        if (!portalConfigId) {
+            console.error('[PORTAL_ACTION] CRITICAL SERVER MISCONFIGURATION: STRIPE_PORTAL_CONFIG_ID is not set.');
+            return { error: 'Server configuration error. Please contact support.' };
+        }
+
         const clientData = clientSnap.data() as ClientProfile;
         let stripeCustomerId = clientData.stripeCustomerId;
 
@@ -112,7 +116,7 @@ export async function createStripePortalSession(clientId: string): Promise<{ url
         const portalSession = await stripe.billingPortal.sessions.create({
             customer: stripeCustomerId,
             return_url: `${baseUrl}/client/dashboard`,
-            configuration: process.env.STRIPE_PORTAL_CONFIG_ID,
+            configuration: portalConfigId,
         });
 
         return { url: portalSession.url };
@@ -125,8 +129,7 @@ export async function createStripePortalSession(clientId: string): Promise<{ url
 
 
 /**
- * Updates a client's settings. This is a generic action to update
- * various settings on the client's profile document.
+ * Updates a client's settings. This is the corrected function that prevents data corruption.
  */
 export async function updateClientSettingsAction(clientId: string, settings: Partial<TrackingSettings>): Promise<{ success: boolean; error?: string }> {
     try {
@@ -136,31 +139,27 @@ export async function updateClientSettingsAction(clientId: string, settings: Par
 
         const clientRef = adminDb.collection('clients').doc(clientId);
         const userProfileRef = adminDb.collection('userProfiles').doc(clientId);
-        
-        const updatePayload: any = {};
-        
-        if (settings.units) {
-            updatePayload['onboarding.units'] = settings.units;
-        }
 
-        const trackingSettings: any = {};
+        const updatePayload: { [key: string]: any } = {};
+
+        // Use dot notation to safely update nested fields without overwriting the parent object
         for (const key in settings) {
-            if (key !== 'units') {
-                trackingSettings[key as keyof Omit<TrackingSettings, 'units'>] = settings[key as keyof Omit<TrackingSettings, 'units'>];
+            if (Object.prototype.hasOwnProperty.call(settings, key)) {
+                const value = settings[key as keyof TrackingSettings];
+                if (key === 'units') {
+                    updatePayload['onboarding.units'] = value;
+                } else {
+                    updatePayload[`trackingSettings.${key}`] = value;
+                }
             }
         }
 
-        if (Object.keys(trackingSettings).length > 0) {
-             updatePayload.trackingSettings = trackingSettings;
+        if (Object.keys(updatePayload).length > 0) {
+            const batch = adminDb.batch();
+            batch.update(clientRef, updatePayload);
+            batch.update(userProfileRef, updatePayload);
+            await batch.commit();
         }
-
-        // Use set with merge:true to avoid dot notation issues with nested objects
-        await clientRef.set({ trackingSettings: trackingSettings }, { merge: true });
-        if(settings.units) {
-            await clientRef.set({ onboarding: { units: settings.units } }, { merge: true });
-            await userProfileRef.set({ onboarding: { units: settings.units } }, { merge: true });
-        }
-        await userProfileRef.set({ trackingSettings: trackingSettings }, { merge: true });
 
         return { success: true };
     } catch (error: any) {
@@ -172,7 +171,6 @@ export async function updateClientSettingsAction(clientId: string, settings: Par
 
 /**
  * Master action to update a client's profile settings and recalculate nutritional goals.
- * This function now calculates the final goals on the server and saves the complete object.
  */
 export async function updateClientProfileAndGoalsAction(
     clientId: string,
@@ -196,26 +194,27 @@ export async function updateClientProfileAndGoalsAction(
         
         const existingClientData = clientSnap.data() as ClientProfile;
 
-        // Create a temporary profile with the new user inputs to feed into the calculation engine.
         const tempProfileForCalc: ClientProfile = {
             ...existingClientData,
             customGoals: {
-                ...existingClientData.customGoals,
-                calculationMode: data.calculationMode,
-                activityLevel: data.activityLevel,
-                calorieModifier: data.calorieModifier,
+                ...(existingClientData.customGoals || {}),
+                calculationMode: data.calculationMode ?? existingClientData.customGoals?.calculationMode ?? 'ideal',
+                activityLevel: data.activityLevel ?? existingClientData.customGoals?.activityLevel ?? existingClientData.onboarding?.activityLevel ?? 'light',
+                calorieModifier: data.calorieModifier ?? existingClientData.customGoals?.calorieModifier ?? 0,
                 protein: typeof data.customMacros?.protein === 'number' ? data.customMacros.protein : undefined,
                 fat: typeof data.customMacros?.fat === 'number' ? data.customMacros.fat : undefined,
                 carbs: data.customMacros?.carbs === '' ? undefined : (typeof data.customMacros?.carbs === 'number' ? data.customMacros.carbs : undefined),
             },
         };
 
-        // Run the authoritative calculation engine.
+        if (!tempProfileForCalc.customGoals) {
+            throw new Error('Internal server error: Could not initialize goal calculation data.');
+        }
+
         const allGoalSets = calculateNutritionalGoals(tempProfileForCalc);
         
-        // Select the correct, fully calculated goal set based on the user's chosen mode.
         let goalsToSave: NutritionalGoals;
-        switch (data.calculationMode) {
+        switch (tempProfileForCalc.customGoals.calculationMode) {
             case 'ideal':
                 goalsToSave = allGoalSets.idealGoals;
                 break;
@@ -226,15 +225,13 @@ export async function updateClientProfileAndGoalsAction(
                 goalsToSave = allGoalSets.customGoals;
                 break;
             default:
-                // Fallback to ideal if mode is somehow undefined
                 goalsToSave = allGoalSets.idealGoals;
                 break;
         }
 
-        // Save the entire, calculated goal object to Firestore. This is the single source of truth.
         await clientRef.update({
             customGoals: goalsToSave,
-            'onboarding.activityLevel': data.activityLevel // Also update the base activity level
+            'onboarding.activityLevel': tempProfileForCalc.customGoals.activityLevel
         });
 
         return { success: true };
@@ -289,7 +286,6 @@ export async function updateUserProfileAction(uid: string, data: { fullName?: st
 
 /**
  * Updates a user's password in Firebase Auth.
- * Requires the user to be recently authenticated.
  */
 export async function updateUserPasswordAction(uid: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
     try {

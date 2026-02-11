@@ -31,11 +31,12 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { signOut } from 'firebase/auth';
 import { auth as clientAuth } from '@/lib/firebase';
 import {
-  updateUserProfileAction,
-  updateUserPasswordAction,
-  updateClientProfileAndGoalsAction,
-  updateClientSettingsAction,
-} from '@/app/client/settings/actions';
+    updateUserProfileAction,
+    updateUserPasswordAction,
+    updateClientProfileAndGoalsAction,
+    updateClientSettingsAction,
+    createStripePortalSession,
+  } from '@/app/client/settings/actions';
 import { getSiteSettingsAction, updateSiteSettingsAction } from '@/app/coach/site-settings/actions';
 import type { TrackingSettings, ClientProfile, NutritionalGoals } from '@/types';
 import { Switch } from '../ui/switch';
@@ -346,14 +347,11 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
     if (!user) return;
     setIsSaving(true);
     try {
-        const response = await fetch('/api/stripe/create-portal-session', {
-            method: 'POST',
-        });
-        const { url, error } = await response.json();
-        if (response.ok && url) {
-            window.location.href = url;
+        const result = await createStripePortalSession(user.uid);
+        if (result.url) {
+            window.location.href = result.url;
         } else {
-            toast({ variant: 'destructive', title: 'Error', description: error || "Could not open billing portal." });
+            toast({ variant: 'destructive', title: 'Error', description: result.error || "Could not open billing portal." });
         }
     } catch (err: any) {
         toast({ variant: 'destructive', title: 'Error', description: err.message || "An unexpected error occurred." });
@@ -361,8 +359,8 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
         setIsSaving(false);
     }
   }
-  
 
+  
   const calculationMode = watchedGoals.calculationMode;
   
   const goalsToShow = 
