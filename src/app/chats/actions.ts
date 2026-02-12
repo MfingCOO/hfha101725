@@ -332,14 +332,24 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                     const userData = userDoc.data();
                     if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
                         const message = {
-                            notification: {
-                                title: notificationPayload.title,
-                                body: notificationPayload.body,
-                            },
                             tokens: userData.fcmTokens.filter((t: any) => t),
-                            apns: {
-                                payload: { aps: { sound: 'default' } },
+                            data: { // <-- Changed from 'notification' to 'data'
+                                title: notificationPayload.title,
+                                body: notificationPayload.body
                             },
+                            android: {
+                                 priority: "high" as "high"
+                            },
+                            apns: { // <-- This structure is for iOS
+                                payload: {
+                                    aps: {
+                                        'content-available': 1
+                                    }
+                                },
+                                headers: {
+                                    'apns-priority': '10' // <-- Added this for iOS banner
+                                }
+                            }
                         };
                         if (message.tokens.length > 0) {
                             await getMessaging().sendMulticast(message);
