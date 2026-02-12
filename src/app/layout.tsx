@@ -7,11 +7,13 @@ import { Toaster } from "@/components/ui/toaster";
 import Script from 'next/script';
 import { inter } from './fonts';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { NotificationPresenter } from '@/components/notifications/NotificationPresenter';
 import { DataEntryModalProvider } from '@/contexts/DataEntryModalContext';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
+import { useAdMob } from '@/hooks/useAdMob';
+import { BannerAdOptions, BannerAdSize, BannerAdPosition } from '@capacitor-community/admob';
 
 export default function RootLayout({
   children,
@@ -19,6 +21,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const [queryClient] = useState(() => new QueryClient());
+  const { showBannerAd } = useAdMob();
+
+  useEffect(() => {
+    const showBanner = async () => {
+      const bannerOptions: BannerAdOptions = {
+        adId: 'ca-app-pub-3940256099942544/6300978111', // Test ID
+        adSize: BannerAdSize.ADAPTIVE_BANNER,
+        position: BannerAdPosition.BOTTOM_CENTER,
+        margin: 0,
+        isTesting: true,
+      };
+      await showBannerAd(bannerOptions);
+    };
+
+    showBanner();
+  }, [showBannerAd]);
 
   return (
     <html lang="en" suppressHydrationWarning className="dark h-full">
