@@ -338,7 +338,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                 body: notificationPayload.body
                             },
                             android: {
-                                 priority: "high" as "high"
+                                priority: "high" as "high"
                             },
                             apns: { // <-- This structure is for iOS
                                 payload: {
