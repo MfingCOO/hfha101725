@@ -65,14 +65,26 @@ export async function createUserNotification(userId: string, reminder: Omit<Remi
             const token = userProfile.pushToken;
 
             if (token) {
+                // ** CORRECTED PAYLOAD STRUCTURE **
                 const payload = {
-                    notification: {
+                    data: {
                         title: reminder.title,
                         body: reminder.message,
+                        type: reminder.type,
+                        pillarId: reminder.pillarId,
                     },
-                    data: {
-                         type: reminder.type,
-                         pillarId: reminder.pillarId,
+                    android: {
+                        priority: "high" as const
+                    },
+                    apns: {
+                        payload: {
+                            aps: {
+                                'content-available': 1
+                            }
+                        },
+                        headers: {
+                            'apns-priority': '10'
+                        }
                     }
                 };
                 await admin.messaging().sendToDevice(token, payload);

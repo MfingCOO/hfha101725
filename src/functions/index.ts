@@ -75,7 +75,6 @@ export const unifiedNotificationEngine = onSchedule("every 1 minutes", async (ev
 async function sendPushNotification(notification: any): Promise<void> {
   const { userId, title, message, ctaUrl } = notification;
 
-  // CORRECTED: Get the user's push tokens from the 'userProfiles' collection
   const userProfileDoc = await db.collection("userProfiles").doc(userId).get();
   
   if (!userProfileDoc.exists) {
@@ -84,34 +83,40 @@ async function sendPushNotification(notification: any): Promise<void> {
   }
   
   const userProfileData = userProfileDoc.data();
-  const tokens = userProfileData?.fcmTokens; // Assuming tokens are stored in an array 'fcmTokens'
+  const tokens = userProfileData?.fcmTokens;
 
   if (!tokens || tokens.length === 0) {
     console.log(`No push tokens found for user ${userId}. Cannot send notification.`);
     return;
   }
 
+  // ** CORRECTED PAYLOAD STRUCTURE **
   const payload = {
-    notification: {
+    tokens: tokens,
+    data: {
       title: title,
       body: message,
+      ...(ctaUrl && { ctaUrl: ctaUrl })
     },
-    webpush: {
-      notification: {
-        icon: "https://your-app-domain.com/app-icon.png", // IMPORTANT: Add your app's icon URL
-      },
-      fcm_options: {
-        link: ctaUrl || "https://your-app-domain.com", // The URL to open on click
-      },
+    android: {
+        priority: "high" as const
     },
-    tokens: tokens,
+    apns: {
+        payload: {
+            aps: {
+                'content-available': 1
+            }
+        },
+        headers: {
+            'apns-priority': '10'
+        }
+    }
   };
 
   try {
-    const response = await messaging.sendEachForMulticast(payload);
+    const response = await messaging.sendEachForMulticast(payload as any);
     console.log(`Successfully sent push notification to ${response.successCount} tokens for user ${userId}.`);
     if (response.failureCount > 0) {
-      // Here you could add logic to clean up invalid tokens
       console.warn(`Failed to send to ${response.failureCount} tokens for user ${userId}.`);
     }
   } catch (error) {
@@ -128,13 +133,11 @@ async function sendPushNotification(notification: any): Promise<void> {
  */
 function calculateNextOccurrence(lastScheduledAt: Timestamp, pattern: any): Timestamp {
     const lastDate = lastScheduledAt.toDate();
-    // Simple daily recurrence for now
     if (pattern.interval === 'daily') {
         const nextDate = new Date(lastDate.getTime());
         nextDate.setDate(lastDate.getDate() + 1);
         return Timestamp.fromDate(nextDate);
     }
-    // Default to sending in 24 hours if pattern is unknown
     return Timestamp.fromMillis(lastScheduledAt.toMillis() + 24 * 60 * 60 * 1000);
 }
 

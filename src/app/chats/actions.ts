@@ -340,7 +340,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                             android: {
                                 priority: "high" as "high"
                             },
-                            apns: { // <-- This structure is for iOS
+                            apns: { // <-- This structu
                                 payload: {
                                     aps: {
                                         'content-available': 1
