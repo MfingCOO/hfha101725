@@ -1,6 +1,6 @@
 'use server';
 
-import { db as adminDb } from '@/lib/firebaseAdmin';
+import { db as adminDb, admin } from '@/lib/firebaseAdmin';
 import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';
@@ -315,7 +315,6 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
         
         const notificationPromises = recipients.map(async (recipientId) => {
             if (COACH_UIDS.includes(recipientId) && mutedBy.includes(recipientId)) {
-                console.log(`Skipping notification for muted chat ${chatId} for coach ${recipientId}`);
                 return;
             }
 
@@ -331,28 +330,23 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 if (userDoc.exists) {
                     const userData = userDoc.data();
                     if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
+                        const token = userData.fcmTokens[0];
                         const message = {
-                            tokens: userData.fcmTokens.filter((t: any) => t),
-                            data: { // <-- Changed from 'notification' to 'data'
+                            token: token,
+                            notification: { // <-- Corrected for Android visibility
                                 title: notificationPayload.title,
                                 body: notificationPayload.body
                             },
                             android: {
                                 priority: "high" as "high"
                             },
-                            apns: { // <-- This structu
-                                payload: {
-                                    aps: {
-                                        'content-available': 1
-                                    }
-                                },
-                                headers: {
-                                    'apns-priority': '10' // <-- Added this for iOS banner
-                                }
-                            }
                         };
-                        if (message.tokens.length > 0) {
-                            await getMessaging().sendMulticast(message);
+                        if (message.token) {
+                            try {
+                                const response = await admin.messaging().send(message);
+                            } catch (error) {
+                                console.error('[postMessageAction] FAILURE: Error sending notification:', error);
+                            }
                         }
                     }
                 }
