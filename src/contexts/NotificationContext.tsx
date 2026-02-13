@@ -1,4 +1,4 @@
-' use client';
+'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -7,6 +7,7 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { processAndRescheduleNotification } from '@/services/firestore';
 import { ChatNotification } from '@/components/notifications/ChatNotification';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { PushNotifications, PushNotificationSchema } from '@capacitor/push-notifications'; // <-- THE MISSING IMPORT IS ADDED HERE
 
 export interface InAppMessage {
   id: string;
@@ -43,11 +44,9 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
 
-  // Unified state for banner-style notifications
   const [bannerNotification, setBannerNotification] = useState<InAppMessage | null>(null);
   const [stickyNotifications, setStickyNotifications] = useState<InAppMessage[]>([]);
 
-  // Helper function to correctly schedule a native notification
   const showNativeNotification = async (notification: InAppMessage) => {
     try {
       let permStatus = await LocalNotifications.checkPermissions();
@@ -59,11 +58,11 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
         await LocalNotifications.schedule({
           notifications: [
             {
-              id: new Date().getTime(), // Use a simple unique ID for the notification
+              id: new Date().getTime(),
               title: notification.title,
               body: notification.message,
-              channelId: 'reminders', // Route to the 'reminders' channel
-              smallIcon: 'ic_stat_icon_config_default', // Use the default icon defined in the native project
+              channelId: 'reminders',
+              smallIcon: 'ic_stat_icon_config_default',
             },
           ],
         });
@@ -76,7 +75,6 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // Listen for scheduled notifications from Firestore
   useEffect(() => {
     if (!user) {
       setPendingNotifications([]);
@@ -100,7 +98,6 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, [user]);
 
-  // Timer to process due notifications
   useEffect(() => {
     const intervalId = setInterval(() => {
       if (!user) return;
@@ -116,16 +113,12 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
         dueNotifications.forEach(notification => {
           newProcessedIds.add(notification.id);
 
-          // --- This section for IN-APP UI is preserved ---
           if (notification.type === 'hydration_reminder' || notification.type === 'chat_message') {
             setBannerNotification(notification);
           } else {
             setStickyNotifications(prev => [...prev, notification]);
           }
-          // --- End of IN-APP UI logic ---
-
-          // --- THIS IS THE FIX ---
-          // Trigger a NATIVE system notification using the Capacitor plugin
+          
           showNativeNotification(notification);
           
           processAndRescheduleNotification(user.uid, notification.id);
@@ -133,10 +126,32 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
 
         setProcessedIds(newProcessedIds);
       }
-    }, 10000); // Check every 10 seconds
+    }, 10000);
 
     return () => clearInterval(intervalId);
   }, [pendingNotifications, user, processedIds]);
+
+  // This new listener handles LIVE push notifications that arrive while the app is in the foreground
+  useEffect(() => {
+    const listener = PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+      console.log('Foreground push notification received:', notification);
+
+      const bannerData: InAppMessage = {
+        id: notification.id || new Date().toISOString(),
+        type: 'chat_message',
+        title: notification.title || 'New Message',
+        message: notification.body || '',
+        chatName: notification.data?.chatName || '',
+        scheduledAt: Timestamp.now(),
+      };
+
+      setBannerNotification(bannerData);
+    });
+
+    return () => {
+      listener.remove();
+    };
+  }, []);
 
   const handleCloseBannerNotification = () => {
     setBannerNotification(null);
