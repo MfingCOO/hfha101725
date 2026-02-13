@@ -125,7 +125,11 @@ export function ProgramBuilderDialog({ isOpen, onClose, onProgramSaved, initialD
             workoutIds: w.workoutIds!,
         }));
         
-        const result = await upsertProgramAction({ programData, weeksData, programId: initialData?.id || null });
+        const result = await upsertProgramAction({ 
+            programData, 
+            weeksData, 
+            programId: initialData?.id || null 
+        });
 
         if (result.success === false) {
             toast({ title: "Error", description: result.error, variant: "destructive" });
