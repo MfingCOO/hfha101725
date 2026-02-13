@@ -99,7 +99,10 @@ async function sendPushNotification(notification: any): Promise<void> {
       ...(ctaUrl && { ctaUrl: ctaUrl })
     },
     android: {
-        priority: "high" as const
+        priority: "high" as const,
+        notification: {
+            channelId: "default_notification_channel"
+        }
     },
     apns: {
         payload: {

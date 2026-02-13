@@ -117,9 +117,9 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
           newProcessedIds.add(notification.id);
 
           // --- This section for IN-APP UI is preserved ---
-          if (notification.type === 'hydration_reminder') {
+          if (notification.type === 'hydration_reminder' || notification.type === 'chat_message') {
             setBannerNotification(notification);
-          } else if (notification.type !== 'chat_message') {
+          } else {
             setStickyNotifications(prev => [...prev, notification]);
           }
           // --- End of IN-APP UI logic ---

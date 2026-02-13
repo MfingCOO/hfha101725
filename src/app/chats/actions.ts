@@ -1,12 +1,11 @@
 'use server';
 
-import { db as adminDb, admin } from '@/lib/firebaseAdmin';
+import { db as adminDb, admin, messaging } from '@/lib/firebaseAdmin';
 import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';
 import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
-import { getMessaging } from 'firebase-admin/messaging';
 
 // Helper for serialization
 function serializeTimestamps(docData: any) {
@@ -358,7 +357,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                     }
                                 }
                             };
-                            await getMessaging().sendMulticast(message);
+                            await messaging.sendMulticast(message);
                         }
                     }
                 }
