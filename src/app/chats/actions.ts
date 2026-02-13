@@ -330,28 +330,40 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 if (userDoc.exists) {
                     const userData = userDoc.data();
                     if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
-                        const token = userData.fcmTokens[0];
-                        const message = {
-                            token: token,
-                            notification: { // <-- Corrected for Android visibility
-                                title: notificationPayload.title,
-                                body: notificationPayload.body
-                            },
-                            android: {
-                                priority: "high" as "high"
-                            },
-                        };
-                        if (message.token) {
-                            try {
-                                const response = await admin.messaging().send(message);
-                            } catch (error) {
-                                console.error('[postMessageAction] FAILURE: Error sending notification:', error);
-                            }
+                        const validTokens = userData.fcmTokens.filter((t: any) => t);
+                        
+                        if (validTokens.length > 0) {
+                            const message = {
+                                tokens: validTokens,
+                                notification: {
+                                    title: notificationPayload.title,
+                                    body: notificationPayload.body
+                                },
+                                data: {
+                                    chatId: String(chatId)
+                                },
+                                android: {
+                                    priority: "high" as const
+                                },
+                                apns: {
+                                    payload: {
+                                        aps: {
+                                            alert: {
+                                                title: notificationPayload.title,
+                                                body: notificationPayload.body
+                                            },
+                                            badge: 1,
+                                            sound: "default"
+                                        }
+                                    }
+                                }
+                            };
+                            await getMessaging().sendMulticast(message);
                         }
                     }
                 }
             } catch (error) {
-                console.error(`Error sending push notification directly to user ${recipientId}:`, error);
+                console.error(`Error sending push notification to user ${recipientId}:`, error);
             }
         });
 
