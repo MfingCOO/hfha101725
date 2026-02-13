@@ -357,7 +357,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                     }
                                 }
                             };
-                            await messaging.sendMulticast(message);
+                            await messaging.sendEachForMulticast(message);
                         }
                     }
                 }

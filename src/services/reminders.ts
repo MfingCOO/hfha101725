@@ -67,6 +67,7 @@ export async function createUserNotification(userId: string, reminder: Omit<Remi
             if (token) {
                 // ** CORRECTED PAYLOAD STRUCTURE **
                 const payload = {
+                    token: token,
                     data: {
                         title: reminder.title,
                         body: reminder.message,
@@ -87,7 +88,7 @@ export async function createUserNotification(userId: string, reminder: Omit<Remi
                         }
                     }
                 };
-                await admin.messaging().sendToDevice(token, payload);
+                await admin.messaging().send(payload);
                 console.log(`Push notification sent to user ${userId} for reminder type ${reminder.type}`);
             } else {
                 console.log(`User ${userId} does not have a push token. Skipping push notification.`);
