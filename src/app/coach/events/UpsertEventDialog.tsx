@@ -102,9 +102,14 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
         eventTimestamp: utcEventTimestamp,
       };
 
-      const result = isEditMode
-        ? await updateLiveEvent({ ...payload, eventId: initialData!.id })
-        : await createLiveEvent({ ...payload, coachId: user.uid });
+      let result;
+      if (isEditMode) {
+        const updatePayload = { ...payload, eventId: initialData!.id };
+        result = await updateLiveEvent(updatePayload);
+      } else {
+        const createPayload = { ...payload, coachId: user.uid };
+        result = await createLiveEvent(createPayload);
+      }
 
       if (result.success) {
         toast({ title: 'Success', description: `Live event ${isEditMode ? 'updated' : 'created'} successfully.` });

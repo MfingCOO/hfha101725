@@ -58,7 +58,8 @@ export function LiveEventsTab() {
   const handleDeleteEvent = async () => {
     if (!deleteAlertState.eventId) return;
     try {
-        const result = await deleteLiveEvent({ eventId: deleteAlertState.eventId });
+        const deletePayload = { eventId: deleteAlertState.eventId };
+        const result = await deleteLiveEvent(deletePayload);
         if (result.success) {
             toast({ title: 'Success', description: 'Event deleted successfully.' });
             fetchEvents();

@@ -46,10 +46,12 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
     if (!userProfile) return;
     setIsSigningUp(eventId);
     try {
-      const result = await signUpForEvent({ eventId, userId: userProfile.uid });
+      // CORRECTED IMPLEMENTATION: Create the input object separately
+      const input = { eventId, userId: userProfile.uid };
+      const result = await signUpForEvent(input);
+
       if (result.success) {
         toast({ title: 'Success!', description: "You've been registered for the event." });
-        // Optimistically update the UI
         setEvents(prevEvents => prevEvents.map(e => 
             e.id === eventId ? { ...e, attendees: [...e.attendees, userProfile.uid] } : e
         ));
