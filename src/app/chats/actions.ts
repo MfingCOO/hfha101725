@@ -356,8 +356,8 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                             badge: 1,
                                             sound: "default"
                                         },
-                                        // We move the 'data' payload here
-                                        data: {
+                                        // We move the 'data' payload here for iOS deep linking
+                                        userInfo: {
                                             chatId: String(chatId)
                                         }
                                     }
