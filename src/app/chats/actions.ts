@@ -334,12 +334,14 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                         if (validTokens.length > 0) {
                             const message = {
                                 tokens: validTokens,
+                                data: {
+                                    chatId: String(chatId),
+                                    type: 'chat_message'
+                                },
                                 notification: {
-                                    // We are encoding the chatId in the title
-                                    title: `[CHAT:${chatId}] ${notificationPayload.title}`,
+                                    title: notificationPayload.title,
                                     body: notificationPayload.body
                                 },
-                                // The 'data' payload is removed entirely for Android
                                 android: {
                                     priority: "high" as const,
                                     notification: {
@@ -356,9 +358,10 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                             badge: 1,
                                             sound: "default"
                                         },
-                                        // We still send data to iOS
+                                        // Pass data to iOS in the same way for consistency
                                         userInfo: {
-                                            chatId: String(chatId)
+                                            chatId: String(chatId),
+                                            type: 'chat_message'
                                         }
                                     }
                                 }
