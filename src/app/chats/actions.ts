@@ -334,20 +334,18 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                         if (validTokens.length > 0) {
                             const message = {
                                 tokens: validTokens,
-                                notification: {
-                                    // The title is now clean and user-friendly
+                                notification: { // Base for native apps
                                     title: notificationPayload.title,
                                     body: notificationPayload.body
                                 },
-                                android: {
+                                android: { // Android remains unchanged
                                     priority: "high" as const,
                                     notification: {
                                         channelId: "default_notification_channel",
-                                        // The chatId is now safely passed in the non-visible 'tag' field
                                         tag: chatId
                                     }
                                 },
-                                apns: {
+                                apns: { // iOS remains unchanged
                                     payload: {
                                         aps: {
                                             alert: {
@@ -357,14 +355,23 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                             badge: 1,
                                             sound: "default"
                                         },
-                                        // For iOS, we still use userInfo, which is the correct standard
                                         userInfo: {
                                             chatId: String(chatId)
                                         }
                                     }
+                                },
+                                // THIS IS THE NEW, ISOLATED BLOCK FOR THE PWA
+                                webpush: {
+                                    notification: {
+                                        title: notificationPayload.title,
+                                        body: notificationPayload.body
+                                    },
+                                    data: {
+                                        chatId: String(chatId)
+                                    }
                                 }
                             };
-                            await messaging.sendEachForMulticast(message);
+                            await messaging.sendEachForMulticast(message as any);
                         }
                     }
                 }

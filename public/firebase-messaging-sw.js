@@ -18,17 +18,40 @@ firebase.initializeApp(firebaseConfig);
 // Retrieve an instance of Firebase Messaging so that it can handle background messages.
 const messaging = firebase.messaging();
 
+// Handler for background messages
 messaging.onBackgroundMessage((payload) => {
-  console.log(
-    '[firebase-messaging-sw.js] Received background message ',
-    payload
-  );
-  
-  const notificationTitle = payload.notification.title;
+  console.log('[firebase-messaging-sw.js] Received background message ', payload);
+
+  // Correctly read title, body, and chatId from the 'data' payload for webpush
+  const notificationTitle = payload.data.title;
   const notificationOptions = {
-    body: payload.notification.body,
-    icon: '/logo.png' // You can add a default icon here
+    body: payload.data.body,
+    icon: '/logo.png', // A default icon
+    // Store the chatId in the notification's data attribute to use on click
+    data: {
+      chatId: payload.data.chatId
+    }
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+// Handler for when a user clicks on the notification
+self.addEventListener('notificationclick', (event) => {
+  console.log('[firebase-messaging-sw.js] Notification click Received.', event.notification);
+
+  // Close the notification
+  event.notification.close();
+
+  const chatId = event.notification.data?.chatId;
+  if (chatId) {
+    // Open the correct chat window
+    const promise = clients.openWindow(`/chat/${chatId}`);
+    event.waitUntil(promise);
+  } else {
+    console.log('[firebase-messaging-sw.js] No chatId found in notification data.');
+    // Optional: open a generic page if no chatId is found
+    const promise = clients.openWindow('/');
+    event.waitUntil(promise);
+  }
 });
