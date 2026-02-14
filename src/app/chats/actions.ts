@@ -338,9 +338,8 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                     title: notificationPayload.title,
                                     body: notificationPayload.body
                                 },
-                                // The 'data' payload is now inside the 'apns' payload,
-                                // so it will only be sent to Apple devices. Android will
-                                // not receive a 'data' payload, preventing the crash.
+                                // The 'data' payload has been intentionally removed to prevent
+                                // a native ClassCastException crash in the Android Capacitor plugin.
                                 android: {
                                     priority: "high" as const,
                                     notification: {
