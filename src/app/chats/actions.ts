@@ -334,19 +334,15 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                         if (validTokens.length > 0) {
                             const message = {
                                 tokens: validTokens,
-                                notification: {
-                                    title: notificationPayload.title,
-                                    body: notificationPayload.body
-                                },
-                                // This data payload now follows the "Golden Rule": all values are strings.
+                                // The 'notification' block has been intentionally removed.
                                 data: {
+                                    // All display and navigation info is now here, as strings.
+                                    title: String(notificationPayload.title),
+                                    body: String(notificationPayload.body),
                                     chatId: String(chatId)
                                 },
                                 android: {
-                                    priority: "high" as const,
-                                    notification: {
-                                        channelId: "default_notification_channel"
-                                    }
+                                    priority: "high" as const
                                 },
                                 apns: {
                                     payload: {
@@ -357,6 +353,10 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                             },
                                             badge: 1,
                                             sound: "default"
+                                        },
+                                        // For iOS, the data is still nested
+                                        userInfo: {
+                                            chatId: String(chatId)
                                         }
                                     }
                                 }
