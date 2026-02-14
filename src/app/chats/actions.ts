@@ -334,15 +334,17 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                         if (validTokens.length > 0) {
                             const message = {
                                 tokens: validTokens,
-                                // The 'notification' block has been intentionally removed.
-                                data: {
-                                    // All display and navigation info is now here, as strings.
-                                    title: String(notificationPayload.title),
-                                    body: String(notificationPayload.body),
-                                    chatId: String(chatId)
+                                notification: {
+                                    // We are encoding the chatId in the title
+                                    title: `[CHAT:${chatId}] ${notificationPayload.title}`,
+                                    body: notificationPayload.body
                                 },
+                                // The 'data' payload is removed entirely for Android
                                 android: {
-                                    priority: "high" as const
+                                    priority: "high" as const,
+                                    notification: {
+                                        channelId: "default_notification_channel"
+                                    }
                                 },
                                 apns: {
                                     payload: {
@@ -354,7 +356,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                             badge: 1,
                                             sound: "default"
                                         },
-                                        // For iOS, the data is still nested
+                                        // We still send data to iOS
                                         userInfo: {
                                             chatId: String(chatId)
                                         }
