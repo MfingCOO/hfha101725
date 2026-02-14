@@ -338,11 +338,13 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                     title: notificationPayload.title,
                                     body: notificationPayload.body
                                 },
-                                data: {
-                                    chatId: String(chatId)
-                                },
+                                // The 'data' payload has been intentionally removed to prevent
+                                // a native ClassCastException crash in the Android Capacitor plugin.
                                 android: {
-                                    priority: "high" as const
+                                    priority: "high" as const,
+                                    notification: {
+                                        channelId: "default_notification_channel"
+                                    }
                                 },
                                 apns: {
                                     payload: {
