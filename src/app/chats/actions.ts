@@ -338,8 +338,10 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                     title: notificationPayload.title,
                                     body: notificationPayload.body
                                 },
-                                // The 'data' payload has been intentionally removed to prevent
-                                // a native ClassCastException crash in the Android Capacitor plugin.
+                                // This data payload now follows the "Golden Rule": all values are strings.
+                                data: {
+                                    chatId: String(chatId)
+                                },
                                 android: {
                                     priority: "high" as const,
                                     notification: {
@@ -355,10 +357,6 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                             },
                                             badge: 1,
                                             sound: "default"
-                                        },
-                                        // We move the 'data' payload here for iOS deep linking
-                                        userInfo: {
-                                            chatId: String(chatId)
                                         }
                                     }
                                 }
