@@ -2,13 +2,17 @@
 
 import { useEffect, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications } from '@capacitor/push-notifications';
+import { PushNotifications, ActionPerformed } from '@capacitor/push-notifications';
 import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/auth/auth-provider';
+// Import the Next.js router
+import { useRouter } from 'next/navigation';
 
 const PushNotificationProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
+  // Get the router instance
+  const router = useRouter();
 
   const registerDevice = useCallback(async () => {
     if (!user || !Capacitor.isNativePlatform()) return;
@@ -25,42 +29,48 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       }
 
       await PushNotifications.register();
+
+      await PushNotifications.addListener('registration', async (token) => {
+        console.info('Registration token: ', token.value);
+        const userDocRef = doc(db, 'users', user.uid);
+        // Use arrayUnion to prevent duplicate tokens
+        await updateDoc(userDocRef, {
+          fcmTokens: arrayUnion(token.value),
+        });
+      });
+
+      await PushNotifications.addListener('registrationError', (error) => {
+        console.error('Error on registration: ', JSON.stringify(error));
+      });
+
     } catch (error) {
-      console.error('Error during push notification registration:', error);
+      console.error('Error registering for push notifications', error);
     }
   }, [user]);
 
   const addListeners = useCallback(async () => {
-    if (!Capacitor.isNativePlatform()) return;
+    if (!user || !Capacitor.isNativePlatform()) return;
 
-    await PushNotifications.addListener('registration', async (token) => {
-      if (user) {
-        console.info('Registration token found', token.value);
-        const userRef = doc(db, 'userProfiles', user.uid);
-        await updateDoc(userRef, { fcmTokens: arrayUnion(token.value) });
-      }
-    });
-
-    await PushNotifications.addListener('registrationError', (error) => {
-      console.error('Error on registration:', JSON.stringify(error));
-    });
-
-    // The 'pushNotificationReceived' listener has been intentionally removed.
-    // This ensures that all incoming notifications are handled by the native
-    // Android service, which will always create a system notification banner.
-    // This creates a consistent user experience.
+    // The 'pushNotificationReceived' listener is intentionally removed to ensure
+    // a consistent system notification experience handled by native code.
 
     // This listener handles what happens when a user taps on a notification.
     await PushNotifications.addListener(
       'pushNotificationActionPerformed',
-      (notification) => {
-        console.info('Push notification action performed:', notification);
-        // Logic to navigate the user on tap can be added here.
-        // e.g., router.push(notification.data.url)
+      (action: ActionPerformed) => {
+        console.info('Push notification action performed', action);
+        // Extract the chatId from the notification's data payload
+        const chatId = action.notification.data?.chatId;
+
+        // If a chatId exists, navigate to the specific chat
+        if (chatId) {
+          console.log(`Navigating to chat: ${chatId}`);
+          router.push(`/chat/${chatId}`);
+        }
       }
     );
 
-  }, [user]);
+  }, [user, router]);
 
   useEffect(() => {
     if (user) {
