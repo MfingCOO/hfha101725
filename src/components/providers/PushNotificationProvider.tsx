@@ -51,21 +51,28 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const addListeners = useCallback(async () => {
     if (!user || !Capacitor.isNativePlatform()) return;
 
-    // The 'pushNotificationReceived' listener is intentionally removed to ensure
-    // a consistent system notification experience handled by native code.
-
     // This listener handles what happens when a user taps on a notification.
     await PushNotifications.addListener(
       'pushNotificationActionPerformed',
       (action: ActionPerformed) => {
         console.info('Push notification action performed', action);
-        // Extract the chatId from the notification's data payload
-        const chatId = action.notification.data?.chatId;
+        
+        let chatId: string | undefined;
+
+        // The backend now sends the chatId in the 'tag' for Android to avoid a Capacitor crash.
+        // For iOS, it's in the 'data' payload as is standard. We check both.
+        if (Capacitor.getPlatform() === 'android') {
+            chatId = action.notification.tag;
+        } else {
+            chatId = action.notification.data?.chatId;
+        }
 
         // If a chatId exists, navigate to the specific chat
-        if (chatId) {
+        if (chatId && typeof chatId === 'string') {
           console.log(`Navigating to chat: ${chatId}`);
           router.push(`/chat/${chatId}`);
+        } else {
+          console.log('No valid chatId found in notification.');
         }
       }
     );

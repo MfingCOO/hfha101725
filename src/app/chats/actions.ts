@@ -334,18 +334,17 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                         if (validTokens.length > 0) {
                             const message = {
                                 tokens: validTokens,
-                                data: {
-                                    chatId: String(chatId),
-                                    type: 'chat_message'
-                                },
                                 notification: {
+                                    // The title is now clean and user-friendly
                                     title: notificationPayload.title,
                                     body: notificationPayload.body
                                 },
                                 android: {
                                     priority: "high" as const,
                                     notification: {
-                                        channelId: "default_notification_channel"
+                                        channelId: "default_notification_channel",
+                                        // The chatId is now safely passed in the non-visible 'tag' field
+                                        tag: chatId
                                     }
                                 },
                                 apns: {
@@ -358,10 +357,9 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                             badge: 1,
                                             sound: "default"
                                         },
-                                        // Pass data to iOS in the same way for consistency
+                                        // For iOS, we still use userInfo, which is the correct standard
                                         userInfo: {
-                                            chatId: String(chatId),
-                                            type: 'chat_message'
+                                            chatId: String(chatId)
                                         }
                                     }
                                 }
