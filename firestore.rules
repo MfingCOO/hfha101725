@@ -3,44 +3,78 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check ownership
+    function isCoach(userId) {
+      // a coach user can be added here
+      return userId in ['yue7fVPBQZg45vmfXXUH5PdG7jE2', 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2'];
+    }
+
     function isOwner(userId) {
       return request.auth.uid == userId;
     }
 
-    // Allow users to update their own fcmTokens array.
-    // This is crucial for push notifications to work.
     function canUpdateFcmTokens() {
+      // Allow updating only the fcmTokens field
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmTokens']);
     }
 
-    // Rules for Client documents
-    match /clients/{userId} {
-      // A user can create their own client document
-      allow create: if isOwner(userId);
-      
-      // A user can read their own document. A coach can read their assigned client's document.
-      allow read: if isOwner(userId) || (get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data.clients[userId] == true);
-      
-      // A user can update their own document if they are the owner and only updating fcmTokens
-      allow update: if isOwner(userId) && canUpdateFcmTokens();
-    }
-
-    // Rules for Coach (userProfiles) documents
     match /userProfiles/{userId} {
-      // A user can create their own profile
-      allow create: if isOwner(userId);
-      
-      // A user can read their own profile.
-      allow read: if isOwner(userId);
+      allow read: if request.auth != null;
+      allow create, update: if isOwner(userId);
 
-      // A user can update their own document if they are the owner and only updating fcmTokens
-      allow update: if isOwner(userId) && canUpdateFcmTokens();
+      match /privateData/{docId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
-    // All other collections/documents are locked down by default
-    match /{document=**} {
-      allow read, write: if false;
+    match /clients/{clientId} {
+      allow read: if isOwner(clientId) || isCoach(request.auth.uid);
+
+      // Allow a client to CREATE and UPDATE their own document.
+      // This allows setDoc with {merge: true} to work for new users creating their doc,
+      // and for existing users updating their fcmTokens.
+      allow create, update: if isOwner(clientId);
+
+      // Coaches have broader permissions.
+      allow list, write, delete: if isCoach(request.auth.uid);
+
+      match /journal/{journalId} {
+        allow read: if isOwner(clientId) || isCoach(request.auth.uid);
+        allow create, update, delete: if isOwner(clientId);
+      }
+
+      match /tasks/{taskId} {
+        allow read: if isOwner(clientId) || isCoach(request.auth.uid);
+        allow create, update, delete: if isOwner(clientId);
+
+        match /subTasks/{subTaskId} {
+          allow read: if isOwner(clientId) || isCoach(request.auth.uid);
+          allow create, update, delete: if isOwner(clientId);
+        }
+      }
+
+      match /appointments/{appointmentId} {
+        allow read: if isOwner(clientId) || isCoach(request.auth.uid);
+        allow create, update, delete: if isOwner(clientId);
+      }
+
+      match /nudges/{nudgeId} {
+        allow read: if isOwner(clientId) || isCoach(request.auth.uid);
+        allow create, update, delete: if isOwner(clientId);
+      }
+
+      match /macros/{macroId} {
+        allow read, list: if isOwner(clientId) || isCoach(request.auth.uid);
+        allow create, update, delete: if isOwner(clientId);
+        allow write: if isCoach(request.auth.uid);
+      }
+    }
+
+    match /chats/{chatId} {
+      allow read, write: if request.auth.uid in resource.data.participants;
+
+      match /messages/{messageId} {
+        allow read, create: if request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      }
     }
   }
 }
