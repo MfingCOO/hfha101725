@@ -1,77 +1,46 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-  
-    // Helper function to check if a user is a coach
-    function isCoach(userId) {
-      // Alan and Crystal's UIDs
-      return userId in ['yue7fVPBQZg45vmfXXUH5PdG7jE2', 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2'];
+
+    // Helper function to check ownership
+    function isOwner(userId) {
+      return request.auth.uid == userId;
     }
 
-    // Lock down asset library to coaches only
-    match /asset-library/{docId} {
-        allow read: if request.auth != null;
-        allow write: if isCoach(request.auth.uid);
+    // Allow users to update their own fcmTokens array.
+    // This is crucial for push notifications to work.
+    function canUpdateFcmTokens() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmTokens']);
     }
 
-    // Coaches can manage challenges
-    match /challenges/{challengeId} {
-        allow read: if request.auth != null;
-        allow write: if isCoach(request.auth.uid);
-    }
-    
-    // Coaches can manage popups
-    match /popups/{popupId} {
-      allow read, write: if isCoach(request.auth.uid);
-    }
-
-    match /user_scheduled_reminders/{reminderId} {
-      allow read, update: if request.auth.uid == resource.data.userId;
-    }
-
-    match /sticky-popups/{popupId} {
-      allow read, write: if request.auth.uid == resource.data.userId;
-    }
-    
-    // User profiles can be read by any authenticated user.
-    // They can only be created/updated by their owner.
-    match /userProfiles/{userId} {
-      allow read: if request.auth != null;
-      allow create, update: if request.auth.uid == userId;
-    }
-    
-    // Reports can only be read and written by coaches (via admin SDK)
-    // This denies all client-side access for security.
-    match /reports/{reportId} {
-      allow read, write: if false;
-    }
-
-    // Clients collection can be read/written by coaches
-    // Individual client docs can be read by their owner.
-    match /clients/{clientId} {
-      allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
-      allow list, write: if isCoach(request.auth.uid);
+    // Rules for Client documents
+    match /clients/{userId} {
+      // A user can create their own client document
+      allow create: if isOwner(userId);
       
-      match /{collection}/{docId} {
-        allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
-        allow create, update, delete: if request.auth.uid == clientId;
-      }
+      // A user can read their own document. A coach can read their assigned client's document.
+      allow read: if isOwner(userId) || (get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data.clients[userId] == true);
+      
+      // A user can update their own document if they are the owner and only updating fcmTokens
+      allow update: if isOwner(userId) && canUpdateFcmTokens();
     }
-    
-    // Chats can be accessed by participants or any coach.
-    match /chats/{chatId} {
-      allow read: if isCoach(request.auth.uid) || request.auth.uid in resource.data.participants;
-      allow write: if request.auth.uid in resource.data.participants;
 
-      // Messages can be read by participants or any coach.
-      // Messages can ONLY be created by participants who are NOT BANNED.
-      match /messages/{messageId} {
-        allow read: if isCoach(request.auth.uid) || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-        allow create: if request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-                      && get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data.isBannedFromChat != true;
-      }
+    // Rules for Coach (userProfiles) documents
+    match /userProfiles/{userId} {
+      // A user can create their own profile
+      allow create: if isOwner(userId);
+      
+      // A user can read their own profile.
+      allow read: if isOwner(userId);
+
+      // A user can update their own document if they are the owner and only updating fcmTokens
+      allow update: if isOwner(userId) && canUpdateFcmTokens();
+    }
+
+    // All other collections/documents are locked down by default
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
