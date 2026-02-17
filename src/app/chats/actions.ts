@@ -360,13 +360,11 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                         }
                                     }
                                 },
-                                // THIS IS THE NEW, ISOLATED BLOCK FOR THE PWA
+                                // THIS IS THE FIX
                                 webpush: {
-                                    notification: {
-                                        title: notificationPayload.title,
-                                        body: notificationPayload.body
-                                    },
                                     data: {
+                                        title: notificationPayload.title,
+                                        body: notificationPayload.body,
                                         chatId: String(chatId)
                                     }
                                 }

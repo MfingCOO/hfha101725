@@ -4,48 +4,57 @@ import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 import { getMessaging, Messaging } from "firebase/messaging";
-import { Capacitor } from '@capacitor/core'; // <-- 1. THIS LINE IS ADDED
+import { Capacitor } from '@capacitor/core';
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  "projectId": "hunger-free-and-happy-app",
-  "appId": "1:1002580546718:web:a8574bfc3732c7c137978f",
-  "storageBucket": "hunger-free-and-happy-app.firebasestorage.app",
-  "apiKey": "AIzaSyAk8vuQj8JfEyweNdtK9en9uUk6amEblYo",
-  "authDomain": "hunger-free-and-happy-app.firebaseapp.com",
-  "measurementId": "",
-  "messagingSenderId": "1002580546718"
+  apiKey: "AIzaSyAk8vuQj8JfEyweNdtK9en9uUk6amEblYo",
+  authDomain: "hunger-free-and-happy-app.firebaseapp.com",
+  projectId: "hunger-free-and-happy-app",
+  storageBucket: "hunger-free-and-happy-app.firebasestorage.app",
+  messagingSenderId: "1002580546718",
+  appId: "1:1002580546718:web:a8574bfc3732c7c137978f",
+  vapidKey: "BGNeYzhRRkl_ou3bZbjkSKTJ3SkrmfuOyRWS2wrJl92Huaz7ODJZEpIDQ4rhVdWi73UxaREQCw7b7Jj_sWs7PUU"
 };
 
 // Initialize Firebase
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+let app;
+if (!getApps().length) {
+  app = initializeApp(firebaseConfig);
+} else {
+  app = getApp();
+}
+
+
 const db = getFirestore(app);
-
-// Enable offline persistence
-enableIndexedDbPersistence(db)
-  .catch((err) => {
-    if (err.code == 'failed-precondition') {
-      // This error occurs if multiple tabs are open, as persistence can only be
-      // enabled in one tab at a time. This is a normal and expected scenario.
-      console.warn("Firestore persistence failed: multiple tabs open.");
-    } else if (err.code == 'unimplemented') {
-      // The current browser does not support all of the features required for persistence.
-      console.error("Firestore persistence is not supported in this browser.");
-    }
-  });
-
 const auth = getAuth(app);
 const storage = getStorage(app);
 
-let messaging: Messaging | null = null;
-// Conditionally initialize messaging only on the client side AND if not a native platform.
-if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) { // <-- 2. THIS CONDITION IS MODIFIED
-    try {
-        messaging = getMessaging(app);
-    } catch (err) {
-        console.error("Firebase Web Messaging is not supported in this browser or environment:", err);
-        messaging = null;
-    }
+let messaging: Messaging;
+
+if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
+  messaging = getMessaging(app);
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/firebase-messaging-sw.js')
+      .then((registration) => {
+        console.log('Service Worker registration successful with scope: ', registration.scope);
+      }).catch((err) => {
+        console.log('Service Worker registration failed: ', err);
+      });
+  }
 }
 
-export { app, db, auth, storage, messaging };
+// Enable offline persistence
+if (typeof window !== 'undefined') {
+  enableIndexedDbPersistence(db)
+    .catch((err) => {
+      if (err.code == 'failed-precondition') {
+        console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+      } else if (err.code == 'unimplemented') {
+        console.warn('The current browser does not support all of the features required to enable persistence.');
+      }
+    });
+}
+
+
+export { db, auth, storage, messaging, app };

@@ -3,36 +3,33 @@
 
 import { useEffect } from 'react';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
-import { app } from '@/lib/firebase';
-import { initAudio } from '@/lib/audio';
+import { app } from '@/lib/firebase'; // Corrected Path
+import { initAudio } from '@/lib/audio'; // Corrected Path
+
+// --- App Check Debug Token --- 
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  console.log("Firebase App Check debug token has been set for this development session.");
+}
+// ----------------------------
 
 let isAppCheckInitialized = false;
 
-/**
- * This provider component initializes Firebase App Check with reCAPTCHA v3.
- * It includes a workaround for a known issue where a null promise rejection
- * can occur during initialization, blocking the app from loading.
- */
 export function AppCheckProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    // === New: Initialize Global Audio ===
     initAudio();
-    // =====================================
 
-    // Handler to catch the specific null rejection from Firebase App Check
     const handleRejection = (event: PromiseRejectionEvent) => {
       if (event.reason === null) {
         console.warn(
           "Caught a harmless null promise rejection, likely from Firebase App Check. Suppressing to allow app load."
         );
-        // Prevent the error from propagating and crashing the app
         event.preventDefault();
       }
     };
 
     window.addEventListener('unhandledrejection', handleRejection);
 
-    // Initialize App Check only on the client and only once.
     if (typeof window !== 'undefined' && !isAppCheckInitialized) {
       const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
 
@@ -53,7 +50,6 @@ export function AppCheckProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Cleanup the event listener when the component unmounts
     return () => {
       window.removeEventListener('unhandledrejection', handleRejection);
     };

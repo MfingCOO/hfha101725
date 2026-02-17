@@ -1,113 +1,139 @@
+
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications, ActionPerformed } from '@capacitor/push-notifications';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { PushNotifications, ActionPerformed, Token, PushNotificationSchema } from '@capacitor/push-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
-import { useRouter } from 'next/navigation';
-import { getMessaging, getToken } from 'firebase/messaging'; // Import for Web Push
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { getApp } from 'firebase/app';
+
+const app = getApp();
+
+// --- NEW HTTP FETCH LOGIC ---
+const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdToken: () => Promise<string | null>) => {
+    const idToken = await getIdToken();
+    if (!idToken) {
+        console.error("Could not get ID token, cannot call saveFcmToken function.");
+        return;
+    }
+
+    const functionUrl = 'https://us-central1-hunger-free-and-happy-app.cloudfunctions.net/saveFcmToken';
+
+    const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+            data: {
+                token: fcmToken,
+                isCoach: isCoach,
+            },
+        }),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to save FCM token. Status: ${response.status}. Message: ${errorText}`);
+    }
+
+    return response.json();
+};
+
 
 const PushNotificationProvider = ({ children }: { children: React.ReactNode }) => {
-  const { user } = useAuth();
-  const router = useRouter();
+  const { user, isCoach, getIdToken } = useAuth(); // This will now correctly receive getIdToken
+  const [fcmToken, setFcmToken] = useState<string | null>(null);
 
-  // This function remains UNCHANGED and is only for native platforms.
-  const registerDevice = useCallback(async () => {
-    if (!user || !Capacitor.isNativePlatform()) return;
-
-    try {
-      let permStatus = await PushNotifications.checkPermissions();
-
-      if (permStatus.receive === 'prompt') {
-        permStatus = await PushNotifications.requestPermissions();
-      }
-
-      if (permStatus.receive !== 'granted') {
-        throw new Error('User denied permissions!');
-      }
-
-      await PushNotifications.register();
-
-      await PushNotifications.addListener('registration', async (token) => {
-        console.info('Registration token: ', token.value);
-        const userDocRef = doc(db, 'users', user.uid);
-        await updateDoc(userDocRef, {
-          fcmTokens: arrayUnion(token.value),
-        });
-      });
-
-      await PushNotifications.addListener('registrationError', (error) => {
-        console.error('Error on registration: ', JSON.stringify(error));
-      });
-
-    } catch (error) {
-      console.error('Error registering for push notifications', error);
+  const handleNotificationAction = (notification: PushNotificationSchema) => {
+    console.log('Push notification action performed', notification);
+    if (notification.data.chatId) {
+      // Example: navigate(`/chat/${notification.data.chatId}`);
     }
-  }, [user]);
+  };
 
-  // This function remains UNCHANGED and is only for native platforms.
-  const addListeners = useCallback(async () => {
-    if (!user || !Capacitor.isNativePlatform()) return;
-
-    await PushNotifications.addListener(
-      'pushNotificationActionPerformed',
-      (action: ActionPerformed) => {
-        console.info('Push notification action performed', action);
-        const chatId = action.notification.tag || action.notification.data?.chatId;
-
-        if (chatId && typeof chatId === 'string') {
-          console.log(`Navigating to chat: ${chatId}`);
-          router.push(`/chat/${chatId}`);
-        } else {
-          console.log('No valid chatId found in notification action.', action);
-        }
-      }
-    );
-  }, [user, router]);
-
-  // NEW: This function is ONLY for the Web (PWA)
   const registerForWebPush = useCallback(async () => {
-    if (!user) return;
+    if (!user || !getIdToken) {
+      console.log("User or getIdToken not available yet, cannot register for web push.");
+      return;
+    }
+
     try {
-      const messaging = getMessaging();
-      // IMPORTANT: You need to generate this VAPID key in your Firebase project settings.
-      const vapidKey = 'BMyc3iTR9yA9Izs2b8_a-6_Yad1AAdcMJwg1aYprDkHnFveP5nN81vI8a5zFMIp2SEl2BCHZkUP2lHftgyXNNOg'; 
-      const currentToken = await getToken(messaging, { vapidKey });
+      const messaging = getMessaging(app);
+      const currentToken = await getToken(messaging, {
+        vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY
+      });
 
       if (currentToken) {
-        console.log('Web FCM registration token:', currentToken);
-        const userDocRef = doc(db, 'users', user.uid);
-        await updateDoc(userDocRef, {
-          fcmTokens: arrayUnion(currentToken),
+        console.log('Got FCM device token:', currentToken);
+        setFcmToken(currentToken);
+
+        console.log("Calling saveFcmToken HTTP Function...");
+        await callSaveFcmTokenHttp(currentToken, isCoach, getIdToken);
+        console.log("FCM token successfully saved via HTTP Function!");
+
+        onMessage(messaging, (message) => {
+          console.log('New foreground notification from Firebase Messaging!', message.notification);
         });
-      } else {
-        console.log('No registration token available. Request permission to generate one.');
-      }
-    } catch (err) {
-      console.error('An error occurred while retrieving web token. ', err);
-    }
-  }, [user]);
 
+      } else {
+        console.warn('No FCM token available. Notification permission might be denied or VAPID key is missing.');
+      }
+    } catch (error) {
+        console.error('Error during web push registration or saving FCM token:', error);
+    }
+  }, [user, isCoach, getIdToken]);
+
+  // This effect handles the initial registration for web push.
   useEffect(() => {
-    if (user) {
-      if (Capacitor.isNativePlatform()) {
-        // Native path - REMAINS UNCHANGED
-        registerDevice();
-        addListeners();
-      } else {
-        // Web path - NEW AND ISOLATED
-        registerForWebPush();
-      }
+    if (user && !fcmToken && !Capacitor.isNativePlatform()) {
+      registerForWebPush();
     }
+  }, [user, fcmToken, registerForWebPush]);
 
-    return () => {
-      if (Capacitor.isNativePlatform()) {
-        PushNotifications.removeAllListeners();
-      }
-    };
-  }, [user, registerDevice, addListeners, registerForWebPush]);
+  // This effect handles native device registration and listeners.
+  useEffect(() => {
+    if (user && getIdToken && Capacitor.isNativePlatform()) {
+      const registerDevice = async () => {
+        let permStatus = await PushNotifications.checkPermissions();
+        if (permStatus.receive === 'prompt') {
+          permStatus = await PushNotifications.requestPermissions();
+        }
+        if (permStatus.receive === 'granted') {
+          await PushNotifications.register();
+        }
+      };
+
+      const addListeners = async () => {
+        await PushNotifications.addListener('registration', async (token: Token) => {
+          try {
+            console.log('Calling saveFcmToken HTTP Function for native device...');
+            await callSaveFcmTokenHttp(token.value, isCoach, getIdToken);
+            console.log('FCM token successfully saved for native device!');
+          } catch (error) {
+            console.error('Error saving native FCM token:', error);
+          }
+        });
+
+        await PushNotifications.addListener('registrationError', (error: any) => {
+          console.error('Error on native push registration', error);
+        });
+
+        await PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+          console.log('Native push received', notification);
+        });
+
+        await PushNotifications.addListener('pushNotificationActionPerformed', (notification: ActionPerformed) => {
+          handleNotificationAction(notification.notification);
+        });
+      };
+
+      registerDevice();
+      addListeners();
+    }
+  }, [user, isCoach, getIdToken]);
 
   return <>{children}</>;
 };

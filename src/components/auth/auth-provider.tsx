@@ -2,12 +2,11 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onIdTokenChanged, User, signOut } from 'firebase/auth';
 import { doc, onSnapshot, updateDoc, arrayUnion, Timestamp } from 'firebase/firestore';
-import { auth, db, messaging } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { Loader2 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { UserProfile, ClientProfile } from '@/types';
 import { COACH_UIDS } from '@/lib/coaches';
-import { getToken } from 'firebase/messaging';
 
 function serializeTimestamps(obj: any): any {
   if (!obj) return obj;
@@ -32,6 +31,7 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   isCoach: boolean;
+  getIdToken: () => Promise<string | null>; // Added getIdToken to the context type
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -39,6 +39,7 @@ const AuthContext = createContext<AuthContextType>({
   userProfile: null,
   loading: true,
   isCoach: false,
+  getIdToken: async () => null, // Provide a default async function
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -85,40 +86,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [isCoach, setIsCoach] = useState(false);
 
+  const getIdToken = async () => {
+      if (auth.currentUser) {
+        return await auth.currentUser.getIdToken(true);
+      }
+      return null;
+  };
+
   useEffect(() => {
     let unsubscribeUserProfile: (() => void) | undefined;
     let unsubscribeClientProfile: (() => void) | undefined;
     
-    const requestNotificationPermission = async (currentUser: User) => {
-      if (typeof window !== 'undefined' && 'serviceWorker' in navigator && messaging) {
-        try {
-          const permission = await Notification.requestPermission();
-          if (permission === 'granted') {
-            const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
-            if (!vapidKey) {
-              console.error("VAPID key not found in environment variables.");
-              return;
-            }
-            try {
-              const currentToken = await getToken(messaging, { vapidKey: vapidKey });
-              if (currentToken) {
-                const userProfileRef = doc(db, 'userProfiles', currentUser.uid);
-                await updateDoc(userProfileRef, {
-                  fcmTokens: arrayUnion(currentToken)
-                });
-              } else {
-                console.log('No registration token available. Request permission to generate one.');
-              }
-            } catch (err) {
-              console.error('An error occurred while retrieving token. This is expected in some environments (like local dev without HTTPS).', err);
-            }
-          }
-        } catch (error) {
-          console.error('An error occurred during notification permission request.', error);
-        }
-      }
-    };
-
     const unsubscribeAuth = onIdTokenChanged(auth, async (authUser) => {
       setLoading(true);
       if (unsubscribeUserProfile) unsubscribeUserProfile();
@@ -126,7 +104,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (authUser) {
         setUser(authUser);
-        requestNotificationPermission(authUser);
         const userIsCoach = COACH_UIDS.includes(authUser.uid);
         setIsCoach(userIsCoach);
 
@@ -135,7 +112,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let hasInitialized = false;
 
         const combinedProfileUpdater = () => {
-             // FIX: Ensure stripeCustomerId from client data is included
              const combined = { 
                 ...tempUserProfile, 
                 ...tempClientProfile,
@@ -193,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, isCoach }}>
+    <AuthContext.Provider value={{ user, userProfile, loading, isCoach, getIdToken }}>
       {loading ? (
         <div className="flex h-screen w-screen items-center justify-center bg-background">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
