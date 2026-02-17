@@ -3,15 +3,15 @@
 
 import { useEffect } from 'react';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
-import { app } from '@/lib/firebase'; // Corrected Path
-import { initAudio } from '@/lib/audio'; // Corrected Path
+import { app } from '@/lib/firebase';
+import { initAudio } from '@/lib/audio';
 
-// --- App Check Debug Token --- 
+// **THE ONLY FIX NEEDED**: When this flag is true during development,
+// Firebase automatically bypasses the reCAPTCHA provider and uses the debug token.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   console.log("Firebase App Check debug token has been set for this development session.");
 }
-// ----------------------------
 
 let isAppCheckInitialized = false;
 
@@ -38,6 +38,8 @@ export function AppCheckProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // **THE FIX**: A single, correct initialization path.
+      // The provider is required, but will be ignored in development because of the debug flag above.
       try {
         initializeAppCheck(app, {
           provider: new ReCaptchaV3Provider(recaptchaSiteKey),

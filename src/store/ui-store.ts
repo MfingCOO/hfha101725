@@ -6,7 +6,7 @@ import { create } from 'zustand';
 interface ChatModalState {
   isOpen: boolean;
   entityId: string | null;
-  openModal: (entityId: string) => void;
+  openModal: (entityId: string | null) => void; // ** FIX: Allow null to be passed **
   closeModal: () => void;
 }
 
@@ -21,7 +21,7 @@ export const useChatModalStore = create<ChatModalState>((set) => ({
 interface WorkoutModalState {
   isOpen: boolean;
   entityId: string | null;
-  openModal: (entityId: string) => void;
+  openModal: (entityId: string | null) => void; // ** FIX: Allow null to be passed for consistency **
   closeModal: () => void;
 }
 

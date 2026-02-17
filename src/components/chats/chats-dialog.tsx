@@ -3,18 +3,17 @@
 
 import { BaseModal } from '@/components/ui/base-modal';
 import { ClientChatList } from './client-chat-list';
+import { useChatModalStore } from '@/store/ui-store';
 
-// ** FIX: Reverted to accept props, as it is controlled by DialogManager in the layout **
-interface ChatsDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
+// ** THE FIX: This component now controls its own state by subscribing to the global Zustand store. **
+// It no longer needs to be controlled by a parent component like DialogManager.
+export function ChatsDialog() {
+  const { isOpen, closeModal } = useChatModalStore();
 
-export function ChatsDialog({ isOpen, onClose }: ChatsDialogProps) {
   return (
     <BaseModal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={closeModal}
       title="My Chats"
       description="All your coaching and challenge conversations."
     >

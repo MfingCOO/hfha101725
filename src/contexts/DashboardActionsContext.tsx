@@ -5,33 +5,54 @@ import type { Chat } from '@/services/firestore';
 import { useAuth } from '@/components/auth/auth-provider';
 import { getChatsForClient, getChatMetadataForUser } from '@/app/chats/actions';
 
+// ** START: UNIFIED CHAT DIALOG CONTEXT **
+interface ChatDialogContextType {
+  isChatOpen: boolean;
+  openChat: () => void;
+  closeChat: () => void;
+}
+
+const ChatDialogContext = createContext<ChatDialogContextType | undefined>(undefined);
+
+export const ChatDialogProvider = ({ children }: { children: React.ReactNode }) => {
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const openChat = () => setIsChatOpen(true);
+    const closeChat = () => setIsChatOpen(false);
+
+    const value = useMemo(() => ({ isChatOpen, openChat, closeChat }), [isChatOpen]);
+
+    return (
+        <ChatDialogContext.Provider value={value}>
+            {children}
+        </ChatDialogContext.Provider>
+    );
+};
+
+export const useChatDialog = () => {
+    const context = useContext(ChatDialogContext);
+    if (context === undefined) {
+        throw new Error('useChatDialog must be used within a ChatDialogProvider');
+    }
+    return context;
+};
+// ** END: UNIFIED CHAT DIALOG CONTEXT **
+
+
 /**
  * Safely converts various timestamp formats to milliseconds since epoch.
- * Handles Firestore Timestamps, JS Date objects, ISO strings, and numbers.
  */
 function getMillis(timestamp: any): number {
     if (!timestamp) return 0;
-    // Firestore Timestamp object
-    if (typeof timestamp.toMillis === 'function') {
-        return timestamp.toMillis();
-    }
-    // JavaScript Date object
-    if (typeof timestamp.getTime === 'function') {
-        return timestamp.getTime();
-    }
-    // ISO-8601 string
+    if (typeof timestamp.toMillis === 'function') return timestamp.toMillis();
+    if (typeof timestamp.getTime === 'function') return timestamp.getTime();
     if (typeof timestamp === 'string') {
         const date = new Date(timestamp);
         return isNaN(date.getTime()) ? 0 : date.getTime();
     }
-    // Number (already in milliseconds)
-    if (typeof timestamp === 'number') {
-        return timestamp;
-    }
+    if (typeof timestamp === 'number') return timestamp;
     return 0;
 }
 
-// 1. Define the types for the state and actions
 interface DashboardState {
   chats: Chat[];
   hasUnreadChats: boolean;
@@ -40,34 +61,26 @@ interface DashboardState {
 
 interface DashboardActions {
   onOpenChallenges: () => void;
-  onOpenChats: () => void;
   onOpenCalendar: () => void;
   onOpenSettings: () => void;
   isChallengesOpen: boolean;
-  isChatsOpen: boolean;
   isCalendarOpen: boolean;
   isSettingsOpen: boolean;
   onCloseChallenges: () => void;
-  onCloseChats: () => void;
   onCloseCalendar: () => void;
   onCloseSettings: () => void;
 }
 
-// 2. Create two separate contexts
 const DashboardStateContext = createContext<DashboardState | undefined>(undefined);
 const DashboardActionsContext = createContext<DashboardActions | undefined>(undefined);
 
-// 3. Create a single provider that manages everything
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   
-  // State for the data
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatMetadata, setChatMetadata] = useState<Record<string, { lastReadTimestamp: any }>>({});
 
-  // State for the UI actions (dialogs)
   const [isChallengesOpen, setIsChallengesOpen] = useState(false);
-  const [isChatsOpen, setIsChatsOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -98,23 +111,15 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
     return chats.some(chat => {
         const lastMessage = chat.lastMessage as any;
-        if (!lastMessage || !lastMessage.senderId || !lastMessage.timestamp) {
-            return false;
-        }
-
-        if (lastMessage.senderId === user.uid) {
-            return false;
-        }
+        if (!lastMessage || !lastMessage.senderId || !lastMessage.timestamp) return false;
+        if (lastMessage.senderId === user.uid) return false;
 
         const lastReadTimestamp = chatMetadata[chat.id]?.lastReadTimestamp;
         const lastMessageMillis = getMillis(lastMessage.timestamp);
 
-        if (!lastReadTimestamp) {
-            return lastMessageMillis > 0;
-        }
+        if (!lastReadTimestamp) return lastMessageMillis > 0;
         
         const lastReadMillis = getMillis(lastReadTimestamp);
-
         return lastMessageMillis > lastReadMillis;
     });
   }, [chats, user, chatMetadata]);
@@ -127,18 +132,15 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
   const actionsValue = useMemo(() => ({
     onOpenChallenges: () => setIsChallengesOpen(true),
-    onOpenChats: () => setIsChatsOpen(true),
     onOpenCalendar: () => setIsCalendarOpen(true),
     onOpenSettings: () => setIsSettingsOpen(true),
     isChallengesOpen,
-    isChatsOpen,
     isCalendarOpen,
     isSettingsOpen,
     onCloseChallenges: () => setIsChallengesOpen(false),
-    onCloseChats: () => setIsChatsOpen(false),
     onCloseCalendar: () => setIsCalendarOpen(false),
     onCloseSettings: () => setIsSettingsOpen(false),
-  }), [isChallengesOpen, isChatsOpen, isCalendarOpen, isSettingsOpen]);
+  }), [isChallengesOpen, isCalendarOpen, isSettingsOpen]);
 
   return (
     <DashboardStateContext.Provider value={stateValue}>
@@ -149,7 +151,6 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// 4. Create separate hooks for consuming the state and actions
 export function useDashboardState() {
   const context = useContext(DashboardStateContext);
   if (context === undefined) {

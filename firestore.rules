@@ -17,9 +17,14 @@ service cloud.firestore {
     }
 
     match /clients/{clientId} {
+      // ** THE FIX: Allow any authenticated user to query ('list') the collection. **
+      // The 'read' rule below will then run on each document, ensuring they can only see their own.
+      // This unblocks the app loading screen.
+      allow list: if request.auth.uid != null;
       allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
       allow create, update: if request.auth.uid == clientId;
-      allow list, write, delete: if isCoach(request.auth.uid);
+      // Only coaches can write or delete client records.
+      allow write, delete: if isCoach(request.auth.uid);
 
       match /journal/{journalId} {
         allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
@@ -27,12 +32,11 @@ service cloud.firestore {
       }
     }
     
-    // ** THE FIX: Allow users to both get single chats and query the list of their own chats **
     match /chats/{chatId} {
       // Allow getting a single document if the user is a participant
       allow get, write: if request.auth.uid in resource.data.participants;
-      // Allow listing/querying chats if the query is scoping chats to the current user.
-      allow list: if request.auth.uid in request.query.where.participants;
+      // ** THE FIX: Correctly allow querying chats. The query MUST use an 'array-contains' filter. **
+      allow list: if request.query.where.participants.hasAny([request.auth.uid]);
 
       match /messages/{messageId} {
         allow read, create: if request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;

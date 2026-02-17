@@ -16,10 +16,6 @@ import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
-// ** THE FIX: Import the new Zustand store **
-import { useChatModalStore } from '@/store/ui-store';
-
-// Error Boundary Component is untouched
 interface ErrorBoundaryProps {
   children: React.ReactNode;
   router: { push: (path: string) => void; };
@@ -66,14 +62,9 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
-// ** THE FIX: Update the DialogManager to use the Zustand store **
+// ** THE FIX: The DialogManager no longer passes props to the self-managing ChatsDialog. **
 function DialogManager() {
     const { userProfile } = useAuth();
-    
-    // Get Chat modal state from our new global store
-    const { isOpen: isChatsOpen, closeModal: onCloseChats } = useChatModalStore();
-    
-    // Get other modal states from the old context (to be refactored later)
     const {
         isChallengesOpen,
         onCloseChallenges,
@@ -85,23 +76,23 @@ function DialogManager() {
 
     return (
         <>
-            <ChallengesDialog 
+            <ChallengesDialog
+                key="challenges"
                 isOpen={isChallengesOpen}
                 onClose={onCloseChallenges}
             />
-            {/* This dialog is now controlled by the global Zustand store! */}
-            <ChatsDialog
-                isOpen={isChatsOpen}
-                onClose={onCloseChats}
-            />
+            {/* The ChatsDialog now controls its own state and does not receive props here. */}
+            <ChatsDialog key="chats" />
             {userProfile && (
                 <CalendarDialog
+                    key="calendar"
                     isOpen={isCalendarOpen}
                     onClose={onCloseCalendar}
                     client={userProfile as ClientProfile}
                 />
             )}
             <SettingsDialog
+                key="settings"
                 open={isSettingsOpen}
                 onOpenChange={onCloseSettings}
             />
@@ -149,8 +140,6 @@ export default function ClientLayout({
             </main>
             <BottomNavBar />
           </SidebarInset>
-
-          {/* The DialogManager will now correctly open the chat modal on notification click */}
           <DialogManager />
       </SidebarProvider>
     </DashboardProvider>
