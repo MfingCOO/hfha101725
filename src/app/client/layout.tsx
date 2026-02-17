@@ -16,6 +16,9 @@ import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
+// ** THE FIX: Import the new Zustand store **
+import { useChatModalStore } from '@/store/ui-store';
+
 // Error Boundary Component is untouched
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -63,14 +66,17 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
-// DialogManager is untouched
+// ** THE FIX: Update the DialogManager to use the Zustand store **
 function DialogManager() {
     const { userProfile } = useAuth();
+    
+    // Get Chat modal state from our new global store
+    const { isOpen: isChatsOpen, closeModal: onCloseChats } = useChatModalStore();
+    
+    // Get other modal states from the old context (to be refactored later)
     const {
         isChallengesOpen,
         onCloseChallenges,
-        isChatsOpen,
-        onCloseChats,
         isCalendarOpen,
         onCloseCalendar,
         isSettingsOpen,
@@ -83,6 +89,7 @@ function DialogManager() {
                 isOpen={isChallengesOpen}
                 onClose={onCloseChallenges}
             />
+            {/* This dialog is now controlled by the global Zustand store! */}
             <ChatsDialog
                 isOpen={isChatsOpen}
                 onClose={onCloseChats}
@@ -143,6 +150,7 @@ export default function ClientLayout({
             <BottomNavBar />
           </SidebarInset>
 
+          {/* The DialogManager will now correctly open the chat modal on notification click */}
           <DialogManager />
       </SidebarProvider>
     </DashboardProvider>

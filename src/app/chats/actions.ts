@@ -270,8 +270,6 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
 
         const messageText = text || fileName || 'Attachment';
 
-        // ** START ROBUST DOT FIX **
-        // This transaction now includes marking the chat as read for the sender.
         await adminDb.runTransaction(async (transaction) => {
             const messagesCollectionRef = chatDocRef.collection('messages');
             const messageData: any = {
@@ -297,7 +295,6 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 updateData.lastClientMessageTimestamp = FieldValue.serverTimestamp();
             }
             
-            // Mark chat as read for the SENDER within the same transaction
             const senderMetadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
             transaction.set(senderMetadataRef, {
                 userId: userId,
@@ -307,7 +304,6 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
 
             transaction.update(chatDocRef, updateData);
         });
-        // ** END ROBUST DOT FIX **
 
         const recipients = chatData.participants.filter(pId => pId !== userId);
         const mutedBy = chatData.mutedBy || [];
@@ -316,11 +312,6 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             if (COACH_UIDS.includes(recipientId) && mutedBy.includes(recipientId)) {
                 return;
             }
-
-            const notificationPayload = {
-                title: `New message in ${chatData.name || 'chat'}`,
-                body: `${userName}: ${messageText}`.slice(0, 100),
-            };
 
             try {
                 const userRef = adminDb.collection("userProfiles").doc(recipientId);
@@ -332,44 +323,34 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                         const validTokens = userData.fcmTokens.filter((t: any) => t);
                         
                         if (validTokens.length > 0) {
+
+                            // ** START: UNIFIED PAYLOAD IMPLEMENTATION **
+                            const notificationPayload = {
+                                title: `New message from ${userName}`,
+                                body: `${messageText}`.slice(0, 100),
+                                data: {
+                                    notificationType: "chat",
+                                    entityId: String(chatId) // IMPORTANT: Must be a string
+                                }
+                            };
+
                             const message = {
                                 tokens: validTokens,
-                                notification: { // Base for native apps
+                                data: notificationPayload.data, // For PWA and iOS to handle the data payload
+                                notification: { // The visible part for all platforms
                                     title: notificationPayload.title,
                                     body: notificationPayload.body
                                 },
-                                android: { // Android remains unchanged
-                                    priority: "high" as const,
+                                android: { // Android-specific override for the Capacitor bug
                                     notification: {
-                                        channelId: "default_notification_channel",
-                                        tag: chatId
-                                    }
-                                },
-                                apns: { // iOS remains unchanged
-                                    payload: {
-                                        aps: {
-                                            alert: {
-                                                title: notificationPayload.title,
-                                                body: notificationPayload.body
-                                            },
-                                            badge: 1,
-                                            sound: "default"
-                                        },
-                                        userInfo: {
-                                            chatId: String(chatId)
-                                        }
-                                    }
-                                },
-                                // THIS IS THE FIX
-                                webpush: {
-                                    data: {
-                                        title: notificationPayload.title,
-                                        body: notificationPayload.body,
-                                        chatId: String(chatId)
+                                        // Embed data in the title for the Android workaround
+                                        title: `[${notificationPayload.data.notificationType}:${notificationPayload.data.entityId}] ${notificationPayload.title}`
                                     }
                                 }
                             };
+
                             await messaging.sendEachForMulticast(message as any);
+                            // ** END: UNIFIED PAYLOAD IMPLEMENTATION **
                         }
                     }
                 }
