@@ -2,19 +2,11 @@
 'use client';
 
 import {
-  HeartPulse,
   LayoutDashboard,
   Settings,
-  Trophy,
-  BarChart3,
-  Dumbbell,
   Calendar,
   MessageSquare,
-  Users,
-  Lightbulb,
-  Megaphone,
-  Image as ImageIcon,
-  Library,
+  Trophy
 } from 'lucide-react';
 import {
   Sidebar,
@@ -23,18 +15,15 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  useSidebar,
   SidebarFooter
 } from '@/components/ui/sidebar';
-import { SheetHeader, SheetTitle } from '../ui/sheet';
 import { Logo } from '@/components/icons/logo';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { UserNav } from '../auth/user-nav';
-import { cn } from '@/lib/utils';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useAuth } from '../auth/auth-provider';
 import { useDashboardActions } from '@/contexts/DashboardActionsContext';
+import { useChatModalStore } from '@/store/ui-store';
 
 const clientMenuItems = [
   { href: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true },
@@ -50,7 +39,8 @@ const coachMenuItems = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { isCoach } = useAuth();
-  const { onOpenChallenges, onOpenChats, onOpenCalendar, onOpenSettings } = useDashboardActions();
+  const { onOpenChallenges, onOpenCalendar, onOpenSettings } = useDashboardActions();
+  const { openModal: openChatModal } = useChatModalStore();
 
   const menuItems = isCoach ? coachMenuItems : clientMenuItems;
 
@@ -59,7 +49,7 @@ export function AppSidebar() {
         if (item.id === 'challenges') {
             onOpenChallenges();
         } else if (item.id === 'chats') {
-            onOpenChats();
+            openChatModal(null); // ** FIX: Pass null to open the general chat list **
         } else if (item.id === 'calendar') {
             onOpenCalendar();
         }
@@ -90,7 +80,7 @@ export function AppSidebar() {
                   </Link>
               ) : (
                  <SidebarMenuButton
-                    isActive={false} // Non-links are actions, not active pages
+                    isActive={false}
                     tooltip={item.label}
                     onClick={() => handleItemClick(item)}
                   >

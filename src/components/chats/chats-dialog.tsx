@@ -1,8 +1,10 @@
+
 'use client';
 
 import { BaseModal } from '@/components/ui/base-modal';
 import { ClientChatList } from './client-chat-list';
 
+// ** FIX: Reverted to accept props, as it is controlled by DialogManager in the layout **
 interface ChatsDialogProps {
   isOpen: boolean;
   onClose: () => void;

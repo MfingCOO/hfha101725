@@ -135,7 +135,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
 
         const snapshots = await Promise.all(chatPromises);
 
-        const allChats: Chat[] = [];
+        let allChats: Chat[] = [];
         snapshots.forEach(snapshot => {
             snapshot.forEach((docSnap: any) => {
                 allChats.push({ id: docSnap.id, ...docSnap.data() } as Chat);
@@ -143,7 +143,60 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
         });
         
         // Remove duplicates (in case a user is in an open chat already)
-        const uniqueChats = Array.from(new Map(allChats.map(chat => [chat.id, chat])).values());
+        let uniqueChats = Array.from(new Map(allChats.map(chat => [chat.id, chat])).values());
+
+// ** START OF CRASH FIX AND DATA ENHANCEMENT - CLIENT **
+const chatsWithDataPromises = uniqueChats.map(async (chat) => {
+    const recentMessagesQuery = adminDb.collection('chats').doc(chat.id).collection('messages')
+        .orderBy('timestamp', 'desc')
+        .limit(20);
+
+    try {
+        const snapshot = await recentMessagesQuery.get();
+        
+        // If there are no messages, there's nothing to process. Return a safe version of the chat.
+        if (snapshot.empty) {
+            return {
+                ...chat,
+                lastMessage: null, // Explicitly set to null
+                lastClientMessageTimestamp: null, // Explicitly set to null
+            };
+        }
+
+        const recentMessages = snapshot.docs.map(doc => doc.data());
+
+        // Safely get the absolute last message (for red dot notifications)
+        const lastMessageData = recentMessages[0];
+        const lastMessage = {
+            text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
+            timestamp: lastMessageData.timestamp || new Timestamp(0, 0), // Fallback to epoch time
+            senderId: lastMessageData.userId || 'system'
+        };
+
+        // Safely get the last client message timestamp (for Active/MIA bucketing)
+        const lastClientMessageData = recentMessages.find(msg => msg.userId && !COACH_UIDS.includes(msg.userId));
+        const lastClientMessageTimestamp = lastClientMessageData ? (lastClientMessageData.timestamp || null) : null;
+
+        // Return the chat with guaranteed fresh and safe data.
+        return {
+            ...chat,
+            lastMessage,
+            lastClientMessageTimestamp
+        };
+
+    } catch (error) {
+        console.error(`Error enhancing chat data for chat ${chat.id}:`, error);
+        // On error, return a safe, non-crashing version of the chat object.
+        return {
+            ...chat,
+            lastMessage: null,
+            lastClientMessageTimestamp: null,
+        };
+    }
+});
+
+uniqueChats = await Promise.all(chatsWithDataPromises);
+// ** END OF CRASH FIX AND DATA ENHANCEMENT - CLIENT **
 
         const serializableData = uniqueChats.map(serializeTimestamps);
         

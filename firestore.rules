@@ -7,28 +7,32 @@ service cloud.firestore {
       return userId in ['yue7fVPBQZg45vmfXXUH5PdG7jE2', 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2'];
     }
 
-    // In firestore.rules
+    match /userProfiles/{userId} {
+      allow read: if request.auth.uid == userId || isCoach(request.auth.uid);
+      allow write: if request.auth.uid == userId;
+    }
+
+    match /user_chat_metadata/{metadataId} {
+      allow read, write: if request.auth.uid == resource.data.userId;
+    }
+
     match /clients/{clientId} {
-      // A client can read their own doc; a coach can read any.
       allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
-
-      // A client can CREATE or UPDATE their own document. This is the fix.
       allow create, update: if request.auth.uid == clientId;
-
-      // A coach retains broader permissions.
       allow list, write, delete: if isCoach(request.auth.uid);
 
-      // Subcollection rules remain the same...
       match /journal/{journalId} {
         allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
         allow create, update, delete: if request.auth.uid == clientId;
       }
-      // ...etc.
     }
     
-    // ... other rules for chats, etc.
+    // ** THE FIX: Allow users to both get single chats and query the list of their own chats **
     match /chats/{chatId} {
-      allow read, write: if request.auth.uid in resource.data.participants;
+      // Allow getting a single document if the user is a participant
+      allow get, write: if request.auth.uid in resource.data.participants;
+      // Allow listing/querying chats if the query is scoping chats to the current user.
+      allow list: if request.auth.uid in request.query.where.participants;
 
       match /messages/{messageId} {
         allow read, create: if request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
