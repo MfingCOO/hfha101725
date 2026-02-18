@@ -47,13 +47,13 @@ if (workbox) {
 // Replace this with your app's messaging sender ID.
 // IMPORTANT: You MUST replace this with your actual config from the Firebase console
 const firebaseConfig = {
-    apiKey: "AIzaSyDk************-***********",
-    authDomain: "******************.firebaseapp.com",
-    projectId: "******************",
-    storageBucket: "******************.appspot.com",
-    messagingSenderId: "539********",
-    appId: "1:539**********:web:5f9e16d**********"
-};
+    apiKey: "AIzaSyAk8vuQj8JfEyweNdtK9en9uUk6amEblYo",
+    authDomain: "hunger-free-and-happy-app.firebaseapp.com",
+    projectId: "hunger-free-and-happy-app",
+    storageBucket: "hunger-free-and-happy-app.firebasestorage.app",
+    messagingSenderId: "1002580546718",
+    appId: "1:1002580546718:web:a8574bfc3732c7c137978f"
+  };
 
 firebase.initializeApp(firebaseConfig);
 

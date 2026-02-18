@@ -10,7 +10,7 @@ const db = getFirestore();
 const messaging = getMessaging();
 
 // -----------------------------------------------------------------------------
-// PART A: THE TRIGGER (This was the missing piece)
+// PART A: THE TRIGGER 
 // -----------------------------------------------------------------------------
 export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => {
     const message = event.data?.data();
@@ -20,7 +20,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     }
 
     const chatId = event.params.chatId;
-    const senderId = message.authorId;
+    const senderId = message.userId; // THE BUG IS FIXED HERE
     const messageText = message.text || 'You received a new message';
 
     // 1. Get the participants of the chat
@@ -64,10 +64,9 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
 
 
 // -----------------------------------------------------------------------------
-// PART B: THE ENGINE (This part is correct)
+// PART B: THE ENGINE 
 // -----------------------------------------------------------------------------
 
-// This function sends the actual push notification payload.
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
   const userRef = db.collection('userProfiles').doc(userId);
   const userDoc = await userRef.get();
@@ -132,7 +131,6 @@ async function sendPushNotification(userId: string, title: string, message: stri
   }
 }
 
-// This scheduled function runs every minute to process the notification queue.
 export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (event) => {
   const now = Timestamp.now();
   
@@ -149,7 +147,6 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
   const promises = snapshot.docs.map(async (doc) => {
     const notification = doc.data();
     
-    // Mark as processed immediately to prevent duplicate sends in the next run
     await doc.ref.update({ processed: true });
     
     await sendPushNotification(
@@ -165,5 +162,4 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
   await Promise.all(promises);
 });
 
-// This export allows clients to save their FCM token.
 export { saveFcmToken } from './saveFcmToken';
