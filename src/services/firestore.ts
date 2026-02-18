@@ -656,6 +656,7 @@ export interface Chat {
     rules?: string[];
     ownerId?: string;
     lastMessage?: Timestamp;
+    unreadCount?: number;
 }
 
 export interface Challenge {

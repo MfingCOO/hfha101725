@@ -36,7 +36,6 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
         let allChats = chatsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
         const allClients = clientsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as ClientProfile));
 
-// ** START OF CRASH FIX AND DATA ENHANCEMENT **
 const chatsWithDataPromises = allChats.map(async (chat) => {
     const recentMessagesQuery = adminDb.collection('chats').doc(chat.id).collection('messages')
         .orderBy('timestamp', 'desc')
@@ -45,30 +44,26 @@ const chatsWithDataPromises = allChats.map(async (chat) => {
     try {
         const snapshot = await recentMessagesQuery.get();
         
-        // If there are no messages, there's nothing to process. Return a safe version of the chat.
         if (snapshot.empty) {
             return {
                 ...chat,
-                lastMessage: null, // Explicitly set to null
-                lastClientMessageTimestamp: null, // Explicitly set to null
+                lastMessage: null,
+                lastClientMessageTimestamp: null,
             };
         }
 
         const recentMessages = snapshot.docs.map(doc => doc.data());
 
-        // Safely get the absolute last message (for red dot notifications)
         const lastMessageData = recentMessages[0];
         const lastMessage = {
             text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
-            timestamp: lastMessageData.timestamp || new Timestamp(0, 0), // Fallback to epoch time
+            timestamp: lastMessageData.timestamp || new Timestamp(0, 0),
             senderId: lastMessageData.userId || 'system'
         };
 
-        // Safely get the last client message timestamp (for Active/MIA bucketing)
         const lastClientMessageData = recentMessages.find(msg => msg.userId && !COACH_UIDS.includes(msg.userId));
         const lastClientMessageTimestamp = lastClientMessageData ? (lastClientMessageData.timestamp || null) : null;
 
-        // Return the chat with guaranteed fresh and safe data.
         return {
             ...chat,
             lastMessage,
@@ -77,7 +72,6 @@ const chatsWithDataPromises = allChats.map(async (chat) => {
 
     } catch (error) {
         console.error(`Error enhancing chat data for chat ${chat.id}:`, error);
-        // On error, return a safe, non-crashing version of the chat object.
         return {
             ...chat,
             lastMessage: null,
@@ -87,8 +81,6 @@ const chatsWithDataPromises = allChats.map(async (chat) => {
 });
 
 allChats = await Promise.all(chatsWithDataPromises);
-// ** END OF CRASH FIX AND DATA ENHANCEMENT **
-
 
         const serializableChats = allChats.map(serializeTimestamps);
         const serializableClients = allClients.map(serializeTimestamps);
@@ -100,12 +92,10 @@ allChats = await Promise.all(chatsWithDataPromises);
     }
 }
 
-// Action to get chats for a specific client
 export async function getChatsForClient(userId: string): Promise<{ success: boolean; data?: Chat[]; error?: any; }> {
     try {
         const userProfileSnap = await adminDb.collection('userProfiles').doc(userId).get();
         if (!userProfileSnap.exists) {
-            // If user profile doesn't exist, they have no chats.
             return { success: true, data: [] };
         }
         
@@ -113,9 +103,18 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
         const userChatIds = userProfile.chatIds || [];
         const userTier = userProfile.tier;
 
+        const metadataSnap = await adminDb.collection('user_chat_metadata').where('userId', '==', userId).get();
+        const chatMetadata: Record<string, { lastReadTimestamp: Timestamp }> = {};
+        metadataSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.lastReadTimestamp) {
+                const chatId = doc.id.replace(`${userId}_`, '');
+                chatMetadata[chatId] = { lastReadTimestamp: data.lastReadTimestamp };
+            }
+        });
+
         const chatPromises: Promise<any>[] = [];
 
-        // 1. Fetch chats the user is directly a member of.
         if (userChatIds.length > 0) {
             const chunks: string[][] = [];
             for (let i = 0; i < userChatIds.length; i += 30) {
@@ -126,15 +125,11 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
             });
         }
 
-        // ** START TIER-BASED CHAT FIX **
-        // 2. Only fetch 'open' chats if the user is on a premium tier.
         if (userTier === 'premium' || userTier === 'coaching') {
             chatPromises.push(adminDb.collection('chats').where('type', '==', 'open').get());
         }
-        // ** END TIER-BASED CHAT FIX **
 
         const snapshots = await Promise.all(chatPromises);
-
         let allChats: Chat[] = [];
         snapshots.forEach(snapshot => {
             snapshot.forEach((docSnap: any) => {
@@ -142,61 +137,49 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
             });
         });
         
-        // Remove duplicates (in case a user is in an open chat already)
         let uniqueChats = Array.from(new Map(allChats.map(chat => [chat.id, chat])).values());
 
-// ** START OF CRASH FIX AND DATA ENHANCEMENT - CLIENT **
-const chatsWithDataPromises = uniqueChats.map(async (chat) => {
-    const recentMessagesQuery = adminDb.collection('chats').doc(chat.id).collection('messages')
-        .orderBy('timestamp', 'desc')
-        .limit(20);
+        const chatsWithDataPromises = uniqueChats.map(async (chat) => {
+            const recentMessagesQuery = adminDb.collection('chats').doc(chat.id).collection('messages')
+                .orderBy('timestamp', 'desc')
+                .limit(20);
 
-    try {
-        const snapshot = await recentMessagesQuery.get();
-        
-        // If there are no messages, there's nothing to process. Return a safe version of the chat.
-        if (snapshot.empty) {
-            return {
-                ...chat,
-                lastMessage: null, // Explicitly set to null
-                lastClientMessageTimestamp: null, // Explicitly set to null
-            };
-        }
+            try {
+                const snapshot = await recentMessagesQuery.get();
+                
+                if (snapshot.empty) {
+                    return { ...chat, lastMessage: null, unreadCount: 0 };
+                }
 
-        const recentMessages = snapshot.docs.map(doc => doc.data());
+                const recentMessages = snapshot.docs.map(doc => doc.data());
 
-        // Safely get the absolute last message (for red dot notifications)
-        const lastMessageData = recentMessages[0];
-        const lastMessage = {
-            text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
-            timestamp: lastMessageData.timestamp || new Timestamp(0, 0), // Fallback to epoch time
-            senderId: lastMessageData.userId || 'system'
-        };
+                const lastMessageData = recentMessages[0];
+                const lastMessage = {
+                    text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
+                    timestamp: lastMessageData.timestamp || new Timestamp(0, 0),
+                    senderId: lastMessageData.userId || 'system'
+                };
+                
+                const lastReadTimestamp = chatMetadata[chat.id]?.lastReadTimestamp;
+                let unreadCount = 0;
 
-        // Safely get the last client message timestamp (for Active/MIA bucketing)
-        const lastClientMessageData = recentMessages.find(msg => msg.userId && !COACH_UIDS.includes(msg.userId));
-        const lastClientMessageTimestamp = lastClientMessageData ? (lastClientMessageData.timestamp || null) : null;
+                if (lastReadTimestamp) {
+                    unreadCount = recentMessages.filter(msg => 
+                        msg.timestamp.toMillis() > lastReadTimestamp.toMillis() && msg.userId !== userId
+                    ).length;
+                } else {
+                    unreadCount = recentMessages.filter(msg => msg.userId !== userId).length;
+                }
 
-        // Return the chat with guaranteed fresh and safe data.
-        return {
-            ...chat,
-            lastMessage,
-            lastClientMessageTimestamp
-        };
+                return { ...chat, lastMessage, unreadCount };
 
-    } catch (error) {
-        console.error(`Error enhancing chat data for chat ${chat.id}:`, error);
-        // On error, return a safe, non-crashing version of the chat object.
-        return {
-            ...chat,
-            lastMessage: null,
-            lastClientMessageTimestamp: null,
-        };
-    }
-});
+            } catch (error) {
+                console.error(`Error enhancing chat data for chat ${chat.id}:`, error);
+                return { ...chat, lastMessage: null, unreadCount: 0 };
+            }
+        });
 
-uniqueChats = await Promise.all(chatsWithDataPromises);
-// ** END OF CRASH FIX AND DATA ENHANCEMENT - CLIENT **
+        uniqueChats = await Promise.all(chatsWithDataPromises);
 
         const serializableData = uniqueChats.map(serializeTimestamps);
         
@@ -213,9 +196,6 @@ uniqueChats = await Promise.all(chatsWithDataPromises);
     }
 }
 
-
-
-// Action to get all of a user's chat metadata (like last read times)
 export async function getChatMetadataForUser(userId: string): Promise<{ success: boolean; data?: Record<string, any>; error?: string }> {
     try {
         const metadataQuery = adminDb.collection('user_chat_metadata').where('userId', '==', userId);
@@ -239,6 +219,29 @@ export async function getChatMetadataForUser(userId: string): Promise<{ success:
     }
 }
 
+const MarkChatAsReadInputSchema = z.object({
+    chatId: z.string(),
+    userId: z.string(),
+});
+
+export async function markChatAsReadAction(input: z.infer<typeof MarkChatAsReadInputSchema>) {
+    const { chatId, userId } = MarkChatAsReadInputSchema.parse(input);
+    const metadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
+
+    try {
+        await metadataRef.set({
+            userId: userId,
+            chatId: chatId,
+            lastReadTimestamp: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Failed to mark chat ${chatId} as read for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function createCoachingChatOnFirstLogin(userId: string, userName: string): Promise<{ success: boolean; chatId?: string; error?: string }> {
     try {
         const userProfileRef = adminDb.collection('userProfiles').doc(userId);
@@ -251,13 +254,12 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
         const userProfile = userProfileSnap.data() as UserProfile;
         
         if (userProfile.hasHadCoachingChat) {
-            console.log(`User ${userId} has already had a coaching chat. Skipping creation.`);
             return { success: true };
         }
         
         const primaryCoachId = COACH_UIDS[0];
         if (!primaryCoachId) {
-            throw new Error("No coaches are configured in the system.");
+            throw new Error("No coaches are configured.");
         }
 
         const chatRef = adminDb.collection('chats').doc();
@@ -293,8 +295,6 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
 
         await batch.commit();
 
-        // --- THIS IS THE ONLY CHANGE IN THIS FILE ---
-        // Send a notification for the initial system message
         const coachProfileSnap = await adminDb.collection('userProfiles').doc(primaryCoachId).get();
         if (coachProfileSnap.exists) {
             const coachData = coachProfileSnap.data();
@@ -305,7 +305,7 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
                         tokens: validTokens,
                         data: {
                             chatId: String(chatRef.id),
-                            sent_time: String(Date.now()), // Use current time as a string
+                            sent_time: String(Date.now()),
                             notificationType: 'chat'
                         },
                         notification: {
@@ -317,19 +317,15 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
                 }
             }
         }
-        // --- END OF CHANGE ---
 
-        console.log(`Successfully created coaching chat ${chatRef.id} for user ${userId}`);
         return { success: true, chatId: chatRef.id };
 
     } catch (error: any) {
         console.error(`Failed to create coaching chat for user ${userId}:`, error);
-        return { success: false, error: error.message || 'An unknown error occurred while creating the coaching chat.' };
+        return { success: false, error: error.message };
     }
 }
 
-
-// Action to post a new message to a chat
 const PostMessageInputSchema = z.object({
   chatId: z.string(),
   text: z.string().optional(),
@@ -349,8 +345,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
         const chatData = chatSnapshot.data() as Chat;
 
         const messageText = text || fileName || 'Attachment';
-
-        const sentTimestamp = new Timestamp(Math.floor(Date.now() / 1000), 0); // Define timestamp once
+        const sentTimestamp = new Timestamp(Math.floor(Date.now() / 1000), 0);
 
         await adminDb.runTransaction(async (transaction) => {
             const messagesCollectionRef = chatDocRef.collection('messages');
@@ -390,9 +385,9 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
         const recipients = chatData.participants.filter(pId => pId !== userId);
         const mutedBy = chatData.mutedBy || [];
         
-        const notificationPromises = recipients.map(async (recipientId) => {
+        for (const recipientId of recipients) {
             if (COACH_UIDS.includes(recipientId) && mutedBy.includes(recipientId)) {
-                return;
+                continue;
             }
 
             try {
@@ -400,38 +395,32 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 const userDoc = await userRef.get();
 
                 if (userDoc.exists) {
-                    const userData = userDoc.data();
-                    if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
-                        const validTokens = userData.fcmTokens.filter((t: any) => t);
-                        
-                        if (validTokens.length > 0) {
+                    const userData = userDoc.data() as UserProfile;
+                    const allTokens = [...(userData.fcmTokens || []), ...(userData.pushToken ? [userData.pushToken] : [])].filter(t => t);
 
-                            // --- ANDROID NOTIFICATION FIX --- //
-                            const payload = {
-                                tokens: validTokens,
-                                data: {
-                                    // All values must be strings as per your instruction.
-                                    chatId: String(chatId),
-                                    sent_time: String(sentTimestamp.toMillis()),
-                                    notificationType: 'chat'
-                                },
-                                notification: {
-                                    title: `New message from ${userName}`,
-                                    body: `${messageText}`.slice(0, 100)
-                                }
-                            };
-                            // --- END ANDROID NOTIFICATION FIX --- //
+                    if (allTokens.length > 0) {
+                        const safeDataPayload = {
+                            title: `New message from ${userName}`,
+                            body: messageText.slice(0, 100),
+                            chatId: String(chatId),
+                            notificationType: 'chat',
+                            sent_time: String(sentTimestamp.toMillis())
+                        };
 
-                            await messaging.sendEachForMulticast(payload as any);
-                        }
+                        const payload = {
+                            tokens: allTokens,
+                            data: safeDataPayload,
+                            android: {
+                                priority: 'high' as const,
+                            },
+                        };
+                        await messaging.sendEachForMulticast(payload as any);
                     }
                 }
             } catch (error) {
-                console.error(`Error sending push notification to user ${recipientId}:`, error);
+                console.error(`Error sending notification to user ${recipientId}:`, error);
             }
-        });
-
-        await Promise.all(notificationPromises);
+        }
         
         return { success: true };
 
@@ -441,84 +430,51 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
     }
 }
 
+export async function joinChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        const chatRef = adminDb.collection('chats').doc(chatId);
+        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
 
-// New action to toggle mute status for a coach
-const ToggleChatMuteInputSchema = z.object({
-    chatId: z.string(),
-    coachId: z.string(),
-  });
+        await adminDb.runTransaction(async (transaction) => {
+            const chatDoc = await transaction.get(chatRef);
+            if (!chatDoc.exists) {
+                throw new Error("Chat not found.");
+            }
+            transaction.update(chatRef, { 
+                participants: FieldValue.arrayUnion(userId),
+                participantCount: FieldValue.increment(1)
+            });
+            transaction.update(userProfileRef, { chatIds: FieldValue.arrayUnion(chatId) });
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Error joining chat ${chatId} for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
   
-export async function toggleChatMuteAction(input: z.infer<typeof ToggleChatMuteInputSchema>) {
-    const { chatId, coachId } = ToggleChatMuteInputSchema.parse(input);
-
-    if (!COACH_UIDS.includes(coachId)) {
-        return { success: false, error: "Only coaches can mute chats." };
-    }
-
-    const chatRef = adminDb.collection('chats').doc(chatId);
-
+export async function leaveChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-        const chatDoc = await chatRef.get();
-        if (!chatDoc.exists) {
-            return { success: false, error: "Chat not found." };
-        }
+        const chatRef = adminDb.collection('chats').doc(chatId);
+        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
 
-        const chatData = chatDoc.data() as Chat;
-        const mutedBy = chatData.mutedBy || [];
-
-        if (mutedBy.includes(coachId)) {
-            await chatRef.update({ mutedBy: FieldValue.arrayRemove(coachId) });
-        } else {
-            await chatRef.update({ mutedBy: FieldValue.arrayUnion(coachId) });
-        }
+        await adminDb.runTransaction(async (transaction) => {
+            const chatDoc = await transaction.get(chatRef);
+            if (!chatDoc.exists) {
+                throw new Error("Chat not found.");
+            }
+            transaction.update(chatRef, { 
+                participants: FieldValue.arrayRemove(userId),
+                participantCount: FieldValue.increment(-1)
+            });
+            transaction.update(userProfileRef, { chatIds: FieldValue.arrayRemove(chatId) });
+        });
 
         return { success: true };
     } catch (error: any) {
-        console.error(`Failed to toggle mute for chat ${chatId}:`, error);
+        console.error(`Error leaving chat ${chatId} for user ${userId}:`, error);
         return { success: false, error: error.message };
-    }
-}
-
-// New action to mark a chat as read by a user
-const MarkChatAsReadInputSchema = z.object({
-    chatId: z.string(),
-    userId: z.string(),
-});
-
-export async function markChatAsReadAction(input: z.infer<typeof MarkChatAsReadInputSchema>) {
-    const { chatId, userId } = MarkChatAsReadInputSchema.parse(input);
-    const metadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
-
-    try {
-        await metadataRef.set({
-            userId: userId, // Store the userId in the document as well for querying
-            chatId: chatId,
-            lastReadTimestamp: FieldValue.serverTimestamp(),
-        }, { merge: true });
-
-        return { success: true };
-    } catch (error: any) {
-        console.error(`Failed to mark chat ${chatId} as read for user ${userId}:`, error);
-        return { success: false, error: error.message };
-    }
-}
-
-
-// OTHER ACTIONS (UNCHANGED for this step, but included for completeness)
-
-export async function getChatDetailsForCoach(chatId: string): Promise<{ success: boolean; data?: Chat; error?: any; }> {
-    try {
-        const docRef = adminDb.collection('chats').doc(chatId);
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            const data = { id: docSnap.id, ...docSnap.data() };
-            const serializableData = serializeTimestamps(data);
-            return { success: true, data: serializableData as Chat };
-        }
-        return { success: false, error: 'Chat not found' };
-    } catch (error: any) {
-        console.error('Error getting chat details (admin):', error);
-        return { success: false, error: { message: error.message || 'An unknown admin error occurred' } };
     }
 }
 
@@ -559,262 +515,57 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
     }
 }
 
-export async function getSignedUrlAction(fileName: string, path: string, contentType: string): Promise<{ success: boolean, signedUrl?: string, publicUrl?: string, error?: string }> {
-    try {
-      const bucket = getStorage().bucket('hunger-free-and-happy-app.firebasestorage.app');
-      const uniqueFileName = `${path}/${Date.now()}-${fileName.replace(/\s+/g, '_')}`;
-      const file = bucket.file(uniqueFileName);
-  
-      const [signedUrl] = await file.getSignedUrl({
-        version: 'v4',
-        action: 'write',
-        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
-        contentType,
+export async function getUnreadChatCountForCoach(coachId: string): Promise<{ success: boolean; count?: number; error?: string }> {
+  if (!COACH_UIDS.includes(coachId)) {
+      return { success: false, error: "Invalid user." };
+  }
+
+  try {
+      const chatsQuery = adminDb.collection('chats').where('participants', 'array-contains', coachId).get();
+      const metadataQuery = adminDb.collection('user_chat_metadata').where('userId', '==', coachId).get();
+
+      const [chatsSnapshot, metadataSnapshot] = await Promise.all([chatsQuery, metadataQuery]);
+
+      const lastReadTimestamps: Record<string, Date> = {};
+      metadataSnapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.lastReadTimestamp) {
+              const chatId = doc.id.replace(`${coachId}_`, '');
+              lastReadTimestamps[chatId] = data.lastReadTimestamp.toDate();
+          }
       });
-  
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${uniqueFileName}`;
-  
-      return { success: true, signedUrl, publicUrl };
-  
-    } catch (error: any) {
-      console.error("Error generating signed URL: ", error);
-      return { success: false, error: error.message || 'Failed to generate signed URL.' };
-    }
-}
 
-const DeleteMessageInputSchema = z.object({
-    chatId: z.string(),
-    messageId: z.string(),
-    requesterId: z.string(),
-  });
-  
-  export async function deleteMessageAction(input: z.infer<typeof DeleteMessageInputSchema>) {
-      const { chatId, messageId, requesterId } = DeleteMessageInputSchema.parse(input);
-  
-      const messageRef = adminDb.collection('chats').doc(chatId).collection('messages').doc(messageId);
-  
-      try {
-          const messageDoc = await messageRef.get();
-          if (!messageDoc.exists) {
-              throw new Error("Message not found.");
+      let unreadCount = 0;
+      const chatProcessingPromises = chatsSnapshot.docs.map(async (chatDoc) => {
+          const chat = { id: chatDoc.id, ...chatDoc.data() } as Chat;
+
+          if (chat.type !== 'coaching' || (chat.mutedBy && chat.mutedBy.includes(coachId))) {
+              return;
           }
-  
-          const messageData = messageDoc.data();
-          const authorId = messageData?.userId;
-          
-          const isCoach = COACH_UIDS.includes(requesterId);
-          const isAuthor = requesterId === authorId;
-  
-          if (!isCoach && !isAuthor) {
-              throw new Error("You don't have permission to delete this message.");
-          }
-          
-          await messageRef.delete();
-  
-          return { success: true };
-  
-      } catch (error: any) {
-          console.error(`Error deleting message ${messageId} from chat ${chatId}:`, error);
-          return { success: false, error: { message: error.message || "Could not delete message." } };
-      }
-  }
-  
-  export async function deleteChatAction(chatId: string, requesterId: string) {
-      if (!COACH_UIDS.includes(requesterId)) {
-          return { success: false, error: "You don't have permission to perform this action." };
-      }
-      
-      const chatRef = adminDb.collection('chats').doc(chatId);
-  
-      try {
-          const chatDoc = await chatRef.get();
-          if (!chatDoc.exists) {
-              throw new Error("Chat not found.");
-          }
-          const chatData = chatDoc.data() as Chat;
-  
-          const batch = adminDb.batch();
-  
-          if (chatData.participants && chatData.participants.length > 0) {
-              for (const uid of chatData.participants) {
-                  const userProfileRef = adminDb.collection('userProfiles').doc(uid);
-                  batch.update(userProfileRef, { chatIds: FieldValue.arrayRemove(chatId) });
+
+          const messagesQuery = adminDb.collection('chats').doc(chat.id).collection('messages').orderBy('timestamp', 'desc').limit(1).get();
+          const lastMessageSnapshot = await messagesQuery;
+
+          if (!lastMessageSnapshot.empty) {
+              const lastMessage = lastMessageSnapshot.docs[0].data();
+              
+              if (lastMessage.userId && !COACH_UIDS.includes(lastMessage.userId)) {
+                  const lastReadTime = lastReadTimestamps[chat.id];
+                  const lastMessageTime = lastMessage.timestamp.toDate();
+
+                  if (!lastReadTime || lastMessageTime > lastReadTime) {
+                      unreadCount++;
+                  }
               }
           }
-          
-          batch.delete(chatRef);
+      });
 
-          await batch.commit();
-          return { success: true };
+      await Promise.all(chatProcessingPromises);
 
-      } catch(error: any) {
-          console.error("Error deleting chat:", error);
-          return { success: false, error: error.message };
-      }
+      return { success: true, count: unreadCount };
+
+  } catch (error: any) {
+      console.error(`Failed to get unread chat count for coach ${coachId}:`, error);
+      return { success: false, error: error.message };
   }
-      
-  const CreateChatInputSchema = z.object({
-    name: z.string().min(3),
-    description: z.string().min(10),
-    type: z.enum(['open', 'private_group']),
-    rules: z.string().optional(),
-    participantIds: z.array(z.string()).optional(),
-    requesterId: z.string(),
-  });
-  
-  export async function createChatAction(input: z.infer<typeof CreateChatInputSchema>) {
-      const { name, description, type, rules, participantIds = [], requesterId } = CreateChatInputSchema.parse(input);
-  
-      if (!COACH_UIDS.includes(requesterId)) {
-          return { success: false, error: "Only coaches can create chats." };
-      }
-  
-      const ownerId = requesterId;
-  
-      try {
-          const batch = adminDb.batch();
-          const chatRef = adminDb.collection('chats').doc();
-          
-          const participants = Array.from(new Set([ownerId, ...participantIds]));
-  
-          const chatData: Omit<Chat, 'id'> = {
-              name,
-              description,
-              type,
-              participants,
-              participantCount: participants.length,
-              ownerId,
-              createdAt: FieldValue.serverTimestamp() as any,
-              rules: rules?.split('\n') || [],
-          };
-          
-          batch.set(chatRef, chatData);
-          
-          const initialMessage = {
-              userId: 'system',
-              userName: 'System',
-              text: `Chat "${name}" created by a coach.`,
-              timestamp: FieldValue.serverTimestamp(),
-              isSystemMessage: true,
-          };
-          const messageRef = chatRef.collection('messages').doc();
-          batch.set(messageRef, initialMessage);
-
-          for (const uid of participants) {
-              const userProfileRef = adminDb.collection('userProfiles').doc(uid);
-              batch.update(userProfileRef, { chatIds: FieldValue.arrayUnion(chatRef.id) });
-          }
-
-          await batch.commit();
-          return { success: true, chatId: chatRef.id };
-
-      } catch (error: any) {
-          console.error("Error in createChatAction:", error);
-          return { success: false, error: error.message };
-      }
-  }
-  
-  export async function joinChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
-      try {
-          const chatRef = adminDb.collection('chats').doc(chatId);
-          const userProfileRef = adminDb.collection('userProfiles').doc(userId);
-  
-          await adminDb.runTransaction(async (transaction) => {
-              const chatDoc = await transaction.get(chatRef);
-              if (!chatDoc.exists) {
-                  throw new Error("Chat not found.");
-              }
-              transaction.update(chatRef, { 
-                  participants: FieldValue.arrayUnion(userId),
-                  participantCount: FieldValue.increment(1)
-              });
-              transaction.update(userProfileRef, { chatIds: FieldValue.arrayUnion(chatId) });
-          });
-  
-          return { success: true };
-      } catch (error: any) {
-          console.error(`Error joining chat ${chatId} for user ${userId}:`, error);
-          return { success: false, error: error.message };
-      }
-  }
-  
-  export async function leaveChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
-      try {
-          const chatRef = adminDb.collection('chats').doc(chatId);
-          const userProfileRef = adminDb.collection('userProfiles').doc(userId);
-  
-          await adminDb.runTransaction(async (transaction) => {
-              const chatDoc = await transaction.get(chatRef);
-              if (!chatDoc.exists) {
-                  throw new Error("Chat not found.");
-              }
-              transaction.update(chatRef, { 
-                  participants: FieldValue.arrayRemove(userId),
-                  participantCount: FieldValue.increment(-1)
-              });
-              transaction.update(userProfileRef, { chatIds: FieldValue.arrayRemove(chatId) });
-          });
-  
-          return { success: true };
-      } catch (error: any) {
-          console.error(`Error leaving chat ${chatId} for user ${userId}:`, error);
-          return { success: false, error: error.message };
-      }
-  }
-  export async function getUnreadChatCountForCoach(coachId: string): Promise<{ success: boolean; count?: number; error?: string }> {
-    if (!COACH_UIDS.includes(coachId)) {
-        return { success: false, error: "Invalid user." };
-    }
-
-    try {
-        const chatsQuery = adminDb.collection('chats').where('participants', 'array-contains', coachId).get();
-        const metadataQuery = adminDb.collection('user_chat_metadata').where('userId', '==', coachId).get();
-
-        const [chatsSnapshot, metadataSnapshot] = await Promise.all([chatsQuery, metadataQuery]);
-
-        const lastReadTimestamps: Record<string, Date> = {};
-        metadataSnapshot.forEach(doc => {
-            const data = doc.data();
-            if (data.lastReadTimestamp) {
-                // The chatId is the doc.id without the user's ID prefix
-                const chatId = doc.id.replace(`${coachId}_`, '');
-                lastReadTimestamps[chatId] = data.lastReadTimestamp.toDate();
-            }
-        });
-
-        let unreadCount = 0;
-        const chatProcessingPromises = chatsSnapshot.docs.map(async (chatDoc) => {
-            const chat = { id: chatDoc.id, ...chatDoc.data() } as Chat;
-
-            if (chat.type !== 'coaching' || (chat.mutedBy && chat.mutedBy.includes(coachId))) {
-                return; // Skip non-coaching or muted chats
-            }
-
-            const messagesQuery = adminDb.collection('chats').doc(chat.id).collection('messages').orderBy('timestamp', 'desc').limit(1).get();
-            const lastMessageSnapshot = await messagesQuery;
-
-            if (!lastMessageSnapshot.empty) {
-                const lastMessage = lastMessageSnapshot.docs[0].data();
-                
-                // If the last message is from a client
-                if (lastMessage.userId && !COACH_UIDS.includes(lastMessage.userId)) {
-                    const lastReadTime = lastReadTimestamps[chat.id];
-                    const lastMessageTime = lastMessage.timestamp.toDate();
-
-                    // If there is no read receipt or the message is newer than the receipt
-                    if (!lastReadTime || lastMessageTime > lastReadTime) {
-                        unreadCount++;
-                    }
-                }
-            }
-        });
-
-        await Promise.all(chatProcessingPromises);
-
-        return { success: true, count: unreadCount };
-
-    } catch (error: any) {
-        console.error(`Failed to get unread chat count for coach ${coachId}:`, error);
-        return { success: false, error: error.message };
-    }
 }

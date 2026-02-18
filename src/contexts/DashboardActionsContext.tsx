@@ -5,7 +5,6 @@ import type { Chat } from '@/services/firestore';
 import { useAuth } from '@/components/auth/auth-provider';
 import { getChatsForClient, getChatMetadataForUser } from '@/app/chats/actions';
 
-// ** START: UNIFIED CHAT DIALOG CONTEXT **
 interface ChatDialogContextType {
   isChatOpen: boolean;
   openChat: () => void;
@@ -35,27 +34,11 @@ export const useChatDialog = () => {
     }
     return context;
 };
-// ** END: UNIFIED CHAT DIALOG CONTEXT **
-
-
-/**
- * Safely converts various timestamp formats to milliseconds since epoch.
- */
-function getMillis(timestamp: any): number {
-    if (!timestamp) return 0;
-    if (typeof timestamp.toMillis === 'function') return timestamp.toMillis();
-    if (typeof timestamp.getTime === 'function') return timestamp.getTime();
-    if (typeof timestamp === 'string') {
-        const date = new Date(timestamp);
-        return isNaN(date.getTime()) ? 0 : date.getTime();
-    }
-    if (typeof timestamp === 'number') return timestamp;
-    return 0;
-}
 
 interface DashboardState {
   chats: Chat[];
-  hasUnreadChats: boolean;
+  unreadChatCount: number;
+  chatMetadata: Record<string, { lastReadTimestamp: any }>;
   fetchChats: () => void;
 }
 
@@ -106,29 +89,20 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     fetchChats();
   }, [user, fetchChats]);
 
-  const hasUnreadChats = useMemo(() => {
-    if (!user || !chats) return false;
-
-    return chats.some(chat => {
-        const lastMessage = chat.lastMessage as any;
-        if (!lastMessage || !lastMessage.senderId || !lastMessage.timestamp) return false;
-        if (lastMessage.senderId === user.uid) return false;
-
-        const lastReadTimestamp = chatMetadata[chat.id]?.lastReadTimestamp;
-        const lastMessageMillis = getMillis(lastMessage.timestamp);
-
-        if (!lastReadTimestamp) return lastMessageMillis > 0;
-        
-        const lastReadMillis = getMillis(lastReadTimestamp);
-        return lastMessageMillis > lastReadMillis;
-    });
-  }, [chats, user, chatMetadata]);
+  // ** START: UNREAD COUNT SYNCHRONIZATION **
+  // The unreadCount is now calculated as a simple sum of the `unreadCount` field provided by the backend.
+  const unreadChatCount = useMemo(() => {
+    if (!chats) return 0;
+    return chats.reduce((total, chat) => total + (chat.unreadCount || 0), 0);
+  }, [chats]);
+  // ** END: UNREAD COUNT SYNCHRONIZATION **
 
   const stateValue = useMemo(() => ({
     chats,
-    hasUnreadChats,
+    unreadChatCount,
+    chatMetadata,
     fetchChats
-  }), [chats, hasUnreadChats, fetchChats]);
+  }), [chats, unreadChatCount, chatMetadata, fetchChats]);
 
   const actionsValue = useMemo(() => ({
     onOpenChallenges: () => setIsChallengesOpen(true),

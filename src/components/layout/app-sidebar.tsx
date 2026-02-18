@@ -22,18 +22,18 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { UserNav } from '../auth/user-nav';
 import { useAuth } from '../auth/auth-provider';
-import { useDashboardActions } from '@/contexts/DashboardActionsContext';
+import { useDashboardActions, useDashboardState } from '@/contexts/DashboardActionsContext';
 import { useChatModalStore } from '@/store/ui-store';
 
 const clientMenuItems = [
-  { href: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true },
+  { href: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true, id: 'dashboard' },
   { href: '#', label: 'Calendar', icon: Calendar, isLink: false, id: 'calendar' },
   { href: '#', label: 'Chats', icon: MessageSquare, isLink: false, id: 'chats' },
   { href: '#', label: 'Challenges', icon: Trophy, isLink: false, id: 'challenges' },
 ];
 
 const coachMenuItems = [
-    { href: '/coach/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true },
+    { href: '/coach/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true, id: 'dashboard' },
 ]
 
 export function AppSidebar() {
@@ -41,6 +41,7 @@ export function AppSidebar() {
   const { isCoach } = useAuth();
   const { onOpenChallenges, onOpenCalendar, onOpenSettings } = useDashboardActions();
   const { openModal: openChatModal } = useChatModalStore();
+  const { unreadChatCount } = useDashboardState();
 
   const menuItems = isCoach ? coachMenuItems : clientMenuItems;
 
@@ -84,8 +85,17 @@ export function AppSidebar() {
                     tooltip={item.label}
                     onClick={() => handleItemClick(item)}
                   >
-                    <item.icon />
-                    <span>{item.label}</span>
+                    <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center">
+                            <item.icon />
+                            <span className='ml-4'>{item.label}</span>
+                        </div>
+                        {item.id === 'chats' && unreadChatCount > 0 && (
+                            <span className="ml-auto text-xs font-semibold text-white bg-red-500 rounded-full h-5 w-5 flex items-center justify-center">
+                                {unreadChatCount}
+                            </span>
+                        )}
+                    </div>
                  </SidebarMenuButton>
               )}
             </SidebarMenuItem>

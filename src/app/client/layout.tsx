@@ -5,7 +5,7 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 import { useEffect } from 'react';
-import { BottomNavBar } from '@/components/layout/bottom-nav-bar';
+import BottomNavBar from '@/components/layout/bottom-nav-bar'; // CORRECTED IMPORT
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { ChallengesDialog } from '@/components/challenges/challenges-dialog';
 import { ChatsDialog } from '@/components/chats/chats-dialog';
@@ -62,7 +62,6 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
-// ** THE FIX: The DialogManager no longer passes props to the self-managing ChatsDialog. **
 function DialogManager() {
     const { userProfile } = useAuth();
     const {
@@ -81,7 +80,6 @@ function DialogManager() {
                 isOpen={isChallengesOpen}
                 onClose={onCloseChallenges}
             />
-            {/* The ChatsDialog now controls its own state and does not receive props here. */}
             <ChatsDialog key="chats" />
             {userProfile && (
                 <CalendarDialog

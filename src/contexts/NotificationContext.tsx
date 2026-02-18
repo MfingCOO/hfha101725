@@ -1,14 +1,15 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/components/auth/auth-provider';
 import { processAndRescheduleNotification } from '@/services/firestore';
-import { ChatNotification } from '@/components/notifications/ChatNotification';
+// CORRECTED: Using the correct named import as confirmed from the source file.
+import { ChatNotification } from '@/components/notifications/ChatNotification'; 
 import { LocalNotifications, PermissionStatus } from '@capacitor/local-notifications';
-import { PushNotifications, PushNotificationSchema, Token } from '@capacitor/push-notifications';
-import { Capacitor } from '@capacitor/core'; // <-- Import Capacitor core
+import { PushNotifications, PushNotificationSchema } from '@capacitor/push-notifications';
+import { Capacitor } from '@capacitor/core';
+import { getScheduledRemindersAction } from '@/app/notifications/actions';
 
 export interface InAppMessage {
   id: string;
@@ -24,6 +25,8 @@ export interface InAppMessage {
   isRecurring?: boolean;
   chatName?: string;
 }
+
+type SerializedInAppMessage = Omit<InAppMessage, 'scheduledAt'> & { scheduledAt: string };
 
 interface NotificationContextType {
   notifications: InAppMessage[];
@@ -49,12 +52,8 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   const [stickyNotifications, setStickyNotifications] = useState<InAppMessage[]>([]);
 
   // --- NATIVE-ONLY FUNCTIONALITY ---
-  // This useEffect hook contains all code that should ONLY run on native Android/iOS
   useEffect(() => {
-    // Guard clause: If we're not on a native platform, do nothing.
-    if (!Capacitor.isNativePlatform()) {
-      return;
-    }
+    if (!Capacitor.isNativePlatform()) return;
 
     const showNativeNotification = async (notification: InAppMessage) => {
       try {
@@ -62,20 +61,16 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
         if (permStatus.display !== 'granted') {
           permStatus = await LocalNotifications.requestPermissions();
         }
-
         if (permStatus.display === 'granted') {
           await LocalNotifications.schedule({
-            notifications: [
-              {
-                id: new Date().getTime(),
-                title: notification.title,
-                body: notification.message,
-                channelId: 'reminders',
-                smallIcon: 'ic_stat_icon_config_default',
-              },
-            ],
+            notifications: [{
+              id: new Date().getTime(),
+              title: notification.title,
+              body: notification.message,
+              channelId: 'reminders',
+              smallIcon: 'ic_stat_icon_config_default',
+            }],
           });
-          console.log('Native notification scheduled successfully.');
         } else {
           console.error('User denied notification permissions.');
         }
@@ -84,10 +79,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
-    // Listener for live push notifications that arrive while the app is in the foreground
     const foregroundListener = PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-      console.log('Foreground push notification received:', notification);
-
       const bannerData: InAppMessage = {
         id: notification.id || new Date().toISOString(),
         type: 'chat_message',
@@ -96,27 +88,20 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
         chatName: notification.data?.chatName || '',
         scheduledAt: Timestamp.now(),
       };
-
       setBannerNotification(bannerData);
     });
     
-    // This is the listener for when a user TAPS a notification from the system tray
     const tapListener = PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-        // This is where the deep-linking logic will go.
-        // For now, we just log it.
         console.log('Push notification action performed:', action);
     });
 
-    // Cleanup function: This will be called when the component unmounts.
-    // It's crucial for preventing memory leaks.
     return () => {
       foregroundListener.remove();
       tapListener.remove();
     };
-  }, []); // The empty dependency array ensures this runs only once.
+  }, []);
 
-
-  // --- FIRESTORE AND SHARED LOGIC (runs on all platforms) ---
+  // --- SECURE DATA FETCHING ---
   useEffect(() => {
     if (!user) {
       setPendingNotifications([]);
@@ -126,56 +111,60 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    const q = query(
-      collection(db, 'user_scheduled_reminders'),
-      where('userId', '==', user.uid),
-      where('status', '==', 'scheduled')
-    );
+    const fetchReminders = async () => {
+        const result = await getScheduledRemindersAction(user.uid);
+        if (result.success && result.data) {
+            const reminders: InAppMessage[] = result.data.map((item: SerializedInAppMessage) => ({
+                ...item,
+                scheduledAt: Timestamp.fromDate(new Date(item.scheduledAt)),
+            }));
+            setPendingNotifications(reminders);
+        } else {
+            console.error("Could not fetch scheduled reminders:", result.error);
+        }
+    };
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const pending = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InAppMessage));
-      setPendingNotifications(pending);
-    });
-
-    return () => unsubscribe();
+    fetchReminders();
+    const pollInterval = setInterval(fetchReminders, 60000);
+    return () => clearInterval(pollInterval);
   }, [user]);
 
+  // --- NOTIFICATION PROCESSING LOGIC ---
   useEffect(() => {
-    const intervalId = setInterval(() => {
-      if (!user) return;
+    const checkDueNotifications = () => {
+        if (!user || pendingNotifications.length === 0) return;
 
-      const now = new Date();
-      const dueNotifications = pendingNotifications.filter(n => 
-        n.scheduledAt.toDate() <= now && !processedIds.has(n.id)
-      );
+        const now = new Date();
+        const dueNotifications = pendingNotifications.filter(n => 
+            n.scheduledAt.toDate() <= now && !processedIds.has(n.id)
+        );
 
-      if (dueNotifications.length > 0) {
-        const newProcessedIds = new Set(processedIds);
+        if (dueNotifications.length > 0) {
+            const newProcessedIds = new Set(processedIds);
 
-        dueNotifications.forEach(notification => {
-          newProcessedIds.add(notification.id);
+            dueNotifications.forEach(notification => {
+                newProcessedIds.add(notification.id);
 
-          if (notification.type === 'hydration_reminder' || notification.type === 'chat_message') {
-            setBannerNotification(notification);
-          } else {
-            setStickyNotifications(prev => [...prev, notification]);
-          }
-          
-          // If on native, show a native local notification.
-          if (Capacitor.isNativePlatform()) {
-            // We need to define showNativeNotification within the scope where it's used or pass it.
-            // For simplicity, let's just log for now, assuming the native part handles it.
-             console.log("Would show native notification for scheduled reminder.");
-          }
-          
-          processAndRescheduleNotification(user.uid, notification.id);
-        });
+                if (notification.type === 'hydration_reminder' || notification.type === 'chat_message') {
+                    setBannerNotification(notification);
+                } else {
+                    setStickyNotifications(prev => [...prev, notification]);
+                }
+                
+                if (Capacitor.isNativePlatform()) {
+                    console.log("Would show native notification for scheduled reminder.");
+                }
+                
+                processAndRescheduleNotification(user.uid, notification.id);
+            });
 
-        setProcessedIds(newProcessedIds);
-      }
-    }, 10000);
+            setProcessedIds(newProcessedIds);
+        }
+    };
 
-    return () => clearInterval(intervalId);
+    const processingInterval = setInterval(checkDueNotifications, 10000);
+
+    return () => clearInterval(processingInterval);
   }, [pendingNotifications, user, processedIds]);
 
 
