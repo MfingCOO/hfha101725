@@ -84,9 +84,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     }
 
     const initializeNotifications = async () => {
-      // ===================================================================
-      // == THE SURGICAL FIX: Adding a Try...Catch Safety Net            ==
-      // ===================================================================
       try {
         if (Capacitor.isNativePlatform()) {
             let permStatus = await PushNotifications.checkPermissions();
@@ -138,7 +135,14 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             return; // Stop execution if permission is not granted.
           }
 
-          const currentToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY });
+          // Manually register the service worker to ensure it works on production.
+          const swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+
+          const currentToken = await getToken(messaging, { 
+              vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
+              serviceWorkerRegistration: swRegistration
+          });
+
           if (currentToken) {
               console.log('Web push registration success, token:', currentToken);
               await callSaveFcmTokenHttp(currentToken, isCoach, getIdToken);
@@ -149,11 +153,10 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
               });
 
             } else {
-              console.warn('Could not get web push token. This can happen if the user has denied permissions or the service worker is not set up correctly.');
+              console.warn('Could not get web push token. This can happen if the service worker is not set up correctly.');
             }
         }
       } catch (error) {
-        // THIS IS THE SAFETY NET. It will catch the crash and prevent it from taking down the app.
         console.error("A critical error occurred during push notification initialization. This is likely due to permissions being blocked. The app will continue to run without push notifications.", error);
         registrationCompletedForUser.current = user.uid; // Mark as complete to prevent re-tries that will also fail.
       }

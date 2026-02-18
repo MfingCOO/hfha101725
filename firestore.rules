@@ -24,8 +24,11 @@
 
         // Rules for the 'user_chat_metadata' collection
         match /user_chat_metadata/{metadataId} {
-          // Allow read/write access if an authenticated user is the owner of the chat metadata
+          // A client can still read/write their own metadata.
           allow read, write: if request.auth != null && isOwner(resource.data.userId);
+
+          // A coach can list metadata to check for unread messages across their clients.
+          allow list: if request.auth != null && isCoach(request.auth.uid);
         }
 
         // Rules for the 'clients' collection and its subcollections
