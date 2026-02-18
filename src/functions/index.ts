@@ -20,7 +20,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     }
 
     const chatId = event.params.chatId;
-    const senderId = message.userId; // THE BUG IS FIXED HERE
+    const userId = message.userId; // THE BUG IS FIXED HERE
     const messageText = message.text || 'You received a new message';
 
     // 1. Get the participants of the chat
@@ -31,7 +31,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
         return;
     }
     const participants = chatDoc.data()?.participants || [];
-    const recipients = participants.filter((p: string) => p !== senderId);
+    const recipients = participants.filter((p: string) => p !== userId);
 
     if (recipients.length === 0) {
         console.log("No recipients to notify.");
@@ -39,7 +39,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     }
 
     // 2. Get the sender's name for the notification title
-    const senderProfileRef = db.collection('userProfiles').doc(senderId);
+    const senderProfileRef = db.collection('userProfiles').doc(userId);
     const senderProfileDoc = await senderProfileRef.get();
     const senderName = senderProfileDoc.data()?.name || 'New Message';
 
