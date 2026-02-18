@@ -120,10 +120,27 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                 });
             });
 
-            PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-                console.log('Native notification action performed');
-                handleNotificationAction(action.notification.data);
-            });
+           // This is the new, correct code
+PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+  console.log('Native notification action performed');
+
+  // Start of the critical fix for Android
+  let data = action.notification.data || {};
+  if (Object.keys(data).length === 0 && action.notification.title && action.notification.title.startsWith('[')) {
+      try {
+          console.log("Parsing notification title as fallback for Android data payload.");
+          const title = action.notification.title;
+          const parts = title.substring(1, title.indexOf(']')).split(':');
+          data = { notificationType: parts[0], entityId: parts[1] };
+      } catch (e) {
+          console.error("Error parsing Android title for notification data:", e);
+      }
+  }
+  // End of the critical fix
+
+  handleNotificationAction(data);
+});
+
             
             await PushNotifications.register();
 
