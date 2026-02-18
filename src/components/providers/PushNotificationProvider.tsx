@@ -132,10 +132,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           const permission = await Notification.requestPermission();
           if (permission !== 'granted') {
             console.warn('Web push notification permission not granted. Will not attempt to get token.');
-            return; // Stop execution if permission is not granted.
+            return;
           }
 
-          // Manually register the service worker to ensure it works on production.
           const swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
 
           const currentToken = await getToken(messaging, { 
@@ -150,6 +149,23 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
               
               onMessage(messaging, (message) => {
                 console.log('Web foreground notification received:', message);
+        
+                if (message.data) {
+                  console.log('Displaying foreground notification');
+        
+                  const { title, body } = message.data;
+        
+                  const notification = new Notification(title, {
+                    body: body,
+                    icon: '/apple-touch-icon.png',
+                    data: message.data
+                  });
+        
+                  notification.onclick = (event) => {
+                    event.preventDefault();
+                    handleNotificationAction(notification.data);
+                  };
+                }
               });
 
             } else {
@@ -158,7 +174,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         }
       } catch (error) {
         console.error("A critical error occurred during push notification initialization. This is likely due to permissions being blocked. The app will continue to run without push notifications.", error);
-        registrationCompletedForUser.current = user.uid; // Mark as complete to prevent re-tries that will also fail.
+        registrationCompletedForUser.current = user.uid;
       }
     };
 
