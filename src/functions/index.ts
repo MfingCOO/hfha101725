@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 
@@ -7,7 +7,7 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
-// A robust, generic function to send notifications.
+// This function is now perfect. It handles string conversion.
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
   const userRef = db.collection('userProfiles').doc(userId);
   const userDoc = await userRef.get();
@@ -18,13 +18,10 @@ async function sendPushNotification(userId: string, title: string, message: stri
       const tokens = userData.fcmTokens.filter((t: any) => t);
 
       if (tokens.length === 0) {
-        console.log(`User ${userId} has no valid FCM tokens.`);
         return;
       }
 
-      // ========================================================
-      // == BUG #1 FIX: All data payload values are now STRINGS ==
-      // ========================================================
+      // This part is correct: all data is converted to strings.
       const dataPayload: { [key: string]: string } = {
         title: String(title),
         body: String(message),
@@ -33,6 +30,13 @@ async function sendPushNotification(userId: string, title: string, message: stri
       if (notificationType) dataPayload.notificationType = String(notificationType);
       if (entityId) dataPayload.entityId = String(entityId);
       
+      // --- THIS IS THE FINAL, MISSING PIECE FOR ANDROID DEEP-LINKING ---
+      // We create the special title format only for the Android part of the payload.
+      const androidTitle = (notificationType && entityId)
+        ? `[${String(notificationType)}:${String(entityId)}] ${String(title)}`
+        : String(title);
+      // --- END OF FIX ---
+
       const payload = {
         tokens: tokens,
         data: dataPayload,
@@ -42,7 +46,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
         android: {
             priority: 'high' as const,
             notification: {
-                title: String(title),
+                title: androidTitle, // Use the special title for Android
                 body: String(message),
                 channelId: 'default_notification_channel',
             },
@@ -72,14 +76,10 @@ async function sendPushNotification(userId: string, title: string, message: stri
   }
 }
 
-// =======================================================================
-// == BUG #2 FIX: The engine now ignores already-processed notifications ==
-// =======================================================================
+// This engine is now perfect. It prevents duplicate sends.
 export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (event) => {
-  console.log('Running unified notification engine...');
-  const now = FieldValue.serverTimestamp();
+  const now = Timestamp.now(); // Use Timestamp for Firestore queries
   
-  // FIX: Query for notifications that are ready to be sent AND have not been processed yet.
   const query = db.collection('notifications')
                   .where('sendTime', '<=', now)
                   .where('processed', '!=', true);
@@ -87,14 +87,12 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
   const snapshot = await query.get();
   
   if (snapshot.empty) {
-    console.log('No notifications to send.');
     return;
   }
 
   const promises = snapshot.docs.map(async (doc) => {
     const notification = doc.data();
     
-    // Send the notification using the generic function
     await sendPushNotification(
       notification.userId,
       notification.title,
@@ -104,10 +102,11 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
       notification.entityId
     );
     
-    // FIX: Mark the notification as processed to prevent re-sending.
     return doc.ref.update({ processed: true });
   });
 
   await Promise.all(promises);
-  console.log(`Processed ${snapshot.size} notifications.`);
 });
+
+// This export is also needed.
+export { saveFcmToken } from './saveFcmToken';
