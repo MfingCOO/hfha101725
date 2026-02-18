@@ -33,10 +33,9 @@
 
         // Rules for the 'clients' collection and its subcollections
         match /clients/{clientId} {
-          // Allow read access if:
-          // 1. The user is authenticated (`request.auth != null`) AND
-          // 2. The user is either the owner of this specific client document (`isOwner(clientId)`) OR is a coach (`isCoach(request.auth.uid)`)
-          allow read: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
+          // Allow list/read access if an authenticated user is the owner or a coach.
+          // This is necessary for snapshot listeners to function correctly.
+          allow list, read: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
 
           // Allow create/update if an authenticated user is the owner of their client document
           // This covers initial client document creation and updates (like FCM tokens)
