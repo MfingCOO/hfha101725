@@ -82,7 +82,7 @@ const safeNewDate = (dateSource: any): Date | null => {
 export function DashboardClient() {
   const { showBannerAd } = useAdMob();
   const { onOpenChallenges } = useDashboardActions();
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, isCoach, loading } = useAuth(); // THE FIX: Get loading state
   const { toast } = useToast();
   const { modalType, closeModal } = useDataEntryModal();
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
@@ -221,14 +221,17 @@ export function DashboardClient() {
     });
   }, [user, toast]);
 
+  // --- THIS IS THE FIX --- //
   useEffect(() => {
+    // Do not run any data fetching logic until auth has settled.
+    if (loading) return;
+
     if (user) {
       fetchDashboardData();
     }
-  }, [user, fetchDashboardData]);
 
-  useEffect(() => {
-    if (user?.uid) {
+    // This listener should ONLY run for clients, not coaches.
+    if (user?.uid && !isCoach) {
       const docRef = doc(db, 'clients', user.uid);
       const unsubscribe = onSnapshot(docRef, (docSnap) => {
         if (docSnap.exists()) {
@@ -241,7 +244,7 @@ export function DashboardClient() {
       });
       return () => unsubscribe();
     }
-  }, [user?.uid]);
+  }, [user, isCoach, loading, fetchDashboardData]);
 
 
  const handleOpenCalendarForIndulgence = (plan: any) => {
@@ -479,9 +482,9 @@ export function DashboardClient() {
       />
 
       <UpcomingEventWidget 
-          userProfile={userProfile}
-          clientProfile={clientProfile}
-          onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
+        userProfile={userProfile}
+        clientProfile={clientProfile}
+        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
       />
       
       {isLoadingIndulgences ? (

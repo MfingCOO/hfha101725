@@ -1,28 +1,37 @@
+    rules_version = '2';
 
-rules_version = '2';
+    service firebase.storage {
+      match /b/{bucket}/o {
 
-service firebase.storage {
-  match /b/{bucket}/o {
+        // Your original rule: Allow public read access to profile pictures and challenge thumbnails
+        match /profile-pictures/{userId}/{allPaths=**} {
+          allow read;
+          allow write: if request.auth != null && request.auth.uid == userId;
+        }
 
-    // Allow public read access to profile pictures and challenge thumbnails
-    match /profile-pictures/{userId}/{allPaths=**} {
-      allow read;
-      allow write: if request.auth != null && request.auth.uid == userId;
+        // Your original rule: Allow public read access to challenge thumbnails, writes from admin only
+        match /challenge-thumbnails/{allPaths=**} {
+          allow read;
+          allow write: if false;
+        }
+        
+        // Your original rule: Allow public read access to asset-library, writes from admin only
+        match /asset-library/{allPaths=**} {
+            allow read;
+            allow write: if false;
+        }
+
+        // Your original rule: Allow authenticated users to manage their own user-specific files
+        match /users/{userId}/{allPaths=**} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+
+        // CRITICAL ADDITION (THIS WILL FIX YOUR IMAGE UPLOAD ERROR):
+        // Allow authenticated users to write and read files to chat-specific paths.
+        // This directly matches the 'chats/Yq61qJwt4GJ2HZk4QtYV/...' storage/unauthorized error.
+        // For IMMEDIATE FIX, it allows any authenticated user to upload an image to any chat.
+        match /chats/{chatId}/{allFiles=**} {
+          allow read, write: if request.auth != null;
+        }
+      }
     }
-
-    match /challenge-thumbnails/{allPaths=**} {
-      allow read;
-      // Writes should only be done from the server (admin)
-      allow write: if false;
-    }
-    
-    match /asset-library/{allPaths=**} {
-        allow read;
-        allow write: if false;
-    }
-
-    match /users/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}

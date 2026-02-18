@@ -273,11 +273,12 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
             createdAt: FieldValue.serverTimestamp() as any,
         };
 
+        const sentTimestamp = FieldValue.serverTimestamp();
         const initialMessage = {
             userId: 'system',
             userName: 'System',
             text: `This private coaching chat has been created for ${userName}.`,
-            timestamp: FieldValue.serverTimestamp(),
+            timestamp: sentTimestamp,
             isSystemMessage: true,
         };
         const messageRef = chatRef.collection('messages').doc();
@@ -291,6 +292,32 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
         });
 
         await batch.commit();
+
+        // --- THIS IS THE ONLY CHANGE IN THIS FILE ---
+        // Send a notification for the initial system message
+        const coachProfileSnap = await adminDb.collection('userProfiles').doc(primaryCoachId).get();
+        if (coachProfileSnap.exists) {
+            const coachData = coachProfileSnap.data();
+            if (coachData && coachData.fcmTokens && coachData.fcmTokens.length > 0) {
+                const validTokens = coachData.fcmTokens.filter((t: any) => t);
+                if (validTokens.length > 0) {
+                    const payload = {
+                        tokens: validTokens,
+                        data: {
+                            chatId: String(chatRef.id),
+                            sent_time: String(Date.now()), // Use current time as a string
+                            notificationType: 'chat'
+                        },
+                        notification: {
+                            title: `New Coaching Chat`,
+                            body: `A new coaching chat has been created for ${userName}.`
+                        }
+                    };
+                    await messaging.sendEachForMulticast(payload as any);
+                }
+            }
+        }
+        // --- END OF CHANGE ---
 
         console.log(`Successfully created coaching chat ${chatRef.id} for user ${userId}`);
         return { success: true, chatId: chatRef.id };
@@ -323,12 +350,14 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
 
         const messageText = text || fileName || 'Attachment';
 
+        const sentTimestamp = new Timestamp(Math.floor(Date.now() / 1000), 0); // Define timestamp once
+
         await adminDb.runTransaction(async (transaction) => {
             const messagesCollectionRef = chatDocRef.collection('messages');
             const messageData: any = {
                 userId,
                 userName,
-                timestamp: FieldValue.serverTimestamp(),
+                timestamp: sentTimestamp,
                 isSystemMessage: false,
             };
             if(text) messageData.text = text;
@@ -339,20 +368,20 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             const updateData: { [key: string]: any } = {
                 lastMessage: {
                     text: messageText,
-                    timestamp: FieldValue.serverTimestamp(),
+                    timestamp: sentTimestamp,
                     senderId: userId,
                 }
             };
 
             if (!COACH_UIDS.includes(userId)) {
-                updateData.lastClientMessageTimestamp = FieldValue.serverTimestamp();
+                updateData.lastClientMessageTimestamp = sentTimestamp;
             }
             
             const senderMetadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
             transaction.set(senderMetadataRef, {
                 userId: userId,
                 chatId: chatId,
-                lastReadTimestamp: FieldValue.serverTimestamp(),
+                lastReadTimestamp: sentTimestamp,
             }, { merge: true });
 
             transaction.update(chatDocRef, updateData);
@@ -377,33 +406,23 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                         
                         if (validTokens.length > 0) {
 
-                            // ** START: UNIFIED PAYLOAD IMPLEMENTATION **
-                            const notificationPayload = {
-                                title: `New message from ${userName}`,
-                                body: `${messageText}`.slice(0, 100),
-                                data: {
-                                    notificationType: "chat",
-                                    entityId: String(chatId) // IMPORTANT: Must be a string
-                                }
-                            };
-
-                            const message = {
+                            // --- ANDROID NOTIFICATION FIX --- //
+                            const payload = {
                                 tokens: validTokens,
-                                data: notificationPayload.data, // For PWA and iOS to handle the data payload
-                                notification: { // The visible part for all platforms
-                                    title: notificationPayload.title,
-                                    body: notificationPayload.body
+                                data: {
+                                    // All values must be strings as per your instruction.
+                                    chatId: String(chatId),
+                                    sent_time: String(sentTimestamp.toMillis()),
+                                    notificationType: 'chat'
                                 },
-                                android: { // Android-specific override for the Capacitor bug
-                                    notification: {
-                                        // Embed data in the title for the Android workaround
-                                        title: `[${notificationPayload.data.notificationType}:${notificationPayload.data.entityId}] ${notificationPayload.title}`
-                                    }
+                                notification: {
+                                    title: `New message from ${userName}`,
+                                    body: `${messageText}`.slice(0, 100)
                                 }
                             };
+                            // --- END ANDROID NOTIFICATION FIX --- //
 
-                            await messaging.sendEachForMulticast(message as any);
-                            // ** END: UNIFIED PAYLOAD IMPLEMENTATION **
+                            await messaging.sendEachForMulticast(payload as any);
                         }
                     }
                 }

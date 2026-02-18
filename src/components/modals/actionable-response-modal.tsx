@@ -31,9 +31,10 @@ export function ActionableResponseModal({
 
   const dialogFooter = (
     <div className="w-full pt-4 flex flex-col sm:flex-row sm:justify-end gap-2">
-      {actions.map((action, index) => (
+      {/* **THE FIX**: Use the action's label as the key, not the index. */}
+      {actions.map((action) => (
         <Button
-          key={index}
+          key={action.label} // Using the label provides a stable, unique key.
           onClick={action.onClick}
           variant={action.variant || 'default'}
           className={`w-full sm:w-auto ${action.className || ''}`}>
