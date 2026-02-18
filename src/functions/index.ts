@@ -1,13 +1,73 @@
+
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 
 initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
-// This function is now perfect. It handles string conversion.
+// -----------------------------------------------------------------------------
+// PART A: THE TRIGGER (This was the missing piece)
+// -----------------------------------------------------------------------------
+export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => {
+    const message = event.data?.data();
+    if (!message) {
+        console.log("No message data found.");
+        return;
+    }
+
+    const chatId = event.params.chatId;
+    const senderId = message.authorId;
+    const messageText = message.text || 'You received a new message';
+
+    // 1. Get the participants of the chat
+    const chatRef = db.collection('chats').doc(chatId);
+    const chatDoc = await chatRef.get();
+    if (!chatDoc.exists) {
+        console.log(`Chat document ${chatId} not found.`);
+        return;
+    }
+    const participants = chatDoc.data()?.participants || [];
+    const recipients = participants.filter((p: string) => p !== senderId);
+
+    if (recipients.length === 0) {
+        console.log("No recipients to notify.");
+        return;
+    }
+
+    // 2. Get the sender's name for the notification title
+    const senderProfileRef = db.collection('userProfiles').doc(senderId);
+    const senderProfileDoc = await senderProfileRef.get();
+    const senderName = senderProfileDoc.data()?.name || 'New Message';
+
+    // 3. Create a notification document for each recipient
+    const promises = recipients.map((recipientId: string) => {
+        const notificationData = {
+            userId: recipientId,
+            title: senderName,
+            message: messageText.substring(0, 100), // Truncate message for safety
+            ctaUrl: `/chat/${chatId}`,
+            notificationType: 'chat',
+            entityId: chatId,
+            sendTime: Timestamp.now(),
+            processed: false,
+        };
+        return db.collection('notifications').add(notificationData);
+    });
+
+    await Promise.all(promises);
+    console.log(`Created ${recipients.length} notification documents for message in chat ${chatId}.`);
+});
+
+
+// -----------------------------------------------------------------------------
+// PART B: THE ENGINE (This part is correct)
+// -----------------------------------------------------------------------------
+
+// This function sends the actual push notification payload.
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
   const userRef = db.collection('userProfiles').doc(userId);
   const userDoc = await userRef.get();
@@ -20,8 +80,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
       if (tokens.length === 0) {
         return;
       }
-
-      // This part is correct: all data is converted to strings.
+      
       const dataPayload: { [key: string]: string } = {
         title: String(title),
         body: String(message),
@@ -30,12 +89,9 @@ async function sendPushNotification(userId: string, title: string, message: stri
       if (notificationType) dataPayload.notificationType = String(notificationType);
       if (entityId) dataPayload.entityId = String(entityId);
       
-      // --- THIS IS THE FINAL, MISSING PIECE FOR ANDROID DEEP-LINKING ---
-      // We create the special title format only for the Android part of the payload.
       const androidTitle = (notificationType && entityId)
         ? `[${String(notificationType)}:${String(entityId)}] ${String(title)}`
         : String(title);
-      // --- END OF FIX ---
 
       const payload = {
         tokens: tokens,
@@ -46,7 +102,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
         android: {
             priority: 'high' as const,
             notification: {
-                title: androidTitle, // Use the special title for Android
+                title: androidTitle,
                 body: String(message),
                 channelId: 'default_notification_channel',
             },
@@ -76,9 +132,9 @@ async function sendPushNotification(userId: string, title: string, message: stri
   }
 }
 
-// This engine is now perfect. It prevents duplicate sends.
+// This scheduled function runs every minute to process the notification queue.
 export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (event) => {
-  const now = Timestamp.now(); // Use Timestamp for Firestore queries
+  const now = Timestamp.now();
   
   const query = db.collection('notifications')
                   .where('sendTime', '<=', now)
@@ -93,6 +149,9 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
   const promises = snapshot.docs.map(async (doc) => {
     const notification = doc.data();
     
+    // Mark as processed immediately to prevent duplicate sends in the next run
+    await doc.ref.update({ processed: true });
+    
     await sendPushNotification(
       notification.userId,
       notification.title,
@@ -101,12 +160,10 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
       notification.notificationType,
       notification.entityId
     );
-    
-    return doc.ref.update({ processed: true });
   });
 
   await Promise.all(promises);
 });
 
-// This export is also needed.
+// This export allows clients to save their FCM token.
 export { saveFcmToken } from './saveFcmToken';
