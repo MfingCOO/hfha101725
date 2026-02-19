@@ -1,40 +1,42 @@
-import { initializeApp, getApps, App, applicationDefault, cert } from 'firebase-admin/app';
+
+import { initializeApp, cert, applicationDefault, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { getMessaging } from 'firebase-admin/messaging';
 import { getStorage } from 'firebase-admin/storage';
+import { getMessaging } from 'firebase-admin/messaging';
 
-let app: App;
+let app;
 
-// Use service account from environment variable for local development
-if (process.env.NODE_ENV !== 'production' && process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+// Use service account from environment variable
+if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
   if (!getApps().length) {
     console.log('[Firebase Admin] Initializing with Service Account from environment variable...');
     try {
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+      const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+      const serviceAccount = JSON.parse(serviceAccountString);
+
+      // THIS IS THE FIX: Correct the formatting of the private key
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+
       app = initializeApp({
         credential: cert(serviceAccount),
         projectId: 'hunger-free-and-happy-app',
-        databaseURL: 'https://hunger-free-and-happy-app.firebaseio.com' // Explicitly set database URL
+        databaseURL: 'https://hunger-free-and-happy-app.firebaseio.com'
       });
       console.log('[Firebase Admin] Initialization from environment variable successful.');
     } catch (e) {
         console.error('CRITICAL ERROR during Firebase Admin initialization:', e);
+        // Fallback to default credentials if service account parsing fails
         app = initializeApp({ credential: applicationDefault(), projectId: 'hunger-free-and-happy-app' });
     }
   } else {
     app = getApps()[0];
   }
-} 
-// Use Application Default Credentials for production or if local env var is not set
-else {
+} else {
+  // Fallback for environments where the key is not set
   if (!getApps().length) {
-    console.log('[Firebase Admin] Initializing with Application Default Credentials...');
-    app = initializeApp({
-      credential: applicationDefault(),
-      projectId: 'hunger-free-and-happy-app',
-    });
-    console.log('[Firebase Admin] Initialization with Application Default Credentials successful.');
+    console.log('[Firebase Admin] Initializing with default application credentials...');
+    app = initializeApp({ credential: applicationDefault(), projectId: 'hunger-free-and-happy-app' });
   } else {
     app = getApps()[0];
   }
@@ -42,14 +44,7 @@ else {
 
 const db = getFirestore(app);
 const auth = getAuth(app);
+const storage = getStorage(app).bucket('hunger-free-and-happy-app.appspot.com');
 const messaging = getMessaging(app);
-const storage = getStorage(app);
 
-const admin = {
-  firestore: () => db,
-  auth: () => auth,
-  messaging: () => messaging,
-  storage: () => storage,
-};
-
-export { db, auth, admin, messaging };
+export { db, auth, storage, app, messaging };
