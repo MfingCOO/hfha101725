@@ -2,9 +2,7 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-// --- THIS IS THE LINE THAT WAS FIXED ---
 import { PushNotifications, ActionPerformed, Token, PushNotificationSchema, PermissionStatus } from '@capacitor/push-notifications';
-// --- END OF FIX ---
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
@@ -88,9 +86,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     const initializeNotifications = async () => {
       try {
         if (Capacitor.isNativePlatform()) {
-            // --- THIS IS THE LINE THAT WAS FIXED ---
             let permStatus: PermissionStatus = await PushNotifications.checkPermissions();
-            // --- END OF FIX ---
             if (permStatus.receive === 'prompt') {
                 permStatus = await PushNotifications.requestPermissions();
             }
@@ -99,7 +95,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                 return;
             }
 
-            await PushNotifications.register();
+            // THIS IS THE LINE THAT WAS REMOVED TO PREVENT THE CRASH
+            // PushNotifications.removeAllListeners(); 
 
             PushNotifications.addListener('registration', async (token: Token) => {
                 console.log('Native push registration success, token:', token.value);
@@ -124,7 +121,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                 });
             });
 
-            PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+           PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
               console.log('Native notification action performed');
               let data = action.notification.data || {};
               if (Object.keys(data).length === 0 && action.notification.title && action.notification.title.startsWith('[')) {
@@ -139,6 +136,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
               }
               handleNotificationAction(data);
             });
+            
+            await PushNotifications.register();
 
         } else {
           const messaging = getMessaging(app);
@@ -193,6 +192,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
     initializeNotifications();
 
+    // THIS IS THE NEW, CORRECTLY PLACED CLEANUP FUNCTION
     return () => {
       if (Capacitor.isNativePlatform()) {
         PushNotifications.removeAllListeners();
