@@ -2,7 +2,9 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications, ActionPerformed, Token, PushNotificationSchema } from '@capacitor/push-notifications';
+// --- THIS IS THE LINE THAT WAS FIXED ---
+import { PushNotifications, ActionPerformed, Token, PushNotificationSchema, PermissionStatus } from '@capacitor/push-notifications';
+// --- END OF FIX ---
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
@@ -86,7 +88,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     const initializeNotifications = async () => {
       try {
         if (Capacitor.isNativePlatform()) {
-            let permStatus = await PushNotifications.checkPermissions();
+            // --- THIS IS THE LINE THAT WAS FIXED ---
+            let permStatus: PermissionStatus = await PushNotifications.checkPermissions();
+            // --- END OF FIX ---
             if (permStatus.receive === 'prompt') {
                 permStatus = await PushNotifications.requestPermissions();
             }
@@ -95,7 +99,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                 return;
             }
 
-            PushNotifications.removeAllListeners();
+            await PushNotifications.register();
 
             PushNotifications.addListener('registration', async (token: Token) => {
                 console.log('Native push registration success, token:', token.value);
@@ -120,29 +124,21 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                 });
             });
 
-           // This is the new, correct code
-PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-  console.log('Native notification action performed');
-
-  // Start of the critical fix for Android
-  let data = action.notification.data || {};
-  if (Object.keys(data).length === 0 && action.notification.title && action.notification.title.startsWith('[')) {
-      try {
-          console.log("Parsing notification title as fallback for Android data payload.");
-          const title = action.notification.title;
-          const parts = title.substring(1, title.indexOf(']')).split(':');
-          data = { notificationType: parts[0], entityId: parts[1] };
-      } catch (e) {
-          console.error("Error parsing Android title for notification data:", e);
-      }
-  }
-  // End of the critical fix
-
-  handleNotificationAction(data);
-});
-
-            
-            await PushNotifications.register();
+            PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+              console.log('Native notification action performed');
+              let data = action.notification.data || {};
+              if (Object.keys(data).length === 0 && action.notification.title && action.notification.title.startsWith('[')) {
+                  try {
+                      console.log("Parsing notification title as fallback for Android data payload.");
+                      const title = action.notification.title;
+                      const parts = title.substring(1, title.indexOf(']')).split(':');
+                      data = { notificationType: parts[0], entityId: parts[1] };
+                  } catch (e) {
+                      console.error("Error parsing Android title for notification data:", e);
+                  }
+              }
+              handleNotificationAction(data);
+            });
 
         } else {
           const messaging = getMessaging(app);
@@ -196,6 +192,12 @@ PushNotifications.addListener('pushNotificationActionPerformed', (action: Action
     };
 
     initializeNotifications();
+
+    return () => {
+      if (Capacitor.isNativePlatform()) {
+        PushNotifications.removeAllListeners();
+      }
+    };
 
   }, [user, userProfile, isCoach, getIdToken, loading, handleNotificationAction]);
 
