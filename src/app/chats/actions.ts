@@ -569,3 +569,23 @@ export async function getUnreadChatCountForCoach(coachId: string): Promise<{ suc
       return { success: false, error: error.message };
   }
 }
+
+export async function deleteMessageAction(input: { messageId: string, chatId: string }) {
+    console.error("URGENT: deleteMessageAction is not implemented yet.");
+    return { success: false, error: "This function is not available at the moment. Please contact support." };
+}
+
+export async function createChatAction(input: { name: string, participants: string[], type: 'coaching' | 'group' | 'open' }) {
+    console.error("URGENT: createChatAction is not implemented yet.");
+    return { success: false, error: "This function is not available at the moment. Please contact support." };
+}
+
+export async function toggleChatMuteAction(input: { chatId: string, userId: string }) {
+    console.error("URGENT: toggleChatMuteAction is not implemented yet.");
+    return { success: false, error: "This function is not available at the moment. Please contact support." };
+}
+
+export async function deleteChatAction(input: { chatId: string }) {
+    console.error("URGENT: deleteChatAction is not implemented yet.");
+    return { success: false, error: "This function is not available at the moment. Please contact support." };
+}

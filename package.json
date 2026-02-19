@@ -9,6 +9,9 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },
+  "engines": {
+    "node": "18.x"
+  },
   "dependencies": {
     "@capacitor-community/admob": "^5.0.0",
     "@capacitor/local-notifications": "^8.0.0",
@@ -91,7 +94,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/uuid": "^9.0.8",
-    "dotenv": "^17.2.3",
+    "dotenv": "^17.3.1",
     "dotenv-cli": "^7.4.2",
     "firebase-admin": "^13.6.1",
     "genkit-cli": "1.22.0",
