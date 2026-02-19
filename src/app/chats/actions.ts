@@ -1,6 +1,6 @@
 'use server';
 
-import { db as adminDb, admin, messaging } from '@/lib/firebaseAdmin';
+import { db as adminDb, messaging } from '@/lib/firebaseAdmin';
 import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';

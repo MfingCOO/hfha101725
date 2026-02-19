@@ -1,6 +1,6 @@
 'use server';
 
-import { db as adminDb, admin, auth } from '@/lib/firebaseAdmin';
+import { db as adminDb, auth, storage } from '@/lib/firebaseAdmin';
 import type { Challenge, Chat } from '@/services/firestore';
 import { z } from 'zod';
 import { Buffer } from 'buffer';
@@ -247,11 +247,8 @@ export async function uploadImageAction(base64DataUrl: string, path: string): Pr
     }
 
     try {
-        const bucketName = 'hunger-free-and-happy-app.firebasestorage.app';
-        const bucket = admin.storage().bucket(`gs://${bucketName}`);
-        
         const fileName = `${path}/${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
-        const file = bucket.file(fileName);
+        const file = storage.file(fileName);
 
         const base64String = base64DataUrl.split(',')[1];
         const buffer = Buffer.from(base64String, 'base64');
@@ -267,7 +264,7 @@ export async function uploadImageAction(base64DataUrl: string, path: string): Pr
             },
         });
 
-        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(fileName)}?alt=media&token=${downloadToken}`;
+        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${storage.name}/o/${encodeURIComponent(fileName)}?alt=media&token=${downloadToken}`;
 
         return { success: true, url: publicUrl };
 
