@@ -10,7 +10,7 @@ const db = getFirestore();
 const messaging = getMessaging();
 
 // -----------------------------------------------------------------------------
-// PART A: THE TRIGGER 
+// PART A: THE TRIGGER (FOR REAL-TIME CHAT NOTIFICATIONS)
 // -----------------------------------------------------------------------------
 export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => {
     const message = event.data?.data();
@@ -20,10 +20,9 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     }
 
     const chatId = event.params.chatId;
-    const userId = message.userId; // THE BUG IS FIXED HERE
+    const userId = message.userId;
     const messageText = message.text || 'You received a new message';
 
-    // 1. Get the participants of the chat
     const chatRef = db.collection('chats').doc(chatId);
     const chatDoc = await chatRef.get();
     if (!chatDoc.exists) {
@@ -38,18 +37,16 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
         return;
     }
 
-    // 2. Get the sender's name for the notification title
     const senderProfileRef = db.collection('userProfiles').doc(userId);
     const senderProfileDoc = await senderProfileRef.get();
     const senderName = senderProfileDoc.data()?.name || 'New Message';
 
-    // 3. Create a notification document for each recipient
     const promises = recipients.map((recipientId: string) => {
         const notificationData = {
             userId: recipientId,
             title: senderName,
-            message: messageText.substring(0, 100), // Truncate message for safety
-            ctaUrl: `/chat/${chatId}`,
+            message: messageText.substring(0, 100),
+            ctaUrl: `/chats?chatId=${chatId}`,
             notificationType: 'chat',
             entityId: chatId,
             sendTime: Timestamp.now(),
@@ -64,7 +61,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
 
 
 // -----------------------------------------------------------------------------
-// PART B: THE ENGINE 
+// PART B: THE ENGINE (SENDS ALL PUSH NOTIFICATIONS)
 // -----------------------------------------------------------------------------
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
@@ -80,40 +77,49 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
       }
       
-      const dataPayload: { [key: string]: string } = {
-        title: String(title),
-        body: String(message),
-      };
-      if (ctaUrl) dataPayload.ctaUrl = String(ctaUrl);
-      if (notificationType) dataPayload.notificationType = String(notificationType);
-      if (entityId) dataPayload.entityId = String(entityId);
-      
-      const androidTitle = (notificationType && entityId)
-        ? `[${String(notificationType)}:${String(entityId)}] ${String(title)}`
-        : String(title);
-
+      // THIS IS THE PAYLOAD THAT GETS SENT TO THE DEVICE
       const payload = {
         tokens: tokens,
-        data: dataPayload,
+        // DATA PAYLOAD (for in-app handling when app is open)
+        data: {
+            title: title,
+            body: message,
+            ctaUrl: ctaUrl || '/',
+            notificationType: notificationType || 'general',
+            entityId: entityId || 'none',
+        },
+        // NOTIFICATION PAYLOAD (for system-level banner when app is closed/backgrounded)
+        notification: {
+            title: title,
+            body: message,
+        },
+        // PLATFORM-SPECIFIC CONFIG
         webpush: {
-            data: dataPayload,
+            fcmOptions: {
+                link: ctaUrl || '/',
+            },
+            notification: {
+                icon: '/icon.png',
+            }
         },
         android: {
             priority: 'high' as const,
             notification: {
-                title: androidTitle,
-                body: String(message),
+                title: title,
+                body: message,
                 channelId: 'default_notification_channel',
+                icon: 'ic_notification', // Make sure this icon exists in your Android project
             },
         },
         apns: {
             payload: {
                 aps: {
                     alert: {
-                        title: String(title),
-                        body: String(message),
+                        title: title,
+                        body: message,
                     },
                     'content-available': 1,
+                    sound: 'default',
                 },
             },
             headers: {
@@ -124,6 +130,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
 
       try {
         await messaging.sendEachForMulticast(payload as any);
+        console.log(`Successfully sent notification to user ${userId}`);
       } catch (error) {
         console.error(`Error sending push notification to user ${userId}:`, error);
       }
@@ -131,24 +138,30 @@ async function sendPushNotification(userId: string, title: string, message: stri
   }
 }
 
+// THIS IS THE FIXED ENGINE. IT RUNS EVERY MINUTE.
 export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (event) => {
   const now = Timestamp.now();
   
+  // THIS IS THE FIXED QUERY. IT IS NOW VALID.
   const query = db.collection('notifications')
-                  .where('sendTime', '<=', now)
-                  .where('processed', '!=', true);
+                  .where('processed', '==', false)
+                  .where('sendTime', '<=', now);
   
   const snapshot = await query.get();
   
   if (snapshot.empty) {
-    return;
+    return; // No notifications to send.
   }
+
+  console.log(`Found ${snapshot.docs.length} notifications to process.`);
 
   const promises = snapshot.docs.map(async (doc) => {
     const notification = doc.data();
     
+    // IMPORTANT: Mark as processed immediately to prevent re-sending.
     await doc.ref.update({ processed: true });
     
+    // Send the actual push notification.
     await sendPushNotification(
       notification.userId,
       notification.title,
@@ -162,6 +175,5 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
   await Promise.all(promises);
 });
 
+// This function remains unchanged.
 export { saveFcmToken } from './saveFcmToken';
-
-
