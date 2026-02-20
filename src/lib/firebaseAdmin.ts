@@ -1,43 +1,41 @@
 
-import * as admin from 'firebase-admin';
-import { getFirestore, Firestore } from 'firebase-admin/firestore';
-import { getAuth, Auth } from 'firebase-admin/auth';
-import { getStorage } from 'firebase-admin/storage';
-import { getMessaging, Messaging } from 'firebase-admin/messaging';
+import admin from 'firebase-admin';
 
-let db: Firestore;
-let auth: Auth;
-let storage: ReturnType<ReturnType<typeof getStorage>["bucket"]>;
-let messaging: Messaging;
+// Check if the default app is already initialized
+let app;
 
-// Initialize Firebase Admin SDK
 if (!admin.apps.length) {
-  try {
-    const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    if (!serviceAccountString) {
-      throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set.');
-    }
+  const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
+  if (!serviceAccountString) {
+    throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set.');
+  }
+
+  try {
     const serviceAccount = JSON.parse(serviceAccountString);
 
-    // THIS IS THE ONLY FIX NEEDED: The private key in a JSON environment variable 
-    // has its newlines escaped. This line replaces the escaped '\n' with actual newlines.
-    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+    // Correctly format the private key
+    if (serviceAccount.private_key) {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+    }
 
-    admin.initializeApp({
+    app = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
-      storageBucket: 'hunger-free-and-happy-app.appspot.com'
+      storageBucket: 'hunger-free-and-happy-app.firebasestorage.app'
     });
-
-  } catch (error: any) {
-    console.error("CRITICAL: Firebase Admin initialization has failed.", error);
-    throw new Error(`Firebase Admin initialization failed: ${error.message}`);
+  } catch (error) {
+    console.error("Failed to parse or initialize Firebase Admin SDK:", error);
+    console.error("Raw FIREBASE_SERVICE_ACCOUNT_KEY length:", serviceAccountString.length);
+    throw new Error("Could not initialize Firebase Admin SDK. The FIREBASE_SERVICE_ACCOUNT_KEY is likely malformed.");
   }
+
+} else {
+  app = admin.app();
 }
 
-db = getFirestore();
-auth = getAuth();
-storage = getStorage().bucket();
-messaging = getMessaging();
+const db = admin.firestore();
+const auth = admin.auth();
+const storage = admin.storage();
+const messaging = admin.messaging();
 
-export { db, auth, storage, messaging, admin };
+export { db, auth, storage, app, messaging };

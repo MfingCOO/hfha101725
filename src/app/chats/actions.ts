@@ -5,8 +5,10 @@ import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';
 import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
+import { v4 as uuidv4 } from 'uuid';
+import { storage as adminStorage } from 'firebase-admin';
 
-const SERVER_ERROR = { success: false, error: "Server configuration error." };
+const SERVER_ERROR = { success: false, error: { message: "Server configuration error." } };
 
 function serializeTimestamps(docData: any) {
     if (!docData) return docData;
@@ -28,7 +30,6 @@ function serializeTimestamps(docData: any) {
 
 export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; data?: { chats: Chat[], clients: ClientProfile[] }; error?: any; }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in getChatsAndClientsForCoach.");
         return SERVER_ERROR;
     }
     try {
@@ -83,7 +84,6 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
 
 export async function getChatsForClient(userId: string): Promise<{ success: boolean; data?: Chat[]; error?: any; }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in getChatsForClient.");
         return SERVER_ERROR;
     }
     try {
@@ -189,9 +189,8 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
     }
 }
 
-export async function getChatMetadataForUser(userId: string): Promise<{ success: boolean; data?: Record<string, any>; error?: string }> {
+export async function getChatMetadataForUser(userId: string): Promise<{ success: boolean; data?: Record<string, any>; error?: any }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in getChatMetadataForUser.");
         return SERVER_ERROR;
     }
     try {
@@ -212,7 +211,7 @@ export async function getChatMetadataForUser(userId: string): Promise<{ success:
         return { success: true, data: metadata };
     } catch (error: any) {
         console.error(`Failed to fetch chat metadata for user ${userId}:`, error);
-        return { success: false, error: error.message };
+        return { success: false, error: { message: error.message } };
     }
 }
 
@@ -221,9 +220,8 @@ const MarkChatAsReadInputSchema = z.object({
     userId: z.string(),
 });
 
-export async function markChatAsReadAction(input: z.infer<typeof MarkChatAsReadInputSchema>) {
+export async function markChatAsReadAction(input: z.infer<typeof MarkChatAsReadInputSchema>): Promise<{ success: boolean; error?: any }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in markChatAsReadAction.");
         return SERVER_ERROR;
     }
     const { chatId, userId } = MarkChatAsReadInputSchema.parse(input);
@@ -239,13 +237,12 @@ export async function markChatAsReadAction(input: z.infer<typeof MarkChatAsReadI
         return { success: true };
     } catch (error: any) {
         console.error(`Failed to mark chat ${chatId} as read for user ${userId}:`, error);
-        return { success: false, error: error.message };
+        return { success: false, error: { message: error.message } };
     }
 }
 
-export async function createCoachingChatOnFirstLogin(userId: string, userName: string): Promise<{ success: boolean; chatId?: string; error?: string }> {
+export async function createCoachingChatOnFirstLogin(userId: string, userName: string): Promise<{ success: boolean; chatId?: string; error?: any }> {
     if (!adminDb || !messaging) {
-        console.error("CRITICAL: Firebase Admin is not initialized in createCoachingChatOnFirstLogin.");
         return SERVER_ERROR;
     }
     try {
@@ -327,7 +324,60 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
 
     } catch (error: any) {
         console.error(`Failed to create coaching chat for user ${userId}:`, error);
-        return { success: false, error: error.message };
+        return { success: false, error: { message: error.message } };
+    }
+}
+
+const UploadChatImageInputSchema = z.object({
+    chatId: z.string(),
+    fileDataUrl: z.string(),
+    fileName: z.string(),
+    fileType: z.string(),
+    requesterId: z.string(),
+});
+
+export async function uploadChatImageAction(input: z.infer<typeof UploadChatImageInputSchema>): Promise<{ success: boolean; fileUrl?: string; fileName?: string; error?: { message: string } }> {
+    if (!adminDb) {
+        return SERVER_ERROR;
+    }
+    try {
+        const { chatId, fileDataUrl, fileName, fileType, requesterId } = UploadChatImageInputSchema.parse(input);
+
+        const chatDoc = await adminDb.collection('chats').doc(chatId).get();
+        if (!chatDoc.exists) {
+            return { success: false, error: { message: "Chat not found." } };
+        }
+        const chatData = chatDoc.data() as Chat;
+        if (!chatData.participants.includes(requesterId)) {
+            return { success: false, error: { message: "You are not a member of this chat." } };
+        }
+
+        const bucket = adminStorage().bucket();
+        const buffer = Buffer.from(fileDataUrl.split(';base64,').pop()!, 'base64');
+        
+        const fileId = uuidv4();
+        const fullFileName = `${fileId}-${fileName}`;
+        const filePath = `chats/${chatId}/${fullFileName}`;
+        const file = bucket.file(filePath);
+
+        const downloadToken = uuidv4();
+
+        await file.save(buffer, {
+            metadata: {
+                contentType: fileType,
+                metadata: {
+                    firebaseStorageDownloadTokens: downloadToken,
+                },
+            },
+        });
+
+        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}`;
+
+        return { success: true, fileUrl: publicUrl, fileName: fileName };
+
+    } catch (error: any) {
+        console.error("Error uploading chat image via server action: ", error);
+        return { success: false, error: { message: error.message || 'Failed to upload image.' } };
     }
 }
 
@@ -340,9 +390,8 @@ const PostMessageInputSchema = z.object({
   fileName: z.string().optional(),
 });
 
-export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>) {
+export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>): Promise<{ success: boolean; error?: { message: string; }; }> {
     if (!adminDb || !messaging) {
-        console.error("CRITICAL: Firebase Admin is not initialized in postMessageAction.");
         return SERVER_ERROR;
     }
     const { chatId, text, userId, userName, fileUrl, fileName } = PostMessageInputSchema.parse(input);
@@ -439,9 +488,8 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
     }
 }
 
-export async function joinChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+export async function joinChat(chatId: string, userId: string): Promise<{ success: boolean; error?: any }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in joinChat.");
         return SERVER_ERROR;
     }
     try {
@@ -463,13 +511,12 @@ export async function joinChat(chatId: string, userId: string): Promise<{ succes
         return { success: true };
     } catch (error: any) {
         console.error(`Error joining chat ${chatId} for user ${userId}:`, error);
-        return { success: false, error: error.message };
+        return { success: false, error: { message: error.message } };
     }
 }
   
-export async function leaveChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+export async function leaveChat(chatId: string, userId: string): Promise<{ success: boolean; error?: any }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in leaveChat.");
         return SERVER_ERROR;
     }
     try {
@@ -491,13 +538,12 @@ export async function leaveChat(chatId: string, userId: string): Promise<{ succe
         return { success: true };
     } catch (error: any) {
         console.error(`Error leaving chat ${chatId} for user ${userId}:`, error);
-        return { success: false, error: error.message };
+        return { success: false, error: { message: error.message } };
     }
 }
 
-export async function getChatMessagesAction(chatId: string): Promise<{ success: boolean; data?: { messages: ChatMessage[], participants: Record<string, UserProfile> }; error?: string }> {
+export async function getChatMessagesAction(chatId: string): Promise<{ success: boolean; data?: { messages: ChatMessage[], participants: Record<string, UserProfile> }; error?: any }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in getChatMessagesAction.");
         return SERVER_ERROR;
     }
     try {
@@ -532,17 +578,16 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
 
     } catch (error: any) {
         console.error(`Error fetching messages for chat ${chatId}:`, error);
-        return { success: false, error: error.message };
+        return { success: false, error: { message: error.message } };
     }
 }
 
-export async function getUnreadChatCountForCoach(coachId: string): Promise<{ success: boolean; count?: number; error?: string }> {
+export async function getUnreadChatCountForCoach(coachId: string): Promise<{ success: boolean; count?: number; error?: any }> {
   if (!adminDb) {
-      console.error("CRITICAL: Firebase Admin is not initialized in getUnreadChatCountForCoach.");
       return SERVER_ERROR;
   }
   if (!COACH_UIDS.includes(coachId)) {
-      return { success: false, error: "Invalid user." };
+      return { success: false, error: { message: "Invalid user." } };
   }
 
   try {
@@ -591,24 +636,45 @@ export async function getUnreadChatCountForCoach(coachId: string): Promise<{ suc
 
   } catch (error: any) {
       console.error(`Failed to get unread chat count for coach ${coachId}:`, error);
-      return { success: false, error: error.message };
+      return { success: false, error: { message: error.message } };
   }
 }
 
-export async function deleteMessageAction(input: { messageId: string, chatId: string }): Promise<{ success: boolean; error?: string }> {
+const DeleteMessageInputSchema = z.object({
+    messageId: z.string(),
+    chatId: z.string(),
+    requesterId: z.string(),
+});
+
+export async function deleteMessageAction(input: z.infer<typeof DeleteMessageInputSchema>): Promise<{ success: boolean; error?: { message: string } }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in deleteMessageAction.");
         return SERVER_ERROR;
     }
-    const { messageId, chatId } = z.object({ messageId: z.string(), chatId: z.string() }).parse(input);
-    const messageRef = adminDb.collection('chats').doc(chatId).collection('messages').doc(messageId);
-
     try {
+        const { messageId, chatId, requesterId } = DeleteMessageInputSchema.parse(input);
+        const messageRef = adminDb.collection('chats').doc(chatId).collection('messages').doc(messageId);
+        const messageDoc = await messageRef.get();
+
+        if (!messageDoc.exists) {
+            return { success: false, error: { message: "Message not found." } };
+        }
+
+        const messageData = messageDoc.data();
+        const isOwner = messageData?.userId === requesterId;
+        const isCoachUser = COACH_UIDS.includes(requesterId);
+
+        if (!isOwner && !isCoachUser) {
+            return { success: false, error: { message: "You do not have permission to delete this message." } };
+        }
+
         await messageRef.delete();
         return { success: true };
     } catch (error: any) {
-        console.error(`Failed to delete message ${messageId} from chat ${chatId}:`, error);
-        return { success: false, error: error.message };
+        console.error(`Failed to delete message:`, error);
+        if (error instanceof z.ZodError) {
+            return { success: false, error: { message: error.errors.map(e => e.message).join(', ') } };
+        }
+        return { success: false, error: { message: error.message || "An unknown error occurred." } };
     }
 }
 
@@ -619,9 +685,8 @@ const CreateChatInputSchema = z.object({
     type: z.enum(['coaching', 'private_group', 'open']),
     ownerId: z.string(),
 });
-export async function createChatAction(input: z.infer<typeof CreateChatInputSchema>): Promise<{ success: boolean; chatId?: string; error?: string }> {
+export async function createChatAction(input: z.infer<typeof CreateChatInputSchema>): Promise<{ success: boolean; chatId?: string; error?: any }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in createChatAction.");
         return SERVER_ERROR;
     }
 
@@ -654,15 +719,14 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
     } catch (error: any) {
         console.error(`Failed to create chat:`, error);
         if (error instanceof z.ZodError) {
-            return { success: false, error: error.errors.map(e => e.message).join(', ') };
+            return { success: false, error: { message: error.errors.map(e => e.message).join(', ') } };
         }
-        return { success: false, error: error.message || "An unknown error occurred." };
+        return { success: false, error: { message: error.message || "An unknown error occurred." } };
     }
 }
 
-export async function toggleChatMuteAction(input: { chatId: string, userId: string }): Promise<{ success: boolean; error?: string }> {
+export async function toggleChatMuteAction(input: { chatId: string, userId: string }): Promise<{ success: boolean; error?: any }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in toggleChatMuteAction.");
         return SERVER_ERROR;
     }
     const { chatId, userId } = z.object({ chatId: z.string(), userId: z.string() }).parse(input);
@@ -688,14 +752,13 @@ export async function toggleChatMuteAction(input: { chatId: string, userId: stri
         return { success: true };
     } catch (error: any) {
         console.error(`Failed to toggle mute for chat ${chatId}:`, error);
-        return { success: false, error: error.message };
+        return { success: false, error: { message: error.message } };
     }
 }
 
-export async function deleteChatAction(input: { chatId: string }): Promise<{ success: boolean; error?: string }> {
+export async function deleteChatAction(input: { chatId: string }): Promise<{ success: boolean; error?: any }> {
     if (!adminDb) {
-        console.error("CRITICAL: Firebase Admin is not initialized in deleteChatAction.");
-        return { success: false, error: "Server configuration error." };
+        return SERVER_ERROR;
     }
 
     const { chatId } = z.object({ chatId: z.string() }).parse(input);
@@ -741,6 +804,6 @@ export async function deleteChatAction(input: { chatId: string }): Promise<{ suc
 
     } catch (error: any) {
         console.error(`Failed to delete chat ${chatId}:`, error);
-        return { success: false, error: error.message || "An unknown error occurred while deleting the chat." };
+        return { success: false, error: { message: error.message || "An unknown error occurred while deleting the chat." } };
     }
 }
