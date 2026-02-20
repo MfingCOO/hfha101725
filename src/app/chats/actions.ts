@@ -595,22 +595,152 @@ export async function getUnreadChatCountForCoach(coachId: string): Promise<{ suc
   }
 }
 
-export async function deleteMessageAction(input: { messageId: string, chatId: string }) {
-    console.error("URGENT: deleteMessageAction is not implemented yet.");
-    return { success: false, error: "This function is not available at the moment. Please contact support." };
+export async function deleteMessageAction(input: { messageId: string, chatId: string }): Promise<{ success: boolean; error?: string }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in deleteMessageAction.");
+        return SERVER_ERROR;
+    }
+    const { messageId, chatId } = z.object({ messageId: z.string(), chatId: z.string() }).parse(input);
+    const messageRef = adminDb.collection('chats').doc(chatId).collection('messages').doc(messageId);
+
+    try {
+        await messageRef.delete();
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Failed to delete message ${messageId} from chat ${chatId}:`, error);
+        return { success: false, error: error.message };
+    }
 }
 
-export async function createChatAction(input: { name: string, participants: string[], type: 'coaching' | 'group' | 'open' }) {
-    console.error("URGENT: createChatAction is not implemented yet.");
-    return { success: false, error: "This function is not available at the moment. Please contact support." };
+const CreateChatInputSchema = z.object({
+    name: z.string().min(1, "Chat name cannot be empty."),
+    description: z.string().optional(),
+    participants: z.array(z.string()).min(1, "Chat must have at least one participant."),
+    type: z.enum(['coaching', 'private_group', 'open']),
+    ownerId: z.string(),
+});
+export async function createChatAction(input: z.infer<typeof CreateChatInputSchema>): Promise<{ success: boolean; chatId?: string; error?: string }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in createChatAction.");
+        return SERVER_ERROR;
+    }
+
+    try {
+        const { name, description, participants, type, ownerId } = CreateChatInputSchema.parse(input);
+        const chatRef = adminDb.collection('chats').doc();
+
+        const finalParticipants = Array.from(new Set([...participants, ownerId]));
+
+        const chatData: Omit<Chat, 'id'> = {
+            name,
+            description: description || '',
+            type,
+            ownerId,
+            participants: finalParticipants,
+            participantCount: finalParticipants.length,
+            createdAt: FieldValue.serverTimestamp() as any,
+        };
+
+        const batch = adminDb.batch();
+        batch.set(chatRef, chatData);
+
+        for (const userId of finalParticipants) {
+            const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+            batch.update(userProfileRef, { chatIds: FieldValue.arrayUnion(chatRef.id) });
+        }
+
+        await batch.commit();
+        return { success: true, chatId: chatRef.id };
+    } catch (error: any) {
+        console.error(`Failed to create chat:`, error);
+        if (error instanceof z.ZodError) {
+            return { success: false, error: error.errors.map(e => e.message).join(', ') };
+        }
+        return { success: false, error: error.message || "An unknown error occurred." };
+    }
 }
 
-export async function toggleChatMuteAction(input: { chatId: string, userId: string }) {
-    console.error("URGENT: toggleChatMuteAction is not implemented yet.");
-    return { success: false, error: "This function is not available at the moment. Please contact support." };
+export async function toggleChatMuteAction(input: { chatId: string, userId: string }): Promise<{ success: boolean; error?: string }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in toggleChatMuteAction.");
+        return SERVER_ERROR;
+    }
+    const { chatId, userId } = z.object({ chatId: z.string(), userId: z.string() }).parse(input);
+    const chatRef = adminDb.collection('chats').doc(chatId);
+
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const chatDoc = await transaction.get(chatRef);
+            if (!chatDoc.exists) {
+                throw new Error("Chat not found.");
+            }
+            const chatData = chatDoc.data() as Chat;
+            const mutedBy = chatData.mutedBy || [];
+            const isMuted = mutedBy.includes(userId);
+
+            if (isMuted) {
+                transaction.update(chatRef, { mutedBy: FieldValue.arrayRemove(userId) });
+            } else {
+                transaction.update(chatRef, { mutedBy: FieldValue.arrayUnion(userId) });
+            }
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Failed to toggle mute for chat ${chatId}:`, error);
+        return { success: false, error: error.message };
+    }
 }
 
-export async function deleteChatAction(input: { chatId: string }) {
-    console.error("URGENT: deleteChatAction is not implemented yet.");
-    return { success: false, error: "This function is not available at the moment. Please contact support." };
+export async function deleteChatAction(input: { chatId: string }): Promise<{ success: boolean; error?: string }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in deleteChatAction.");
+        return { success: false, error: "Server configuration error." };
+    }
+
+    const { chatId } = z.object({ chatId: z.string() }).parse(input);
+    const chatRef = adminDb.collection('chats').doc(chatId);
+
+    try {
+        const chatDoc = await chatRef.get();
+        if (!chatDoc.exists) {
+            console.log(`Chat ${chatId} does not exist. No action taken.`);
+            return { success: true }; // Idempotent
+        }
+
+        const chatData = chatDoc.data() as Chat;
+        const participants = chatData.participants || [];
+        const messagesRef = chatRef.collection('messages');
+        const messagesSnapshot = await messagesRef.get();
+        const batch = adminDb.batch();
+
+        messagesSnapshot.docs.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+
+        if (participants.length > 0) {
+            for (const userId of participants) {
+                const metadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
+                batch.delete(metadataRef);
+            }
+        }
+        
+        if (participants.length > 0) {
+            for (const userId of participants) {
+                const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+                batch.update(userProfileRef, {
+                    chatIds: FieldValue.arrayRemove(chatId)
+                });
+            }
+        }
+        
+        batch.delete(chatRef);
+
+        await batch.commit();
+        return { success: true };
+
+    } catch (error: any) {
+        console.error(`Failed to delete chat ${chatId}:`, error);
+        return { success: false, error: error.message || "An unknown error occurred while deleting the chat." };
+    }
 }
