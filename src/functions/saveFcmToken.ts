@@ -1,6 +1,5 @@
 
 import * as functions from 'firebase-functions';
-import { FieldValue } from 'firebase-admin/firestore';
 const cors = require('cors');
 import { db, auth } from './firebase';
 
@@ -40,7 +39,7 @@ export const saveFcmToken = functions.https.onRequest((request, response) => {
     try {
         const clientDocRef = db.collection('clients').doc(uid);
 
-        // Use a transaction to atomically check and add the token
+        // Use a transaction to make this operation atomic and robust.
         await db.runTransaction(async (transaction) => {
             const clientDoc = await transaction.get(clientDocRef);
             
@@ -51,15 +50,18 @@ export const saveFcmToken = functions.https.onRequest((request, response) => {
             }
 
             const data = clientDoc.data();
-            const tokens = data?.fcmTokens || [];
+            const existingTokens = data?.fcmTokens || [];
 
-            // Only add the token if it's not already in the array.
-            if (!tokens.includes(token)) {
-                transaction.update(clientDocRef, { fcmTokens: FieldValue.arrayUnion(token) });
-            }
+            // Create a new array that doesn't contain the new token, then add it.
+            // This effectively removes all previous instances and adds a single new one,
+            // guaranteeing there are no duplicates.
+            const filteredTokens = existingTokens.filter((t: string) => t !== token);
+            filteredTokens.push(token);
+
+            transaction.update(clientDocRef, { fcmTokens: filteredTokens });
         });
 
-        response.status(200).send({ success: true, message: 'FCM token processed successfully.' });
+        response.status(200).send({ success: true, message: 'FCM token saved idempotently.' });
 
     } catch (error) {
         console.error('Error saving FCM token:', error);

@@ -3,13 +3,14 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications, ActionPerformed, Token, PushNotificationSchema, PermissionStatus } from '@capacitor/push-notifications';
-import { LocalNotifications } from '@capacitor/local-notifications';
+import { LocalNotifications, LocalNotificationSchema, LocalNotificationActionPerformed } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
-import { messaging } from '@/lib/firebase'; // CORRECT: Direct import
+import { messaging } from '@/lib/firebase';
 import { getToken, onMessage } from 'firebase/messaging';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useChatModalStore, useWorkoutModalStore } from '@/store/ui-store';
 
+// HTTP call function remains unchanged
 const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdToken: () => Promise<string | null>) => {
     const idToken = await getIdToken();
     if (!idToken) {
@@ -37,6 +38,7 @@ const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdTok
     }
 };
 
+
 const PushNotificationProvider = ({ children }: { children: React.ReactNode }) => {
   const { user, userProfile, isCoach, getIdToken, loading } = useAuth();
   const router = useRouter();
@@ -47,35 +49,47 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   
   const registrationCompletedForUser = useRef<string | null>(null);
 
+  // --- UNIFIED ACTION HANDLER ---
   const handleNotificationAction = useCallback((data: { [key: string]: any }) => {
+    if (!data) {
+        console.warn("handleNotificationAction called with no data.");
+        return;
+    }
     console.log("Handling notification action with data:", data);
     const { notificationType, entityId } = data;
 
     if (notificationType && entityId) {
-      switch (String(notificationType)) {
-        case 'chat':
-          openChatModal(String(entityId));
-          break;
-        case 'workout':
-           openWorkoutModal(String(entityId));
-          break;
-        default:
-          console.warn(`Unknown notificationType received: ${notificationType}`);
-      }
+      setTimeout(() => {
+        switch (String(notificationType)) {
+          case 'chat':
+            console.log(`Opening chat modal for entityId: ${entityId}`);
+            openChatModal(String(entityId));
+            break;
+          case 'workout':
+            console.log(`Opening workout modal for entityId: ${entityId}`);
+            openWorkoutModal(String(entityId));
+            break;
+          default:
+            console.warn(`Unknown notificationType received: ${notificationType}`);
+        }
+      }, 100);
     }
   }, [openChatModal, openWorkoutModal]);
 
+  // --- URL-BASED TRIGGER (The "Landing Pad") ---
   useEffect(() => {
     if (searchParams) {
         const notificationType = searchParams.get('notificationType');
         const entityId = searchParams.get('entityId');
         if (notificationType && entityId) {
+            console.log("Detected notification parameters in URL, handling action.");
             handleNotificationAction({ notificationType, entityId });
             router.replace('/client/dashboard', { scroll: false });
         }
     }
   }, [searchParams, handleNotificationAction, router]);
 
+  // --- INITIALIZATION LOGIC ---
   useEffect(() => {
     if (!user || loading || !userProfile || registrationCompletedForUser.current === user.uid) {
       return;
@@ -83,107 +97,73 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
     const initializeNotifications = async () => {
       try {
-        // --- NATIVE PUSH NOTIFICATION LOGIC (UNCHANGED) ---
         if (Capacitor.isNativePlatform()) {
             let permStatus: PermissionStatus = await PushNotifications.checkPermissions();
-            if (permStatus.receive === 'prompt') {
-                permStatus = await PushNotifications.requestPermissions();
-            }
-            if (permStatus.receive !== 'granted') {
-                console.warn('Native push permission not granted.');
-                return;
-            }
+            if (permStatus.receive === 'prompt') permStatus = await PushNotifications.requestPermissions();
+            if (permStatus.receive !== 'granted') return;
 
             PushNotifications.addListener('registration', async (token: Token) => {
-                console.log('Native push registration success, token:', token.value);
                 await callSaveFcmTokenHttp(token.value, isCoach, getIdToken);
                 registrationCompletedForUser.current = user.uid;
             });
-
-            PushNotifications.addListener('registrationError', (err: any) => {
-                console.error('Native push registration error:', err);
-            });
+            PushNotifications.addListener('registrationError', console.error);
 
             PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-                console.log('Native foreground notification received:', notification);
+                console.log('Native FOREGROUND notification:', notification);
                 LocalNotifications.schedule({
                     notifications: [{
-                        title: notification.title || 'New Notification',
+                        title: notification.title || 'New Message',
                         body: notification.body || '',
                         id: Date.now(),
                         extra: notification.data,
                         smallIcon: 'res://public/app/icon.png'
-                    }]
+                    } as LocalNotificationSchema]
                 });
             });
 
-           PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-              console.log('Native notification action performed');
-              let data = action.notification.data || {};
-              if (Object.keys(data).length === 0 && action.notification.title && action.notification.title.startsWith('[')) {
-                  try {
-                      console.log("Parsing notification title as fallback for Android data payload.");
-                      const title = action.notification.title;
-                      const parts = title.substring(1, title.indexOf(']')).split(':');
-                      data = { notificationType: parts[0], entityId: parts[1] };
-                  } catch (e) {
-                      console.error("Error parsing Android title for notification data:", e);
-                  }
-              }
-              handleNotificationAction(data);
+            PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+                console.log('Native ACTION event (tap)', action);
+                handleNotificationAction(action.notification.data);
+            });
+
+            LocalNotifications.addListener('localNotificationActionPerformed', (action: LocalNotificationActionPerformed) => {
+                console.log('Local notification ACTION event (tap)', action);
+                handleNotificationAction(action.notification.extra);
             });
             
             await PushNotifications.register();
-
-        // --- WEB PUSH NOTIFICATION LOGIC (CORRECTED) ---
         } else {
-          if (!messaging) {
-              console.warn('Firebase Messaging not available. Skipping web push setup.');
-              return;
-          };
-
+          if (!messaging) return;
           const permission = await Notification.requestPermission();
-          if (permission !== 'granted') {
-            console.warn('Web push notification permission not granted. Will not attempt to get token.');
-            return;
-          }
+          if (permission !== 'granted') return;
 
-          const currentToken = await getToken(messaging, { 
-              vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-          });
+          const currentToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY });
 
           if (currentToken) {
-              console.log('Web push registration success, token:', currentToken);
               await callSaveFcmTokenHttp(currentToken, isCoach, getIdToken);
               registrationCompletedForUser.current = user.uid;
               
               onMessage(messaging, (message) => {
-                console.log('Web foreground notification received:', message);
-        
+                console.log('Web FOREGROUND notification:', message);
                 if (message.data) {
-                  console.log('Displaying foreground notification');
-        
                   const { title, body } = message.data;
-        
-                  const notification = new Notification(title, {
-                    body: body,
+                  const notification = new Notification(title || 'New Message', {
+                    body: body || '',
                     icon: '/apple-touch-icon.png',
                     data: message.data
                   });
-        
+                  
                   notification.onclick = (event) => {
                     event.preventDefault();
-                    handleNotificationAction(notification.data);
+                    console.log('Foreground web notification CLICKED');
+                    handleNotificationAction((event.currentTarget as Notification).data);
                   };
                 }
               });
-
-            } else {
-              console.warn('Could not get web push token. This can happen if the service worker is not set up correctly.');
             }
         }
       } catch (error) {
-        console.error("A critical error occurred during push notification initialization...", error);
+        console.error("Critical error during push notification setup:", error);
         registrationCompletedForUser.current = user.uid;
       }
     };
@@ -193,6 +173,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     return () => {
       if (Capacitor.isNativePlatform()) {
         PushNotifications.removeAllListeners();
+        LocalNotifications.removeAllListeners();
       }
     };
 

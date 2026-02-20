@@ -10,7 +10,7 @@ const db = getFirestore();
 const messaging = getMessaging();
 
 // -----------------------------------------------------------------------------
-// PART A: THE TRIGGER (FOR REAL-TIME CHAT NOTIFICATIONS)
+// PART A: INFORMATIVE NOTIFICATION TRIGGER
 // -----------------------------------------------------------------------------
 export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => {
     const message = event.data?.data();
@@ -20,7 +20,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     }
 
     const chatId = event.params.chatId;
-    const userId = message.userId;
+    const senderId = message.userId;
     const messageText = message.text || 'You received a new message';
 
     const chatRef = db.collection('chats').doc(chatId);
@@ -29,23 +29,33 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
         console.log(`Chat document ${chatId} not found.`);
         return;
     }
-    const participants = chatDoc.data()?.participants || [];
-    const recipients = participants.filter((p: string) => p !== userId);
+    const chatData = chatDoc.data()!;
+    const participants = chatData.participants || [];
+    const recipients = participants.filter((p: string) => p !== senderId);
 
     if (recipients.length === 0) {
         console.log("No recipients to notify.");
         return;
     }
 
-    const senderProfileRef = db.collection('clients').doc(userId);
+    const senderProfileRef = db.collection('clients').doc(senderId);
     const senderProfileDoc = await senderProfileRef.get();
     const senderName = senderProfileDoc.data()?.name || 'New Message';
+
+    let title = senderName;
+    let body = messageText.substring(0, 100);
+
+    // If it's a group chat, make the notification more informative
+    if (chatData.isGroup) {
+        title = chatData.name || 'Group Chat'; // Use group name as title
+        body = `${senderName}: ${body}`;     // Prepend sender name to message body
+    }
 
     const promises = recipients.map((recipientId: string) => {
         const notificationData = {
             userId: recipientId,
-            title: senderName,
-            message: messageText.substring(0, 100),
+            title: title,
+            message: body,
             ctaUrl: `/client/dashboard?notificationType=chat&entityId=${chatId}`,
             notificationType: 'chat',
             entityId: chatId,
@@ -56,7 +66,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     });
 
     await Promise.all(promises);
-    console.log(`Created ${recipients.length} notification documents for message in chat ${chatId}.`);
+    console.log(`Created ${recipients.length} informative notification documents for message in chat ${chatId}.`);
 });
 
 
@@ -68,69 +78,74 @@ async function sendPushNotification(userId: string, title: string, message: stri
   const userRef = db.collection('clients').doc(userId);
   const userDoc = await userRef.get();
 
-  if (userDoc.exists) {
-    const userData = userDoc.data();
-    if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
-      const tokens = userData.fcmTokens.filter((t: any) => t);
+  if (!userDoc.exists) return;
 
-      if (tokens.length === 0) {
-        return;
-      }
-      
-      const payload = {
-        tokens: tokens,
-        data: {
-            title: title,
-            body: message,
-            ctaUrl: ctaUrl || '/',
-            notificationType: notificationType || 'general',
-            entityId: entityId || 'none',
+  const userData = userDoc.data();
+  if (!userData || !userData.fcmTokens || userData.fcmTokens.length === 0) return;
+
+  const tokens = userData.fcmTokens.filter((t: string) => t); // Correctly typed
+  if (tokens.length === 0) return;
+
+  const dataPayload = {
+      title: title,
+      body: message,
+      ctaUrl: ctaUrl || '/',
+      notificationType: notificationType || 'general',
+      entityId: entityId || 'none',
+  };
+
+  const payload = {
+    tokens: tokens,
+    data: dataPayload,
+    notification: {
+        title: title,
+        body: message,
+    },
+    webpush: {
+        fcmOptions: {
+            link: ctaUrl || '/',
         },
+        notification: {
+            icon: '/icon.png',
+            data: dataPayload 
+        }
+    },
+    android: {
+        priority: 'high' as const,
         notification: {
             title: title,
             body: message,
+            channelId: 'default_notification_channel',
+            icon: 'ic_notification',
+            clickAction: 'FLUTTER_NOTIFICATION_CLICK', 
         },
-        webpush: {
-            fcmOptions: {
-                link: ctaUrl || '/',
-            },
-            notification: {
-                icon: '/icon.png',
-            }
-        },
-        android: {
-            priority: 'high' as const,
-            notification: {
-                title: title,
-                body: message,
-                channelId: 'default_notification_channel',
-                icon: 'ic_notification',
-            },
-        },
-        apns: {
-            payload: {
-                aps: {
-                    alert: {
-                        title: title,
-                        body: message,
-                    },
-                    'content-available': 1,
-                    sound: 'default',
+    },
+    apns: {
+        payload: {
+            aps: {
+                alert: {
+                    title: title,
+                    body: message,
                 },
+                'content-available': 1,
+                sound: 'default',
+                badge: 1, 
+                category: 'HUNGREE_NOTIFICATION_ACTIONS'
             },
-            headers: {
-                'apns-priority': '10',
-            },
+            ...dataPayload
         },
-      };
+        headers: {
+            'apns-push-type': 'alert', 
+            'apns-priority': '10',
+        },
+    },
+  };
 
-      try {
-        await messaging.sendEachForMulticast(payload as any);
-        console.log(`Successfully sent notification to user ${userId}`);
-      } catch (error) {
-        console.error(`Error sending push notification to user ${userId}:`, error);
-      }
-    }
+  try {
+    await messaging.sendEachForMulticast(payload as any);
+    console.log(`Successfully sent notification to user ${userId}`);
+  } catch (error) {
+    console.error(`Error sending push notification to user ${userId}:`, error);
   }
 }
 
