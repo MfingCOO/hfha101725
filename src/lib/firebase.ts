@@ -1,12 +1,12 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
-import { getStorage } from "firebase/storage";
+
+import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
+import { getFirestore, enableIndexedDbPersistence, Firestore, initializeFirestore } from "firebase/firestore";
+import { getAuth, Auth } from "firebase/auth";
+import { getStorage, FirebaseStorage } from "firebase/storage";
 import { getMessaging, Messaging } from "firebase/messaging";
 import { Capacitor } from '@capacitor/core';
 
-// Your web app's Firebase configuration
+// Standard Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyAk8vuQj8JfEyweNdtK9en9uUk6amEblYo",
   authDomain: "hunger-free-and-happy-app.firebaseapp.com",
@@ -14,47 +14,59 @@ const firebaseConfig = {
   storageBucket: "hunger-free-and-happy-app.appspot.com",
   messagingSenderId: "1002580546718",
   appId: "1:1002580546718:web:a8574bfc3732c7c137978f",
-  vapidKey: "BGNeYzhRRkl_ou3bZbjkSKTJ3SkrmfuOyRWS2wrJl92Huaz7ODJZEpIDQ4rhVdWi73UxaREQCw7b7Jj_sWs7PUU"
 };
 
-// Initialize Firebase
-let app;
-if (!getApps().length) {
-  app = initializeApp(firebaseConfig);
-} else {
-  app = getApp();
-}
+// Initialize Firebase and export the services directly.
+// This is safe because the app's root will wait for persistence to be enabled.
+const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
+// To prevent Firestore from being used before persistence is enabled, we initialize it without settings first
+// and will re-initialize it in the specific persistence function.
+const db: Firestore = getFirestore(app);
+const auth: Auth = getAuth(app);
+const storage: FirebaseStorage = getStorage(app);
+let messaging: Messaging | undefined;
 
-const db = getFirestore(app);
-const auth = getAuth(app);
-const storage = getStorage(app);
+// A single promise to ensure persistence is only enabled once.
+let persistencePromise: Promise<void> | null = null;
 
-let messaging: Messaging;
-
-if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
-  messaging = getMessaging(app);
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/firebase-messaging-sw.js')
-      .then((registration) => {
-        console.log('Service Worker registration successful with scope: ', registration.scope);
-      }).catch((err) => {
-        console.log('Service Worker registration failed: ', err);
-      });
+/**
+ * This is the single, simple function to call at the root of the application.
+ * It handles the asynchronous setup of IndexedDB persistence for Firestore on the web.
+ * Once this promise resolves, all other parts of the app can safely use the exported 'db' instance.
+ */
+export const initializeFirebasePersistence = () => {
+  if (persistencePromise) {
+    return persistencePromise;
   }
-}
 
-// Enable offline persistence
-if (typeof window !== 'undefined') {
-  enableIndexedDbPersistence(db)
-    .catch((err) => {
-      if (err.code == 'failed-precondition') {
-        console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
-      } else if (err.code == 'unimplemented') {
-        console.warn('The current browser does not support all of the features required to enable persistence.');
-      }
-    });
-}
+  persistencePromise = new Promise((resolve) => {
+    // Only run this for web clients, not native or server-side.
+    if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
+      enableIndexedDbPersistence(db)
+        .then(() => {
+          console.log("Offline persistence has been enabled.");
+        })
+        .catch((err) => {
+          console.warn("Error enabling offline persistence: ", err);
+        })
+        .finally(() => {
+          // Initialize messaging here after persistence is attempted.
+          try {
+            messaging = getMessaging(app);
+          } catch (e) {
+            console.error("Could not initialize messaging", e)
+          }
+          resolve(); // Resolve the promise regardless of persistence success.
+        });
+    } else {
+      // For native or SSR, resolve immediately.
+      resolve();
+    }
+  });
 
+  return persistencePromise;
+};
 
-export { db, auth, storage, messaging, app };
+// Export the initialized services for the rest of the app to use.
+export { app, auth, db, storage, messaging };

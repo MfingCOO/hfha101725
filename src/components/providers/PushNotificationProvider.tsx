@@ -5,12 +5,10 @@ import { Capacitor } from '@capacitor/core';
 import { PushNotifications, ActionPerformed, Token, PushNotificationSchema, PermissionStatus } from '@capacitor/push-notifications';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import { getApp } from 'firebase/app';
+import { messaging } from '@/lib/firebase'; // CORRECT: Direct import
+import { getToken, onMessage } from 'firebase/messaging';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useChatModalStore, useWorkoutModalStore } from '@/store/ui-store';
-
-const app = getApp();
 
 const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdToken: () => Promise<string | null>) => {
     const idToken = await getIdToken();
@@ -85,6 +83,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
     const initializeNotifications = async () => {
       try {
+        // --- NATIVE PUSH NOTIFICATION LOGIC (UNCHANGED) ---
         if (Capacitor.isNativePlatform()) {
             let permStatus: PermissionStatus = await PushNotifications.checkPermissions();
             if (permStatus.receive === 'prompt') {
@@ -94,9 +93,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                 console.warn('Native push permission not granted.');
                 return;
             }
-
-            // THIS IS THE LINE THAT WAS REMOVED TO PREVENT THE CRASH
-            // PushNotifications.removeAllListeners(); 
 
             PushNotifications.addListener('registration', async (token: Token) => {
                 console.log('Native push registration success, token:', token.value);
@@ -139,19 +135,21 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             
             await PushNotifications.register();
 
+        // --- WEB PUSH NOTIFICATION LOGIC (CORRECTED) ---
         } else {
-          const messaging = getMessaging(app);
+          if (!messaging) {
+              console.warn('Firebase Messaging not available. Skipping web push setup.');
+              return;
+          };
+
           const permission = await Notification.requestPermission();
           if (permission !== 'granted') {
             console.warn('Web push notification permission not granted. Will not attempt to get token.');
             return;
           }
 
-          const swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-
           const currentToken = await getToken(messaging, { 
               vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-              serviceWorkerRegistration: swRegistration
           });
 
           if (currentToken) {
@@ -185,14 +183,13 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             }
         }
       } catch (error) {
-        console.error("A critical error occurred during push notification initialization. This is likely due to permissions being blocked. The app will continue to run without push notifications.", error);
+        console.error("A critical error occurred during push notification initialization...", error);
         registrationCompletedForUser.current = user.uid;
       }
     };
 
     initializeNotifications();
 
-    // THIS IS THE NEW, CORRECTLY PLACED CLEANUP FUNCTION
     return () => {
       if (Capacitor.isNativePlatform()) {
         PushNotifications.removeAllListeners();

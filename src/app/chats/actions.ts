@@ -5,9 +5,9 @@ import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';
 import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
-import { getStorage } from 'firebase-admin/storage';
 
-// Helper for serialization
+const SERVER_ERROR = { success: false, error: "Server configuration error." };
+
 function serializeTimestamps(docData: any) {
     if (!docData) return docData;
     const newObject: { [key: string]: any } = { ...docData };
@@ -26,8 +26,11 @@ function serializeTimestamps(docData: any) {
     return newObject;
 }
 
-// Action to get all chats and relevant clients for the coach dashboard
 export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; data?: { chats: Chat[], clients: ClientProfile[] }; error?: any; }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in getChatsAndClientsForCoach.");
+        return SERVER_ERROR;
+    }
     try {
         const chatsQuery = adminDb.collection('chats').orderBy('createdAt', 'desc').get();
         const clientsQuery = adminDb.collection('userProfiles').where('tier', 'in', ['premium', 'coaching']).get();
@@ -36,52 +39,38 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
         let allChats = chatsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
         const allClients = clientsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as ClientProfile));
 
-const chatsWithDataPromises = allChats.map(async (chat) => {
-    const recentMessagesQuery = adminDb.collection('chats').doc(chat.id).collection('messages')
-        .orderBy('timestamp', 'desc')
-        .limit(20);
+        const chatsWithDataPromises = allChats.map(async (chat) => {
+            const recentMessagesQuery = adminDb!.collection('chats').doc(chat.id).collection('messages')
+                .orderBy('timestamp', 'desc')
+                .limit(20);
 
-    try {
-        const snapshot = await recentMessagesQuery.get();
-        
-        if (snapshot.empty) {
-            return {
-                ...chat,
-                lastMessage: null,
-                lastClientMessageTimestamp: null,
-            };
-        }
+            try {
+                const snapshot = await recentMessagesQuery.get();
+                
+                if (snapshot.empty) {
+                    return { ...chat, lastMessage: null, lastClientMessageTimestamp: null };
+                }
 
-        const recentMessages = snapshot.docs.map(doc => doc.data());
+                const recentMessages = snapshot.docs.map(doc => doc.data());
+                const lastMessageData = recentMessages[0];
+                const lastMessage = {
+                    text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
+                    timestamp: lastMessageData.timestamp || new Timestamp(0, 0),
+                    senderId: lastMessageData.userId || 'system'
+                };
 
-        const lastMessageData = recentMessages[0];
-        const lastMessage = {
-            text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
-            timestamp: lastMessageData.timestamp || new Timestamp(0, 0),
-            senderId: lastMessageData.userId || 'system'
-        };
+                const lastClientMessageData = recentMessages.find(msg => msg.userId && !COACH_UIDS.includes(msg.userId));
+                const lastClientMessageTimestamp = lastClientMessageData ? (lastClientMessageData.timestamp || null) : null;
 
-        const lastClientMessageData = recentMessages.find(msg => msg.userId && !COACH_UIDS.includes(msg.userId));
-        const lastClientMessageTimestamp = lastClientMessageData ? (lastClientMessageData.timestamp || null) : null;
+                return { ...chat, lastMessage, lastClientMessageTimestamp };
 
-        return {
-            ...chat,
-            lastMessage,
-            lastClientMessageTimestamp
-        };
+            } catch (error) {
+                console.error(`Error enhancing chat data for chat ${chat.id}:`, error);
+                return { ...chat, lastMessage: null, lastClientMessageTimestamp: null };
+            }
+        });
 
-    } catch (error) {
-        console.error(`Error enhancing chat data for chat ${chat.id}:`, error);
-        return {
-            ...chat,
-            lastMessage: null,
-            lastClientMessageTimestamp: null,
-        };
-    }
-});
-
-allChats = await Promise.all(chatsWithDataPromises);
-
+        allChats = await Promise.all(chatsWithDataPromises);
         const serializableChats = allChats.map(serializeTimestamps);
         const serializableClients = allClients.map(serializeTimestamps);
 
@@ -93,6 +82,10 @@ allChats = await Promise.all(chatsWithDataPromises);
 }
 
 export async function getChatsForClient(userId: string): Promise<{ success: boolean; data?: Chat[]; error?: any; }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in getChatsForClient.");
+        return SERVER_ERROR;
+    }
     try {
         const userProfileSnap = await adminDb.collection('userProfiles').doc(userId).get();
         if (!userProfileSnap.exists) {
@@ -121,7 +114,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
                 chunks.push(userChatIds.slice(i, i + 30));
             }
             chunks.forEach(chunk => {
-                chatPromises.push(adminDb.collection('chats').where(FieldPath.documentId(), 'in', chunk).get());
+                chatPromises.push(adminDb!.collection('chats').where(FieldPath.documentId(), 'in', chunk).get());
             });
         }
 
@@ -140,7 +133,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
         let uniqueChats = Array.from(new Map(allChats.map(chat => [chat.id, chat])).values());
 
         const chatsWithDataPromises = uniqueChats.map(async (chat) => {
-            const recentMessagesQuery = adminDb.collection('chats').doc(chat.id).collection('messages')
+            const recentMessagesQuery = adminDb!.collection('chats').doc(chat.id).collection('messages')
                 .orderBy('timestamp', 'desc')
                 .limit(20);
 
@@ -197,6 +190,10 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
 }
 
 export async function getChatMetadataForUser(userId: string): Promise<{ success: boolean; data?: Record<string, any>; error?: string }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in getChatMetadataForUser.");
+        return SERVER_ERROR;
+    }
     try {
         const metadataQuery = adminDb.collection('user_chat_metadata').where('userId', '==', userId);
         const snapshot = await metadataQuery.get();
@@ -225,6 +222,10 @@ const MarkChatAsReadInputSchema = z.object({
 });
 
 export async function markChatAsReadAction(input: z.infer<typeof MarkChatAsReadInputSchema>) {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in markChatAsReadAction.");
+        return SERVER_ERROR;
+    }
     const { chatId, userId } = MarkChatAsReadInputSchema.parse(input);
     const metadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
 
@@ -243,6 +244,10 @@ export async function markChatAsReadAction(input: z.infer<typeof MarkChatAsReadI
 }
 
 export async function createCoachingChatOnFirstLogin(userId: string, userName: string): Promise<{ success: boolean; chatId?: string; error?: string }> {
+    if (!adminDb || !messaging) {
+        console.error("CRITICAL: Firebase Admin is not initialized in createCoachingChatOnFirstLogin.");
+        return SERVER_ERROR;
+    }
     try {
         const userProfileRef = adminDb.collection('userProfiles').doc(userId);
         const userProfileSnap = await userProfileRef.get();
@@ -313,7 +318,7 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
                             body: `A new coaching chat has been created for ${userName}.`
                         }
                     };
-                    await messaging.sendEachForMulticast(payload as any);
+                    await messaging!.sendEachForMulticast(payload as any);
                 }
             }
         }
@@ -336,6 +341,10 @@ const PostMessageInputSchema = z.object({
 });
 
 export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>) {
+    if (!adminDb || !messaging) {
+        console.error("CRITICAL: Firebase Admin is not initialized in postMessageAction.");
+        return SERVER_ERROR;
+    }
     const { chatId, text, userId, userName, fileUrl, fileName } = PostMessageInputSchema.parse(input);
     const chatDocRef = adminDb.collection('chats').doc(chatId);
 
@@ -372,7 +381,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 updateData.lastClientMessageTimestamp = sentTimestamp;
             }
             
-            const senderMetadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
+            const senderMetadataRef = adminDb!.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
             transaction.set(senderMetadataRef, {
                 userId: userId,
                 chatId: chatId,
@@ -391,7 +400,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             }
 
             try {
-                const userRef = adminDb.collection("userProfiles").doc(recipientId);
+                const userRef = adminDb!.collection("userProfiles").doc(recipientId);
                 const userDoc = await userRef.get();
 
                 if (userDoc.exists) {
@@ -414,7 +423,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                                 priority: 'high' as const,
                             },
                         };
-                        await messaging.sendEachForMulticast(payload as any);
+                        await messaging!.sendEachForMulticast(payload as any);
                     }
                 }
             } catch (error) {
@@ -431,6 +440,10 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
 }
 
 export async function joinChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in joinChat.");
+        return SERVER_ERROR;
+    }
     try {
         const chatRef = adminDb.collection('chats').doc(chatId);
         const userProfileRef = adminDb.collection('userProfiles').doc(userId);
@@ -455,6 +468,10 @@ export async function joinChat(chatId: string, userId: string): Promise<{ succes
 }
   
 export async function leaveChat(chatId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in leaveChat.");
+        return SERVER_ERROR;
+    }
     try {
         const chatRef = adminDb.collection('chats').doc(chatId);
         const userProfileRef = adminDb.collection('userProfiles').doc(userId);
@@ -479,6 +496,10 @@ export async function leaveChat(chatId: string, userId: string): Promise<{ succe
 }
 
 export async function getChatMessagesAction(chatId: string): Promise<{ success: boolean; data?: { messages: ChatMessage[], participants: Record<string, UserProfile> }; error?: string }> {
+    if (!adminDb) {
+        console.error("CRITICAL: Firebase Admin is not initialized in getChatMessagesAction.");
+        return SERVER_ERROR;
+    }
     try {
         const chatRef = adminDb.collection('chats').doc(chatId);
         const messagesRef = chatRef.collection('messages').orderBy('timestamp', 'asc');
@@ -498,7 +519,7 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
 
         const participants: Record<string, UserProfile> = {};
         if (chatData.participants && chatData.participants.length > 0) {
-            const profilePromises = chatData.participants.map(uid => adminDb.collection('userProfiles').doc(uid).get());
+            const profilePromises = chatData.participants.map(uid => adminDb!.collection('userProfiles').doc(uid).get());
             const profileSnapshots = await Promise.all(profilePromises);
             profileSnapshots.forEach(snap => {
                 if (snap.exists) {
@@ -516,6 +537,10 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
 }
 
 export async function getUnreadChatCountForCoach(coachId: string): Promise<{ success: boolean; count?: number; error?: string }> {
+  if (!adminDb) {
+      console.error("CRITICAL: Firebase Admin is not initialized in getUnreadChatCountForCoach.");
+      return SERVER_ERROR;
+  }
   if (!COACH_UIDS.includes(coachId)) {
       return { success: false, error: "Invalid user." };
   }
@@ -543,7 +568,7 @@ export async function getUnreadChatCountForCoach(coachId: string): Promise<{ suc
               return;
           }
 
-          const messagesQuery = adminDb.collection('chats').doc(chat.id).collection('messages').orderBy('timestamp', 'desc').limit(1).get();
+          const messagesQuery = adminDb!.collection('chats').doc(chat.id).collection('messages').orderBy('timestamp', 'desc').limit(1).get();
           const lastMessageSnapshot = await messagesQuery;
 
           if (!lastMessageSnapshot.empty) {
