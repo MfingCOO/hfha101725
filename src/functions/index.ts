@@ -37,7 +37,6 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
         return;
     }
 
-    // --- FIXED --- Now reads from the correct 'clients' collection.
     const senderProfileRef = db.collection('clients').doc(userId);
     const senderProfileDoc = await senderProfileRef.get();
     const senderName = senderProfileDoc.data()?.name || 'New Message';
@@ -47,7 +46,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
             userId: recipientId,
             title: senderName,
             message: messageText.substring(0, 100),
-            ctaUrl: `/chats?chatId=${chatId}`,
+            ctaUrl: `/client/dashboard?notificationType=chat&entityId=${chatId}`,
             notificationType: 'chat',
             entityId: chatId,
             sendTime: Timestamp.now(),
@@ -66,13 +65,11 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
 // -----------------------------------------------------------------------------
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
-  // --- FIXED --- Now reads from the correct 'clients' collection.
   const userRef = db.collection('clients').doc(userId);
   const userDoc = await userRef.get();
 
   if (userDoc.exists) {
     const userData = userDoc.data();
-    // The rest of the logic remains the same, looking for the fcmTokens field.
     if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
       const tokens = userData.fcmTokens.filter((t: any) => t);
 

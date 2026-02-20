@@ -38,14 +38,28 @@ export const saveFcmToken = functions.https.onRequest((request, response) => {
     }
 
     try {
-        // We now point to 'clients', which you have confirmed is the source of truth for active users.
         const clientDocRef = db.collection('clients').doc(uid);
-        
-        await clientDocRef.set({
-            fcmTokens: FieldValue.arrayUnion(token)
-        }, { merge: true });
 
-        response.status(200).send({ success: true, message: 'FCM token saved successfully to the client record.' });
+        // Use a transaction to atomically check and add the token
+        await db.runTransaction(async (transaction) => {
+            const clientDoc = await transaction.get(clientDocRef);
+            
+            if (!clientDoc.exists) {
+                // If the client document doesn't exist, create it with the new token.
+                transaction.set(clientDocRef, { fcmTokens: [token] });
+                return;
+            }
+
+            const data = clientDoc.data();
+            const tokens = data?.fcmTokens || [];
+
+            // Only add the token if it's not already in the array.
+            if (!tokens.includes(token)) {
+                transaction.update(clientDocRef, { fcmTokens: FieldValue.arrayUnion(token) });
+            }
+        });
+
+        response.status(200).send({ success: true, message: 'FCM token processed successfully.' });
 
     } catch (error) {
         console.error('Error saving FCM token:', error);
