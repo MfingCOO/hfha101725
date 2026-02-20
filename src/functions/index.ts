@@ -37,7 +37,8 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
         return;
     }
 
-    const senderProfileRef = db.collection('userProfiles').doc(userId);
+    // --- FIXED --- Now reads from the correct 'clients' collection.
+    const senderProfileRef = db.collection('clients').doc(userId);
     const senderProfileDoc = await senderProfileRef.get();
     const senderName = senderProfileDoc.data()?.name || 'New Message';
 
@@ -65,11 +66,13 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
 // -----------------------------------------------------------------------------
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
-  const userRef = db.collection('userProfiles').doc(userId);
+  // --- FIXED --- Now reads from the correct 'clients' collection.
+  const userRef = db.collection('clients').doc(userId);
   const userDoc = await userRef.get();
 
   if (userDoc.exists) {
     const userData = userDoc.data();
+    // The rest of the logic remains the same, looking for the fcmTokens field.
     if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
       const tokens = userData.fcmTokens.filter((t: any) => t);
 
@@ -77,10 +80,8 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
       }
       
-      // THIS IS THE PAYLOAD THAT GETS SENT TO THE DEVICE
       const payload = {
         tokens: tokens,
-        // DATA PAYLOAD (for in-app handling when app is open)
         data: {
             title: title,
             body: message,
@@ -88,12 +89,10 @@ async function sendPushNotification(userId: string, title: string, message: stri
             notificationType: notificationType || 'general',
             entityId: entityId || 'none',
         },
-        // NOTIFICATION PAYLOAD (for system-level banner when app is closed/backgrounded)
         notification: {
             title: title,
             body: message,
         },
-        // PLATFORM-SPECIFIC CONFIG
         webpush: {
             fcmOptions: {
                 link: ctaUrl || '/',
@@ -108,7 +107,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
                 title: title,
                 body: message,
                 channelId: 'default_notification_channel',
-                icon: 'ic_notification', // Make sure this icon exists in your Android project
+                icon: 'ic_notification',
             },
         },
         apns: {
@@ -138,11 +137,9 @@ async function sendPushNotification(userId: string, title: string, message: stri
   }
 }
 
-// THIS IS THE FIXED ENGINE. IT RUNS EVERY MINUTE.
 export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (event) => {
   const now = Timestamp.now();
   
-  // THIS IS THE FIXED QUERY. IT IS NOW VALID.
   const query = db.collection('notifications')
                   .where('processed', '==', false)
                   .where('sendTime', '<=', now);
@@ -150,7 +147,7 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
   const snapshot = await query.get();
   
   if (snapshot.empty) {
-    return; // No notifications to send.
+    return;
   }
 
   console.log(`Found ${snapshot.docs.length} notifications to process.`);
@@ -158,10 +155,8 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
   const promises = snapshot.docs.map(async (doc) => {
     const notification = doc.data();
     
-    // IMPORTANT: Mark as processed immediately to prevent re-sending.
     await doc.ref.update({ processed: true });
     
-    // Send the actual push notification.
     await sendPushNotification(
       notification.userId,
       notification.title,
@@ -175,5 +170,4 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
   await Promise.all(promises);
 });
 
-// This function remains unchanged.
 export { saveFcmToken } from './saveFcmToken';

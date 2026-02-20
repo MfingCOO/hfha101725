@@ -2,7 +2,7 @@
 import * as functions from 'firebase-functions';
 import { FieldValue } from 'firebase-admin/firestore';
 const cors = require('cors');
-import { db, auth } from './firebase'; // Corrected: Import from the new firebase.ts file
+import { db, auth } from './firebase';
 
 const corsHandler = cors({ origin: true });
 
@@ -30,21 +30,22 @@ export const saveFcmToken = functions.https.onRequest((request, response) => {
     }
 
     const uid = decodedToken.uid;
-    const { token, isCoach } = request.body.data;
+    const { token } = request.body.data;
 
-    if (!token || isCoach === undefined) {
-        response.status(400).send('Bad Request: Missing token or isCoach flag.');
+    if (!token) {
+        response.status(400).send('Bad Request: Missing token.');
         return;
     }
 
     try {
-        const userDocRef = db.collection('users').doc(uid);
-        await userDocRef.set({
-            fcmTokens: FieldValue.arrayUnion(token),
-            isCoach: isCoach
+        // We now point to 'clients', which you have confirmed is the source of truth for active users.
+        const clientDocRef = db.collection('clients').doc(uid);
+        
+        await clientDocRef.set({
+            fcmTokens: FieldValue.arrayUnion(token)
         }, { merge: true });
 
-        response.status(200).send({ success: true, message: 'FCM token saved successfully.' });
+        response.status(200).send({ success: true, message: 'FCM token saved successfully to the client record.' });
 
     } catch (error) {
         console.error('Error saving FCM token:', error);
