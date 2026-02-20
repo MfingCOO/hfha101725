@@ -1,3 +1,4 @@
+
 import type { NextConfig } from 'next';
 
 const withPWA = require('next-pwa')({
@@ -12,6 +13,13 @@ const nextConfig: NextConfig = {
   // TODO: Schedule a task to remove this and fix all TypeScript errors.
   typescript: {
     ignoreBuildErrors: true,
+  },
+
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.externals.push('firebase-admin');
+    }
+    return config;
   },
 
   images: {
@@ -67,7 +75,8 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '4.5mb',
     },
   },
-  serverExternalPackages: ['@opentelemetry/instrumentation', '@genkit-ai/core'],
+  // THIS IS THE FIX for the 'Critical dependency' error.
+  serverExternalPackages: ['@opentelemetry/instrumentation', '@genkit-ai/core', '@genkit-ai/flow'],
   allowedDevOrigins: [
       'https://*.cloudworkstations.dev',
       'https://3000-firebase-103125-1761919991969.cluster-zsqzu5kebnaemxbyqrvoim2lxo.cloudworkstations.dev'

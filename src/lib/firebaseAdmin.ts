@@ -38,4 +38,4 @@ const auth = admin.auth();
 const storage = admin.storage();
 const messaging = admin.messaging();
 
-export { db, auth, storage, app, messaging };
+export { admin, db, auth, storage, app, messaging };

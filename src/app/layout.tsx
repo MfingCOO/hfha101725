@@ -1,4 +1,4 @@
-'use client'; 
+'use client';
 
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/auth-provider";
@@ -48,14 +48,14 @@ export default function RootLayout({
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <AppCheckProvider>
-              <PushNotificationProvider>
                 <NotificationProvider>
                   <DataEntryModalProvider>
-                    {children}
-                    <NotificationPresenter />
+                    <PushNotificationProvider>
+                      {children}
+                      <NotificationPresenter />
+                    </PushNotificationProvider>
                   </DataEntryModalProvider>
                 </NotificationProvider>
-              </PushNotificationProvider>
             </AppCheckProvider>
           </AuthProvider>
         </QueryClientProvider>
