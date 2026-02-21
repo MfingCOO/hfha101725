@@ -40,7 +40,7 @@ const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdTok
 
 
 const PushNotificationProvider = ({ children }: { children: React.ReactNode }) => {
-  const { user, userProfile, isCoach, getIdToken, loading } = useAuth();
+  const { user, userProfile, isCoach, getIdToken, loading, setFcmToken } = useAuth(); // Get setFcmToken
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -95,10 +95,10 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         if (notificationType) {
             console.log("Detected notification parameters in URL, handling action.");
             handleNotificationAction({ notificationType, entityId });
-            router.replace('/client/dashboard', { scroll: false });
+            router.replace(isCoach ? '/coach/dashboard' : '/client/dashboard', { scroll: false });
         }
     }
-  }, [searchParams, handleNotificationAction, router]);
+  }, [searchParams, handleNotificationAction, router, isCoach]);
 
   useEffect(() => {
     if (!user || loading || !userProfile || registrationCompletedForUser.current === user.uid) {
@@ -107,14 +107,20 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
     const initializeNotifications = async () => {
       try {
+        const handleNewToken = async (token: string) => {
+            console.log('New FCM token received:', token);
+            setFcmToken(token);
+            await callSaveFcmTokenHttp(token, isCoach, getIdToken);
+            registrationCompletedForUser.current = user.uid;
+        };
+
         if (Capacitor.isNativePlatform()) {
             let permStatus: PermissionStatus = await PushNotifications.checkPermissions();
             if (permStatus.receive === 'prompt') permStatus = await PushNotifications.requestPermissions();
             if (permStatus.receive !== 'granted') return;
 
-            PushNotifications.addListener('registration', async (token: Token) => {
-                await callSaveFcmTokenHttp(token.value, isCoach, getIdToken);
-                registrationCompletedForUser.current = user.uid;
+            PushNotifications.addListener('registration', (token: Token) => {
+                handleNewToken(token.value);
             });
             PushNotifications.addListener('registrationError', console.error);
 
@@ -124,7 +130,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                     notifications: [{
                         title: notification.title || 'Hunger-Free & Happy',
                         body: notification.body || '',
-                        id: Math.floor(Math.random() * 4294967295),
+                        id: Math.floor(Math.random() * 2147483647),
                         extra: notification.data,
                         smallIcon: 'res://public/app/icon.png'
                     } as LocalNotificationSchema]
@@ -150,8 +156,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           const currentToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY });
 
           if (currentToken) {
-              await callSaveFcmTokenHttp(currentToken, isCoach, getIdToken);
-              registrationCompletedForUser.current = user.uid;
+              handleNewToken(currentToken);
               
               onMessage(messaging, (message) => {
                 console.log('Web FOREGROUND notification:', message);
@@ -187,7 +192,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       }
     };
 
-  }, [user, userProfile, isCoach, getIdToken, loading, handleNotificationAction]);
+  }, [user, userProfile, isCoach, getIdToken, loading, handleNotificationAction, setFcmToken]);
 
   return <>{children}</>;
 };

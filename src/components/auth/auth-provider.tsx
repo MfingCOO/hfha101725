@@ -1,6 +1,6 @@
 'use client';
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from 'react';
-import { onIdTokenChanged, User, signOut } from 'firebase/auth';
+import { onIdTokenChanged, User, signOut as firebaseSignOut } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, DocumentData, Timestamp } from 'firebase/firestore';
 import { auth, db, initializeFirebasePersistence } from '@/lib/firebase'; // Simplified imports
 import { Loader2 } from 'lucide-react';
@@ -27,9 +27,13 @@ interface AuthContextType {
     loading: boolean;
     isCoach: boolean;
     getIdToken: () => Promise<string | null>;
+    signOut: () => Promise<void>;
+    setFcmToken: (token: string | null) => void;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, userProfile: null, loading: true, isCoach: false, getIdToken: async () => null });
+const AuthContext = createContext<AuthContextType>(
+    { user: null, userProfile: null, loading: true, isCoach: false, getIdToken: async () => null, signOut: async () => {}, setFcmToken: () => {} }
+);
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -37,10 +41,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [firebaseReady, setFirebaseReady] = useState(false);
+    const [fcmToken, setFcmToken] = useState<string | null>(null);
 
     const isCoach = useMemo(() => user ? COACH_UIDS.includes(user.uid) : false, [user]);
 
-    // **THE FIX**: This single useEffect initializes Firebase at the root.
     useEffect(() => {
         initializeFirebasePersistence().then(() => {
             setFirebaseReady(true);
@@ -48,13 +52,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     useEffect(() => {
-        if (!firebaseReady) return; // Don't do anything until Firebase is ready
-
+        if (!firebaseReady) return;
         const unsubscribeAuth = onIdTokenChanged(auth, (authUser) => {
             setUser(authUser);
+            if (!authUser) {
+                // Clear profile and token when user logs out
+                setUserProfile(null);
+                setFcmToken(null);
+            }
             setLoading(false);
         });
-
         return () => unsubscribeAuth();
     }, [firebaseReady]);
 
@@ -65,48 +72,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const userProfileRef = doc(db, 'userProfiles', user.uid);
-        const clientProfileRef = doc(db, 'clients', user.uid);
+        const clientOrCoachRef = doc(db, isCoach ? 'coaches' : 'clients', user.uid);
 
         const fetchAndSetProfile = async () => {
             try {
                 const userProfileSnap = await getDoc(userProfileRef);
                 if (!userProfileSnap.exists()) {
                     console.error(`Permissions Error: User profile does not exist for uid: ${user.uid}. Logging out.`);
-                    signOut(auth);
+                    firebaseSignOut(auth);
                     return;
                 }
 
-                let clientProfileData = {};
-                if (!isCoach) {
-                    const clientProfileSnap = await getDoc(clientProfileRef);
-                    if (clientProfileSnap.exists()) {
-                        clientProfileData = clientProfileSnap.data();
-                    }
+                let secondaryProfileData = {};
+                const secondaryProfileSnap = await getDoc(clientOrCoachRef);
+                if (secondaryProfileSnap.exists()) {
+                    secondaryProfileData = secondaryProfileSnap.data();
                 }
-                setUserProfile(serializeTimestamps({ ...userProfileSnap.data(), ...clientProfileData }));
+                
+                setUserProfile(serializeTimestamps({ ...userProfileSnap.data(), ...secondaryProfileData }));
 
             } catch (error) {
                 console.error('A critical permission error occurred while fetching user data...', error);
-                signOut(auth);
+                firebaseSignOut(auth);
             }
         };
 
-        // Set up listeners
         const unsubUser = onSnapshot(userProfileRef, fetchAndSetProfile, (error) => {
             console.error("User profile listener failed:", error);
-            signOut(auth);
+            firebaseSignOut(auth);
         });
 
-        let unsubClient: (() => void) | undefined;
-        if (!isCoach) {
-            unsubClient = onSnapshot(clientProfileRef, fetchAndSetProfile, (error) => {
-                console.warn("Client profile listener failed:", error);
-            });
-        }
+        const unsubSecondary = onSnapshot(clientOrCoachRef, fetchAndSetProfile, (error) => {
+            console.warn(`${isCoach ? 'Coach' : 'Client'} profile listener failed:`, error);
+        });
 
         return () => {
             unsubUser();
-            if (unsubClient) unsubClient();
+            unsubSecondary();
         };
     }, [user, isCoach, firebaseReady]);
 
@@ -115,7 +117,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return auth.currentUser.getIdToken();
     }, [firebaseReady]);
 
-    const value = useMemo(() => ({ user, userProfile, loading, isCoach, getIdToken }), [user, userProfile, loading, isCoach, getIdToken]);
+    const signOut = useCallback(async () => {
+        if (!firebaseReady) return;
+
+        if (fcmToken) {
+            console.log(`Attempting to remove FCM token: ${fcmToken}`);
+            const idToken = await getIdToken();
+            if (idToken) {
+                try {
+                    const functionUrl = 'https://us-central1-hunger-free-and-happy-app.cloudfunctions.net/removeFcmToken';
+                    await fetch(functionUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${idToken}`,
+                        },
+                        body: JSON.stringify({ data: { token: fcmToken, isCoach } }),
+                    });
+                    console.log('Successfully called removeFcmToken function.');
+                } catch (error) {
+                    console.error('Error removing FCM token:', error);
+                }
+            }
+        }
+        await firebaseSignOut(auth);
+        console.log('User signed out.');
+
+    }, [firebaseReady, fcmToken, isCoach, getIdToken]);
+
+    const value = useMemo(() => 
+        ({ user, userProfile, loading, isCoach, getIdToken, signOut, setFcmToken }), 
+        [user, userProfile, loading, isCoach, getIdToken, signOut, setFcmToken]
+    );
 
     return (
         <AuthContext.Provider value={value}>
@@ -135,7 +168,7 @@ function FullScreenLoader() {
 const PUBLIC_PATHS = ['/login', '/signup', '/tos', '/privacy', '/support'];
 
 function AuthRedirector({ children }: { children: ReactNode }) {
-    const { user, isCoach, loading } = useAuth();
+    const { user, isCoach, loading, signOut } = useAuth(); // using custom signOut
     const router = useRouter();
     const pathname = usePathname();
 
@@ -152,6 +185,11 @@ function AuthRedirector({ children }: { children: ReactNode }) {
             }
         }
     }, [user, isCoach, loading, pathname, router]);
+    
+    // Example of how to use the new signOut function from a component
+    // const handleLogout = () => {
+    //     signOut();
+    // };
 
     return <>{children}</>;
 }

@@ -2,10 +2,11 @@
 import * as functions from 'firebase-functions';
 const cors = require('cors');
 import { db, auth } from './firebase';
+import * as admin from 'firebase-admin';
 
 const corsHandler = cors({ origin: true });
 
-export const saveFcmToken = functions.https.onRequest((request, response) => {
+export const removeFcmToken = functions.https.onRequest((request, response) => {
   corsHandler(request, response, async () => {
 
     if (request.method !== 'POST') {
@@ -40,27 +41,17 @@ export const saveFcmToken = functions.https.onRequest((request, response) => {
         const collectionName = isCoach ? 'coaches' : 'clients';
         const docRef = db.collection(collectionName).doc(uid);
 
-        await db.runTransaction(async (transaction) => {
-            const doc = await transaction.get(docRef);
-            
-            if (!doc.exists) {
-                transaction.set(docRef, { fcmTokens: [token] });
-                return;
-            }
+        const doc = await docRef.get();
+        if (doc.exists) {
+            await docRef.update({
+                fcmTokens: admin.firestore.FieldValue.arrayRemove(token)
+            });
+        }
 
-            const data = doc.data();
-            const existingTokens = data?.fcmTokens || [];
-
-            if (!existingTokens.includes(token)) {
-                const updatedTokens = [...existingTokens, token];
-                transaction.update(docRef, { fcmTokens: updatedTokens });
-            }
-        });
-
-        response.status(200).send({ success: true, message: 'FCM token saved successfully.' });
+        response.status(200).send({ success: true, message: 'FCM token removed successfully.' });
 
     } catch (error) {
-        console.error('Error saving FCM token:', error);
+        console.error('Error removing FCM token:', error);
         response.status(500).send('Internal Server Error');
     }
   });
