@@ -9,6 +9,7 @@ import { messaging } from '@/lib/firebase';
 import { getToken, onMessage } from 'firebase/messaging';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useChatModalStore, useWorkoutModalStore } from '@/store/ui-store';
+import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
 
 // HTTP call function remains unchanged
 const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdToken: () => Promise<string | null>) => {
@@ -46,6 +47,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
   const { openModal: openChatModal } = useChatModalStore();
   const { openModal: openWorkoutModal } = useWorkoutModalStore();
+  const { openModal: openDataEntryModal } = useDataEntryModal();
   
   const registrationCompletedForUser = useRef<string | null>(null);
 
@@ -58,30 +60,42 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     console.log("Handling notification action with data:", data);
     const { notificationType, entityId } = data;
 
-    if (notificationType && entityId) {
+    if (notificationType) { 
       setTimeout(() => {
         switch (String(notificationType)) {
+          case 'hydration':
+            console.log('Opening hydration modal');
+            openDataEntryModal('hydration');
+            break;
           case 'chat':
-            console.log(`Opening chat modal for entityId: ${entityId}`);
-            openChatModal(String(entityId));
+            if (entityId) {
+              console.log(`Opening chat modal for entityId: ${entityId}`);
+              openChatModal(String(entityId));
+            } else {
+              console.warn('Chat notification received without entityId');
+            }
             break;
           case 'workout':
-            console.log(`Opening workout modal for entityId: ${entityId}`);
-            openWorkoutModal(String(entityId));
+            if (entityId) {
+              console.log(`Opening workout modal for entityId: ${entityId}`);
+              openWorkoutModal(String(entityId));
+            } else {
+              console.warn('Workout notification received without entityId');
+            }
             break;
           default:
             console.warn(`Unknown notificationType received: ${notificationType}`);
         }
       }, 100);
     }
-  }, [openChatModal, openWorkoutModal]);
+  }, [openChatModal, openWorkoutModal, openDataEntryModal]);
 
   // --- URL-BASED TRIGGER (The "Landing Pad") ---
   useEffect(() => {
     if (searchParams) {
         const notificationType = searchParams.get('notificationType');
         const entityId = searchParams.get('entityId');
-        if (notificationType && entityId) {
+        if (notificationType) {
             console.log("Detected notification parameters in URL, handling action.");
             handleNotificationAction({ notificationType, entityId });
             router.replace('/client/dashboard', { scroll: false });

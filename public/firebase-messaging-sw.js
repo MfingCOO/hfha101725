@@ -2,6 +2,7 @@
 importScripts("https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js");
 
+// Initialize Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyAk8vuQj8JfEyweNdtK9en9uUk6amEblYo",
   authDomain: "hunger-free-and-happy-app.firebaseapp.com",
@@ -14,52 +15,53 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// THIS IS THE CORE LOGIC FOR HANDLING INCOMING MESSAGES
+// --- ROBUST BACKGROUND MESSAGE HANDLER ---
 messaging.onBackgroundMessage((payload) => {
-  console.log(
-    '[firebase-messaging-sw.js] Received background message ',
-    payload
-  );
+  console.log('[firebase-messaging-sw.js] Received background message', payload);
 
-  // A proper notification payload will have this object.
-  // A silent data-only payload will NOT.
-  if (payload.notification) {
-    const notificationTitle = payload.notification.title;
-    const notificationOptions = {
-      body: payload.notification.body,
-      icon: '/icon.png',
-      // Prevent duplicate notifications for the same chat
-      tag: payload.data?.chatId || payload.notification.title,
-      // This is the critical part for handling clicks.
-      // It stores the URL from the backend payload.
-      data: { 
-        url: payload.fcmOptions?.link || '/' 
-      }
-    };
+  // Extract notification data from the main `data` payload for consistency
+  const notificationTitle = payload.data.title || 'New Message';
+  const notificationOptions = {
+    body: payload.data.body || '',
+    icon: '/icon.png',
+    // Use a unique tag to prevent duplicate notifications from stacking
+    tag: payload.data.entityId || notificationTitle,
+    // Store the critical URL for the click event
+    data: { 
+      url: payload.data.ctaUrl || '/' 
+    }
+  };
 
-    self.registration.showNotification(notificationTitle, notificationOptions);
-  }
+  return self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
-// THIS IS THE EVENT HANDLER FOR WHEN A USER CLICKS THE NOTIFICATION
+// --- ROBUST NOTIFICATION CLICK HANDLER ---
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  const urlToOpen = event.notification.data.url;
+  const urlToOpen = new URL(event.notification.data.url, self.location.origin).href;
 
-  event.waitUntil(
-    clients.matchAll({ type: 'window' }).then((clientList) => {
-      // Check if there's an already-open tab for your app.
-      for (const client of clientList) {
-        // If we find an open tab, focus it.
-        if (client.url === '/' && 'focus' in client) {
-          return client.focus();
+  console.log('[firebase-messaging-sw.js] Notification clicked. URL to open:', urlToOpen);
+
+  const promiseChain = clients.matchAll({
+    type: 'window',
+    includeUncontrolled: true
+  }).then((clientList) => {
+    // Check if a window for this app is already open.
+    if (clientList.length > 0) {
+      let client = clientList[0];
+      // Find the most recently focused client.
+      for (let i = 0; i < clientList.length; i++) {
+        if (clientList[i].focused) {
+          client = clientList[i];
         }
       }
-      // If we don't find an open tab, create a new one.
-      if (clients.openWindow) {
-        return clients.openWindow(urlToOpen);
-      }
-    })
-  );
+      // Focus the client and navigate it to the correct URL.
+      return client.focus().then(cli => cli.navigate(urlToOpen));
+    }
+    // If no window is open, open a new one.
+    return clients.openWindow(urlToOpen);
+  });
+
+  event.waitUntil(promiseChain);
 });
