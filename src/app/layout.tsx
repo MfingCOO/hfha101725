@@ -8,8 +8,6 @@ import Script from 'next/script';
 import { inter } from './fonts';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
-import { NotificationProvider } from '@/contexts/NotificationContext';
-import { NotificationPresenter } from '@/components/notifications/NotificationPresenter';
 import { DataEntryModalProvider } from '@/contexts/DataEntryModalContext';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
 import { useAdMob } from '@/hooks/useAdMob';
@@ -48,14 +46,11 @@ export default function RootLayout({
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <AppCheckProvider>
-                <NotificationProvider>
-                  <DataEntryModalProvider>
-                    <PushNotificationProvider>
-                      {children}
-                      <NotificationPresenter />
-                    </PushNotificationProvider>
-                  </DataEntryModalProvider>
-                </NotificationProvider>
+                <DataEntryModalProvider>
+                  <PushNotificationProvider>
+                    {children}
+                  </PushNotificationProvider>
+                </DataEntryModalProvider>
             </AppCheckProvider>
           </AuthProvider>
         </QueryClientProvider>
