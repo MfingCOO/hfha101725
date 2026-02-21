@@ -10,6 +10,28 @@ import { storage as adminStorage } from 'firebase-admin';
 
 const SERVER_ERROR = { success: false, error: { message: "Server configuration error." } };
 
+// Helper function to find a user profile across both 'clients' and 'coaches' collections.
+async function getUserProfile_Admin_Robust(userId: string): Promise<UserProfile | null> {
+    if (!adminDb || !userId) return null;
+    
+    const collectionsToSearch = ['clients', 'coaches'];
+    for (const collectionName of collectionsToSearch) {
+        try {
+            const docRef = adminDb.collection(collectionName).doc(userId);
+            const docSnap = await docRef.get();
+            if (docSnap.exists) {
+                console.log(`Found user ${userId} in ${collectionName}`);
+                // Return a structure that matches the UserProfile type.
+                return { uid: docSnap.id, ...docSnap.data() } as UserProfile;
+            }
+        } catch (error) {
+            console.error(`Error searching for user ${userId} in ${collectionName}:`, error);
+        }
+    }
+    console.warn(`Could not find a profile for user ${userId} in 'clients' or 'coaches'.`);
+    return null;
+}
+
 function serializeTimestamps(docData: any) {
     if (!docData) return docData;
     const newObject: { [key: string]: any } = { ...docData };
@@ -565,11 +587,11 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
 
         const participants: Record<string, UserProfile> = {};
         if (chatData.participants && chatData.participants.length > 0) {
-            const profilePromises = chatData.participants.map(uid => adminDb!.collection('userProfiles').doc(uid).get());
+            const profilePromises = chatData.participants.map(uid => getUserProfile_Admin_Robust(uid));
             const profileSnapshots = await Promise.all(profilePromises);
             profileSnapshots.forEach(snap => {
-                if (snap.exists) {
-                    participants[snap.id] = serializeTimestamps(snap.data()) as UserProfile;
+                if (snap) { // Check if a profile was found
+                    participants[snap.uid] = serializeTimestamps(snap) as UserProfile;
                 }
             });
         }
