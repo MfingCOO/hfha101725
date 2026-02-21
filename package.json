@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@capacitor-community/admob": "^5.0.0",
-    "@capacitor/local-notifications": "^8.0.0",
+    "@capacitor/local-notifications": "^8.0.1",
     "@capacitor/push-notifications": "^5.0.0",
     "@firebase/testing": "^0.20.11",
     "@genkit-ai/ai": "^1.24.0",
