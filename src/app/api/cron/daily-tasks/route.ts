@@ -73,6 +73,7 @@ async function handleAppointmentReminders() {
         const appointment = doc.data();
         const userId = appointment.userId;
         const coachId = appointment.coachId;
+        const appointmentId = doc.id;
 
         // Notify client
         await createUserNotification(userId, {
@@ -80,6 +81,7 @@ async function handleAppointmentReminders() {
             title: 'Appointment Reminder',
             message: `Your appointment with ${appointment.coachName} is in 10 minutes.`,
             pillarId: 'calendar',
+            entityId: appointmentId,
             deliverAt: Timestamp.fromMillis(doc.data().startTime.toMillis() - 10 * 60 * 1000)
         });
 
@@ -89,6 +91,7 @@ async function handleAppointmentReminders() {
             title: 'Appointment Reminder',
             message: `Your appointment with ${appointment.clientName} is in 10 minutes.`,
             pillarId: 'calendar',
+            entityId: appointmentId,
             deliverAt: Timestamp.fromMillis(doc.data().startTime.toMillis() - 10 * 60 * 1000)
         });
     });

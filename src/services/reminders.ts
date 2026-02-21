@@ -1,26 +1,7 @@
 
 import { admin, db } from '@/lib/firebaseAdmin';
 import { UserProfile, UserTier } from '@/types';
-import { startOfDay, format, subDays, addDays, addHours, isAfter } from 'date-fns';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-
-export interface Challenge {
-    id: string;
-    name: string;
-    description: string;
-    dates: {
-        from: Timestamp;
-        to: Timestamp;
-    };
-    scheduledHabits?: any[];
-    progress?: {
-        [userId: string]: {
-            [date: string]: {
-                [habitName: string]: boolean;
-            }
-        }
-    };
-}
 
 export interface Reminder {
     id: string;
@@ -28,6 +9,7 @@ export interface Reminder {
     title: string;
     message: string;
     pillarId: string;
+    entityId?: string;
     requiredTier?: UserTier;
     data?: any;
     deliverAt: Timestamp; 
@@ -65,15 +47,28 @@ export async function createUserNotification(userId: string, reminder: Omit<Remi
             const token = userProfile.pushToken;
 
             if (token) {
-                // ** CORRECTED PAYLOAD STRUCTURE **
+                const dataPayload: { [key: string]: string } = {
+                    title: reminder.title,
+                    body: reminder.message,
+                    notificationType: reminder.type,
+                    pillarId: reminder.pillarId,
+                };
+
+                if (reminder.entityId) {
+                    dataPayload.entityId = reminder.entityId;
+                }
+
+                if (reminder.data) {
+                    for (const key in reminder.data) {
+                        if (Object.prototype.hasOwnProperty.call(reminder.data, key)) {
+                            dataPayload[key] = String(reminder.data[key]);
+                        }
+                    }
+                }
+
                 const payload = {
                     token: token,
-                    data: {
-                        title: reminder.title,
-                        body: reminder.message,
-                        type: reminder.type,
-                        pillarId: reminder.pillarId,
-                    },
+                    data: dataPayload,
                     android: {
                         priority: "high" as const
                     },
@@ -88,6 +83,7 @@ export async function createUserNotification(userId: string, reminder: Omit<Remi
                         }
                     }
                 };
+
                 await admin.messaging().send(payload);
                 console.log(`Push notification sent to user ${userId} for reminder type ${reminder.type}`);
             } else {
@@ -125,7 +121,6 @@ export async function dismissReminderAction(userId: string, notificationId: stri
 
 export async function sendScheduledPopupNotification(popupData: any) {
   try {
-    // FIX: Correctly map campaignName and campaignId to title and id.
     const { targetType, targetValue, campaignName: title, message, campaignId: id, scheduledAt: deliveryTime, ...restData } = popupData;
     let targetUserIds: string[] = [];
     const userProfilesRef = db.collection('userProfiles');
