@@ -2,7 +2,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from 'react';
 import { onIdTokenChanged, User, signOut as firebaseSignOut } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, DocumentData, Timestamp } from 'firebase/firestore';
-import { auth, db, initializeFirebasePersistence } from '@/lib/firebase'; // Simplified imports
+import { auth, db, initializeFirebasePersistence } from '@/lib/firebase';
 import { Loader2 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type { UserProfile } from '@/types';
@@ -56,7 +56,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const unsubscribeAuth = onIdTokenChanged(auth, (authUser) => {
             setUser(authUser);
             if (!authUser) {
-                // Clear profile and token when user logs out
                 setUserProfile(null);
                 setFcmToken(null);
             }
@@ -71,45 +70,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
         }
 
-        const userProfileRef = doc(db, 'userProfiles', user.uid);
-        const clientOrCoachRef = doc(db, isCoach ? 'coaches' : 'clients', user.uid);
+        // **FINAL FIX:** Logic now ONLY uses 'clients' or 'coaches' collections, ignoring 'userProfiles'.
+        const profileCollection = isCoach ? 'coaches' : 'clients';
+        const profileRef = doc(db, profileCollection, user.uid);
 
-        const fetchAndSetProfile = async () => {
-            try {
-                const userProfileSnap = await getDoc(userProfileRef);
-                if (!userProfileSnap.exists()) {
-                    console.error(`Permissions Error: User profile does not exist for uid: ${user.uid}. Logging out.`);
-                    firebaseSignOut(auth);
-                    return;
-                }
-
-                let secondaryProfileData = {};
-                const secondaryProfileSnap = await getDoc(clientOrCoachRef);
-                if (secondaryProfileSnap.exists()) {
-                    secondaryProfileData = secondaryProfileSnap.data();
-                }
-                
-                setUserProfile(serializeTimestamps({ ...userProfileSnap.data(), ...secondaryProfileData }));
-
-            } catch (error) {
-                console.error('A critical permission error occurred while fetching user data...', error);
+        const unsub = onSnapshot(profileRef, (docSnap) => {
+            if (docSnap.exists()) {
+                setUserProfile(serializeTimestamps(docSnap.data()));
+            } else {
+                // This is the correct security behavior: if no profile exists, sign out.
+                console.error(`Permissions Error: User profile for uid: ${user.uid} not found in '${profileCollection}'. Logging out.`);
                 firebaseSignOut(auth);
             }
-        };
-
-        const unsubUser = onSnapshot(userProfileRef, fetchAndSetProfile, (error) => {
-            console.error("User profile listener failed:", error);
+        }, (error) => {
+            console.error(`Error listening to profile in '${profileCollection}':`, error);
             firebaseSignOut(auth);
         });
 
-        const unsubSecondary = onSnapshot(clientOrCoachRef, fetchAndSetProfile, (error) => {
-            console.warn(`${isCoach ? 'Coach' : 'Client'} profile listener failed:`, error);
-        });
+        return () => unsub();
 
-        return () => {
-            unsubUser();
-            unsubSecondary();
-        };
     }, [user, isCoach, firebaseReady]);
 
     const getIdToken = useCallback(async () => {
@@ -147,7 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const value = useMemo(() => 
         ({ user, userProfile, loading, isCoach, getIdToken, signOut, setFcmToken }), 
-        [user, userProfile, loading, isCoach, getIdToken, signOut, setFcmToken]
+        [user, userProfile, loading, isCoach, getIdToken, signOut]
     );
 
     return (
@@ -168,7 +147,7 @@ function FullScreenLoader() {
 const PUBLIC_PATHS = ['/login', '/signup', '/tos', '/privacy', '/support'];
 
 function AuthRedirector({ children }: { children: ReactNode }) {
-    const { user, isCoach, loading, signOut } = useAuth(); // using custom signOut
+    const { user, isCoach, loading } = useAuth();
     const router = useRouter();
     const pathname = usePathname();
 
@@ -186,10 +165,5 @@ function AuthRedirector({ children }: { children: ReactNode }) {
         }
     }, [user, isCoach, loading, pathname, router]);
     
-    // Example of how to use the new signOut function from a component
-    // const handleLogout = () => {
-    //     signOut();
-    // };
-
     return <>{children}</>;
 }

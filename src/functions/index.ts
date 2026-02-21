@@ -16,7 +16,6 @@ const messaging = getMessaging();
 // --- Function to get a user's name from their user profile ---
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
-    // As per your direction, we will only search the collections that contain messageable users.
     const collectionsToSearch = ['clients', 'coaches'];
     
     for (const collectionName of collectionsToSearch) {
@@ -171,8 +170,8 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
 // -----------------------------------------------------------------------------
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
-    // This needs to search all user collections to send a notification
-    const collectionsToSearch = ['clients', 'coaches', 'userProfiles'];
+    // **FINAL FIX:** This now ONLY searches the 'clients' and 'coaches' collections.
+    const collectionsToSearch = ['clients', 'coaches'];
     let userData: any = null;
 
     for (const collectionName of collectionsToSearch) {
@@ -184,7 +183,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
     }
 
   if (!userData) {
-      console.log(`sendPushNotification: User profile ${userId} not found in any collection. Cannot send notification.`);
+      console.log(`sendPushNotification: User profile ${userId} not found in 'clients' or 'coaches'. Cannot send notification.`);
       return;
   }
 
