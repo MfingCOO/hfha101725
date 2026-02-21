@@ -11,8 +11,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useChatModalStore, useWorkoutModalStore, useCalendarStore } from '@/store/ui-store';
 import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
 
-const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdToken: () => Promise<string | null>) => {
-    const idToken = await getIdToken();
+// **THE FIX:** The function now accepts the idToken directly.
+const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, idToken: string | null) => {
     if (!idToken) {
         console.error("Auth token not available. Cannot save FCM token.");
         return;
@@ -40,7 +40,8 @@ const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdTok
 
 
 const PushNotificationProvider = ({ children }: { children: React.ReactNode }) => {
-  const { user, userProfile, isCoach, getIdToken, loading, setFcmToken } = useAuth(); // Get setFcmToken
+  // **THE FIX:** Destructure only what the new AuthContext provides.
+  const { user, isCoach, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -101,7 +102,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   }, [searchParams, handleNotificationAction, router, isCoach]);
 
   useEffect(() => {
-    if (!user || loading || !userProfile || registrationCompletedForUser.current === user.uid) {
+    // **THE FIX:** Removed check for 'userProfile' as it no longer exists.
+    if (!user || loading || registrationCompletedForUser.current === user.uid) {
       return;
     }
 
@@ -109,8 +111,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       try {
         const handleNewToken = async (token: string) => {
             console.log('New FCM token received:', token);
-            setFcmToken(token);
-            await callSaveFcmTokenHttp(token, isCoach, getIdToken);
+            // **THE FIX:** Get idToken directly from the user object.
+            const idToken = await user.getIdToken();
+            await callSaveFcmTokenHttp(token, isCoach, idToken);
             registrationCompletedForUser.current = user.uid;
         };
 
@@ -191,8 +194,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         LocalNotifications.removeAllListeners();
       }
     };
-
-  }, [user, userProfile, isCoach, getIdToken, loading, handleNotificationAction, setFcmToken]);
+  // **THE FIX:** Updated the dependency array.
+  }, [user, isCoach, loading, handleNotificationAction]);
 
   return <>{children}</>;
 };

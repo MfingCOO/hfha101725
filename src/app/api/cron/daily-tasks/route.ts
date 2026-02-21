@@ -1,12 +1,11 @@
 
 import { db } from '@/lib/firebaseAdmin';
 import { NextResponse } from 'next/server';
-import { differenceInCalendarDays, subMinutes, subHours, set } from 'date-fns';
+import { differenceInCalendarDays } from 'date-fns';
 import { createUserNotification } from '@/services/reminders';
-import { UserProfile } from '@/types';
+import { ClientProfile } from '@/types'; // **THE FIX:** Use the new, correct type
 import { Timestamp } from 'firebase-admin/firestore';
 
-// Define the milestone days
 const MILESTONES = [3, 7, 14, 21, 28, 60, 90, 180, 365];
 
 async function handleStreakChecks() {
@@ -18,7 +17,8 @@ async function handleStreakChecks() {
     }
 
     const promises = clientsSnapshot.docs.map(async (doc) => {
-      const client = doc.data() as UserProfile;
+      // **THE FIX:** Cast to the new, correct 'ClientProfile' type.
+      const client = doc.data() as ClientProfile;
       const userId = doc.id;
 
       if (!client.bingeFreeSince) {
@@ -65,7 +65,6 @@ async function handleAppointmentReminders() {
         .get();
 
     if (appointmentsSnapshot.empty) {
-        console.log('[Cron Job] No upcoming appointments requiring reminders.');
         return;
     }
 
@@ -75,7 +74,6 @@ async function handleAppointmentReminders() {
         const coachId = appointment.coachId;
         const appointmentId = doc.id;
 
-        // Notify client
         await createUserNotification(userId, {
             type: 'appointment_reminder',
             title: 'Appointment Reminder',
@@ -85,7 +83,6 @@ async function handleAppointmentReminders() {
             deliverAt: Timestamp.fromMillis(doc.data().startTime.toMillis() - 10 * 60 * 1000)
         });
 
-        // Notify coach
         await createUserNotification(coachId, {
             type: 'appointment_reminder',
             title: 'Appointment Reminder',
@@ -107,12 +104,12 @@ async function handleMiaClientChecks() {
         .get();
 
     if (miaClientsSnapshot.empty) {
-        console.log('[Cron Job] No MIA clients found.');
         return;
     }
 
     const promises = miaClientsSnapshot.docs.map(async (doc) => {
-        const client = doc.data() as UserProfile;
+        // **THE FIX:** Cast to the new, correct 'ClientProfile' type.
+        const client = doc.data() as ClientProfile;
         if (client.coachId) {
             await createUserNotification(client.coachId, {
                 type: 'mia_alert',
@@ -131,19 +128,20 @@ async function handleChallengeCheckinReminders() {
     const clientsSnapshot = await db.collection('clients').where('activeChallengeId', '!=', null).get();
 
     if (clientsSnapshot.empty) {
-        console.log('[Cron Job] No clients with active challenges found.');
         return;
     }
 
     const promises = clientsSnapshot.docs.map(async (doc) => {
-        const client = doc.data() as UserProfile;
+        // **THE FIX:** Cast to the new, correct 'ClientProfile' type.
+        const client = doc.data() as ClientProfile;
         const userId = doc.id;
-        const bedtime = client.bedtime || '22:00'; // Default to 10 PM if not set
+        const bedtime = client.bedtime || '22:00';
         const [hours, minutes] = bedtime.split(':').map(Number);
         
-        const reminderTime = set(new Date(), { hours: hours - 2, minutes });
+        const reminderTime = new Date();
+        reminderTime.setHours(hours - 2, minutes, 0, 0);
 
-        if (reminderTime > new Date()) { // Only schedule for the future
+        if (reminderTime > new Date()) {
             await createUserNotification(userId, {
                 type: 'challenge_checkin',
                 title: 'Challenge Check-in',
@@ -156,7 +154,6 @@ async function handleChallengeCheckinReminders() {
 
     await Promise.all(promises);
 }
-
 
 export async function GET() {
   try {

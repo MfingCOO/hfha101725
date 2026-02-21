@@ -16,21 +16,19 @@ const messaging = getMessaging();
 // --- Function to get a user's name from their user profile ---
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
-    const collectionsToSearch = ['clients', 'coaches'];
     
-    for (const collectionName of collectionsToSearch) {
-        try {
-            const doc = await db.collection(collectionName).doc(userId).get();
-            if (doc.exists && doc.data()?.fullName) {
-                console.log(`getUserName: Found name for ${userId} in ${collectionName}.`);
-                return doc.data()?.fullName as string;
-            }
-        } catch (error) {
-             console.error(`Error searching for user ${userId} in ${collectionName}:`, error);
+    // **THE FIX:** We now only look in the 'clients' collection for ALL users.
+    try {
+        const doc = await db.collection('clients').doc(userId).get();
+        if (doc.exists && doc.data()?.fullName) {
+            console.log(`getUserName: Found name for ${userId} in 'clients'.`);
+            return doc.data()?.fullName as string;
         }
+    } catch (error) {
+         console.error(`Error searching for user ${userId} in 'clients':`, error);
     }
     
-    console.log(`getUserName: Could not find a name for userId: ${userId} in clients or coaches collections.`);
+    console.log(`getUserName: Could not find a name for userId: ${userId} in the 'clients' collection.`);
     return null;
 };
 
@@ -95,45 +93,33 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     console.log(`onNewMessage: Successfully created ${recipients.length} notification documents for chat ${chatId}.`);
 });
 
-// --- HYDRATION REMINDER ENGINE ---
+// --- HYDRATION REMINDER ENGINE (No changes needed here) ---
 export const hydrationReminderEngine = onSchedule('every 15 minutes', async (event) => {
     const now = Timestamp.now();
-    
-    const query = db.collection('hydration_reminders')
-                    .where('status', '==', 'scheduled')
-                    .where('scheduledAt', '<=', now);
-
+    const query = db.collection('hydration_reminders').where('status', '==', 'scheduled').where('scheduledAt', '<=', now);
     const snapshot = await query.get();
-
     if (snapshot.empty) {
         return;
     }
-
     console.log(`Found ${snapshot.docs.length} due hydration reminders.`);
-
     const promises = snapshot.docs.map(async (doc) => {
         const reminder = doc.data();
         const reminderId = doc.id;
         const userId = reminder.userId;
-
         try {
             const userRef = db.collection('clients').doc(userId);
             const userDoc = await userRef.get();
-
             if (!userDoc.exists) {
                 console.log(`User ${userId} not found. Skipping reminder ${reminderId}.`);
                 return;
             }
-
             const userData = userDoc.data();
             const userTier = userData?.tier;
             const ineligibleTiers = ['free', 'ad-free'];
-
             if (ineligibleTiers.includes(userTier)) {
                 console.log(`User ${userId} is on tier '${userTier}' and not eligible for reminders. Skipping.`);
                 return;
             }
-
             const notificationData = {
                 userId: userId,
                 title: '💧 Time to Hydrate!',
@@ -144,10 +130,8 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
                 sendTime: now,
                 processed: false,
             };
-
             await db.collection('notifications').add(notificationData);
             console.log(`Created notification document for user ${userId} for reminder ${reminderId}.`);
-
             if (reminder.recurring) {
                 const nextScheduledAt = new Timestamp(reminder.scheduledAt.seconds + (24 * 60 * 60), reminder.scheduledAt.nanoseconds);
                 await doc.ref.update({ scheduledAt: nextScheduledAt });
@@ -160,139 +144,78 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
             console.error(`Error processing reminder ${reminderId} for user ${userId}:`, error);
         }
     });
-
     await Promise.all(promises);
 });
-
 
 // -----------------------------------------------------------------------------
 // PART B: THE ENGINE (SENDS ALL PUSH NOTIFICATIONS)
 // -----------------------------------------------------------------------------
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
-    // **FINAL FIX:** This now ONLY searches the 'clients' and 'coaches' collections.
-    const collectionsToSearch = ['clients', 'coaches'];
     let userData: any = null;
-
-    for (const collectionName of collectionsToSearch) {
-        const userDoc = await db.collection(collectionName).doc(userId).get();
-        if (userDoc.exists) {
-            userData = userDoc.data();
-            break;
-        }
+    
+    // **THE FIX:** We now ONLY search the 'clients' collection for ALL users.
+    const userDoc = await db.collection('clients').doc(userId).get();
+    if (userDoc.exists) {
+        userData = userDoc.data();
+    } else {
+        console.log(`sendPushNotification: User profile ${userId} not found in 'clients'. Cannot send notification.`);
+        return;
     }
 
-  if (!userData) {
-      console.log(`sendPushNotification: User profile ${userId} not found in 'clients' or 'coaches'. Cannot send notification.`);
-      return;
-  }
+    if (!userData.fcmTokens || userData.fcmTokens.length === 0) {
+        console.log(`sendPushNotification: User ${userId} has no FCM tokens. Cannot send notification.`);
+        return;
+    }
 
-  if (!userData.fcmTokens || userData.fcmTokens.length === 0) {
-      console.log(`sendPushNotification: User ${userId} has no FCM tokens. Cannot send notification.`);
-      return;
-  }
+    const tokens = userData.fcmTokens.filter((t: string) => t);
+    if (tokens.length === 0) {
+        console.log(`sendPushNotification: No valid FCM tokens for user ${userId}.`);
+        return;
+    }
 
-  const tokens = userData.fcmTokens.filter((t: string) => t);
-  if (tokens.length === 0) {
-      console.log(`sendPushNotification: No valid FCM tokens for user ${userId}.`);
-      return;
-  }
-
-  const dataPayload = {
-      title: title,
-      body: message,
-      ctaUrl: ctaUrl || '/',
-      notificationType: notificationType || 'general',
-      entityId: entityId || 'none',
-  };
-
-  const payload = {
-    tokens: tokens,
-    data: dataPayload,
-    notification: {
+    const dataPayload = {
         title: title,
         body: message,
-    },
-    webpush: {
-        fcmOptions: {
-            link: ctaUrl || '/',
-        },
-        notification: {
-            icon: '/icon.png',
-            data: dataPayload 
-        }
-    },
-    android: {
-        priority: 'high' as const,
-        notification: {
-            title: title,
-            body: message,
-            channelId: 'default_notification_channel',
-            icon: 'ic_notification',
-            clickAction: 'FLUTTER_NOTIFICATION_CLICK', 
-        },
-    },
-    apns: {
-        payload: {
-            aps: {
-                alert: {
-                    title: title,
-                    body: message,
-                },
-                'content-available': 1,
-                sound: 'default',
-                badge: 1, 
-                category: 'HUNGREE_NOTIFICATION_ACTIONS'
-            },
-            ...dataPayload
-        },
-        headers: {
-            'apns-push-type': 'alert', 
-            'apns-priority': '10',
-        },
-    },
-  };
+        ctaUrl: ctaUrl || '/',
+        notificationType: notificationType || 'general',
+        entityId: entityId || 'none',
+    };
 
-  try {
-    await messaging.sendEachForMulticast(payload as any);
-    console.log(`sendPushNotification: Successfully sent notification to user ${userId} for type '${notificationType}'.`);
-  } catch (error) {
-    console.error(`sendPushNotification: Error sending push notification to user ${userId}:`, error);
-  }
+    const payload = {
+        tokens: tokens,
+        data: dataPayload,
+        notification: { title, body: message },
+        webpush: { fcmOptions: { link: ctaUrl || '/' }, notification: { icon: '/icon.png', data: dataPayload } },
+        android: { priority: 'high' as const, notification: { title, body: message, channelId: 'default_notification_channel', icon: 'ic_notification', clickAction: 'FLUTTER_NOTIFICATION_CLICK' } },
+        apns: {
+            payload: { aps: { alert: { title, body: message }, 'content-available': 1, sound: 'default', badge: 1, category: 'HUNGREE_NOTIFICATION_ACTIONS' }, ...dataPayload },
+            headers: { 'apns-push-type': 'alert', 'apns-priority': '10' },
+        },
+    };
+
+    try {
+        await messaging.sendEachForMulticast(payload as any);
+        console.log(`sendPushNotification: Successfully sent notification to user ${userId} for type '${notificationType}'.`);
+    } catch (error) {
+        console.error(`sendPushNotification: Error sending push notification to user ${userId}:`, error);
+    }
 }
 
 export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (event) => {
   const now = Timestamp.now();
-  
-  const query = db.collection('notifications')
-                  .where('processed', '==', false)
-                  .where('sendTime', '<=', now);
-  
+  const query = db.collection('notifications').where('processed', '==', false).where('sendTime', '<=', now);
   const snapshot = await query.get();
-  
   if (snapshot.empty) {
     return;
   }
-
   console.log(`unifiedNotificationEngine: Found ${snapshot.docs.length} notifications to process.`);
-
   const promises = snapshot.docs.map(async (doc) => {
     const notification = doc.data();
-    
     await doc.ref.update({ processed: true });
-
     console.log(`unifiedNotificationEngine: Processing notification ${doc.id} for user ${notification.userId}`);
-    
-    await sendPushNotification(
-      notification.userId,
-      notification.title,
-      notification.message,
-      notification.ctaUrl,
-      notification.notificationType,
-      notification.entityId
-    );
+    await sendPushNotification(notification.userId, notification.title, notification.message, notification.ctaUrl, notification.notificationType, notification.entityId);
   });
-
   await Promise.all(promises);
 });
 

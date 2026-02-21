@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import Script from 'next/script';
 import { inter } from './fonts';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { DataEntryModalProvider } from '@/contexts/DataEntryModalContext';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
 import { useAdMob } from '@/hooks/useAdMob';
@@ -47,9 +47,12 @@ export default function RootLayout({
           <AuthProvider>
             <AppCheckProvider>
                 <DataEntryModalProvider>
-                  <PushNotificationProvider>
-                    {children}
-                  </PushNotificationProvider>
+                  <Suspense>
+                    <PushNotificationProvider>
+                      {children}
+                    {/* **THE FIX:** Corrected the closing tag typo */}
+                    </PushNotificationProvider>
+                  </Suspense>
                 </DataEntryModalProvider>
             </AppCheckProvider>
           </AuthProvider>
