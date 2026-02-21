@@ -16,17 +16,23 @@ const messaging = getMessaging();
 // --- Function to get a user's name from their user profile ---
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
-    try {
-        const userProfileDoc = await db.collection('userProfiles').doc(userId).get();
-        if (userProfileDoc.exists && userProfileDoc.data()?.fullName) {
-            return userProfileDoc.data()?.fullName as string;
+    // As per your direction, we will only search the collections that contain messageable users.
+    const collectionsToSearch = ['clients', 'coaches'];
+    
+    for (const collectionName of collectionsToSearch) {
+        try {
+            const doc = await db.collection(collectionName).doc(userId).get();
+            if (doc.exists && doc.data()?.fullName) {
+                console.log(`getUserName: Found name for ${userId} in ${collectionName}.`);
+                return doc.data()?.fullName as string;
+            }
+        } catch (error) {
+             console.error(`Error searching for user ${userId} in ${collectionName}:`, error);
         }
-        console.log(`getUserName: User profile not found or name is missing for userId: ${userId}`);
-        return null;
-    } catch (error) {
-        console.error(`Error fetching user name for userId: ${userId}`, error);
-        return null;
     }
+    
+    console.log(`getUserName: Could not find a name for userId: ${userId} in clients or coaches collections.`);
+    return null;
 };
 
 
@@ -61,13 +67,12 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     console.log(`onNewMessage: Found ${recipients.length} recipients to notify.`);
 
     const senderName = await getUserName(senderId);
+    const body = messageText.substring(0, 100);
+    let title = `New message from ${senderName || 'someone'}`;
 
-    let title = senderName || 'New Message';
-    let body = messageText.substring(0, 100);
-
+    // For group chats, the title should be the name of the group.
     if (chatData.isGroup) {
-        title = chatData.name || 'Group Chat';
-        body = `${senderName || 'A user'}: ${body}`;
+        title = `New message in ${chatData.name || 'your group chat'}`;
     }
 
     console.log(`onNewMessage: Notification details - Title: '${title}', Body: '${body}', EntityID: '${chatId}'`);
@@ -166,16 +171,24 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
 // -----------------------------------------------------------------------------
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
-  const userRef = db.collection('userProfiles').doc(userId);
-  const userDoc = await userRef.get();
+    // This needs to search all user collections to send a notification
+    const collectionsToSearch = ['clients', 'coaches', 'userProfiles'];
+    let userData: any = null;
 
-  if (!userDoc.exists) {
-      console.log(`sendPushNotification: User profile ${userId} not found. Cannot send notification.`);
+    for (const collectionName of collectionsToSearch) {
+        const userDoc = await db.collection(collectionName).doc(userId).get();
+        if (userDoc.exists) {
+            userData = userDoc.data();
+            break;
+        }
+    }
+
+  if (!userData) {
+      console.log(`sendPushNotification: User profile ${userId} not found in any collection. Cannot send notification.`);
       return;
   }
 
-  const userData = userDoc.data();
-  if (!userData || !userData.fcmTokens || userData.fcmTokens.length === 0) {
+  if (!userData.fcmTokens || userData.fcmTokens.length === 0) {
       console.log(`sendPushNotification: User ${userId} has no FCM tokens. Cannot send notification.`);
       return;
   }
