@@ -124,7 +124,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                     notifications: [{
                         title: notification.title || 'Hunger-Free & Happy',
                         body: notification.body || '',
-                        id: Date.now(),
+                        id: Math.floor(Math.random() * 4294967295),
                         extra: notification.data,
                         smallIcon: 'res://public/app/icon.png'
                     } as LocalNotificationSchema]
