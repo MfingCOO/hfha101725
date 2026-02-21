@@ -13,24 +13,19 @@ const messaging = getMessaging();
 // PART A: INFORMATIVE NOTIFICATION TRIGGERS
 // -----------------------------------------------------------------------------
 
-// --- Function to get a user's name from either 'clients' or 'coaches' collection ---
-const getUserName = async (userId: string): Promise<string> => {
-    if (!userId) return 'New Message';
+// --- Function to get a user's name from their user profile ---
+const getUserName = async (userId: string): Promise<string | null> => {
+    if (!userId) return null;
     try {
-        const clientDoc = await db.collection('clients').doc(userId).get();
-        if (clientDoc.exists && clientDoc.data()?.name) {
-            return clientDoc.data()?.name;
+        const userProfileDoc = await db.collection('userProfiles').doc(userId).get();
+        if (userProfileDoc.exists && userProfileDoc.data()?.fullName) {
+            return userProfileDoc.data()?.fullName as string;
         }
-
-        const coachDoc = await db.collection('coaches').doc(userId).get();
-        if (coachDoc.exists && coachDoc.data()?.name) {
-            return coachDoc.data()?.name;
-        }
-
-        return 'New Message'; // Default fallback
+        console.log(`getUserName: User profile not found or name is missing for userId: ${userId}`);
+        return null;
     } catch (error) {
         console.error(`Error fetching user name for userId: ${userId}`, error);
-        return 'New Message';
+        return null;
     }
 };
 
@@ -65,15 +60,14 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
 
     console.log(`onNewMessage: Found ${recipients.length} recipients to notify.`);
 
-    // --- Robustly get sender's name ---
     const senderName = await getUserName(senderId);
 
-    let title = senderName;
+    let title = senderName || 'New Message';
     let body = messageText.substring(0, 100);
 
     if (chatData.isGroup) {
         title = chatData.name || 'Group Chat';
-        body = `${senderName}: ${body}`;
+        body = `${senderName || 'A user'}: ${body}`;
     }
 
     console.log(`onNewMessage: Notification details - Title: '${title}', Body: '${body}', EntityID: '${chatId}'`);
@@ -83,7 +77,6 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
             userId: recipientId,
             title: title,
             message: body,
-            // Crucially ensure the notificationType and entityId are correct
             ctaUrl: `/client/dashboard?notificationType=chat&entityId=${chatId}`,
             notificationType: 'chat',
             entityId: chatId, 
@@ -109,7 +102,6 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
     const snapshot = await query.get();
 
     if (snapshot.empty) {
-        console.log("No due hydration reminders.");
         return;
     }
 
@@ -166,7 +158,6 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
     });
 
     await Promise.all(promises);
-    console.log("Finished processing hydration reminders batch.");
 });
 
 
@@ -175,11 +166,11 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
 // -----------------------------------------------------------------------------
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
-  const userRef = db.collection('clients').doc(userId);
+  const userRef = db.collection('userProfiles').doc(userId);
   const userDoc = await userRef.get();
 
   if (!userDoc.exists) {
-      console.log(`sendPushNotification: User document ${userId} not found in 'clients'. Cannot send notification.`);
+      console.log(`sendPushNotification: User profile ${userId} not found. Cannot send notification.`);
       return;
   }
 

@@ -77,10 +77,6 @@ const nextConfig: NextConfig = {
   },
   // THIS IS THE FIX for the 'Critical dependency' error.
   serverExternalPackages: ['@opentelemetry/instrumentation', '@genkit-ai/core', '@genkit-ai/flow'],
-  allowedDevOrigins: [
-      'https://*.cloudworkstations.dev',
-      'https://3000-firebase-103125-1761919991969.cluster-zsqzu5kebnaemxbyqrvoim2lxo.cloudworkstations.dev'
-  ],
 };
 
 export default withPWA(nextConfig);

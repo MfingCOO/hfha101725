@@ -8,10 +8,9 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { messaging } from '@/lib/firebase';
 import { getToken, onMessage } from 'firebase/messaging';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useChatModalStore, useWorkoutModalStore } from '@/store/ui-store';
+import { useChatModalStore, useWorkoutModalStore, useCalendarStore } from '@/store/ui-store';
 import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
 
-// HTTP call function remains unchanged
 const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdToken: () => Promise<string | null>) => {
     const idToken = await getIdToken();
     if (!idToken) {
@@ -48,10 +47,10 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const { openModal: openChatModal } = useChatModalStore();
   const { openModal: openWorkoutModal } = useWorkoutModalStore();
   const { openModal: openDataEntryModal } = useDataEntryModal();
+  const { onOpen: onOpenCalendar } = useCalendarStore();
   
   const registrationCompletedForUser = useRef<string | null>(null);
 
-  // --- UNIFIED ACTION HANDLER ---
   const handleNotificationAction = useCallback((data: { [key: string]: any }) => {
     if (!data) {
         console.warn("handleNotificationAction called with no data.");
@@ -68,29 +67,27 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             openDataEntryModal('hydration');
             break;
           case 'chat':
-            if (entityId) {
-              console.log(`Opening chat modal for entityId: ${entityId}`);
-              openChatModal(String(entityId));
-            } else {
-              console.warn('Chat notification received without entityId');
-            }
+            console.log(`Handling 'chat' notification. ChatID: ${entityId}`);
+            openChatModal(entityId ? String(entityId) : undefined);
             break;
           case 'workout':
             if (entityId) {
               console.log(`Opening workout modal for entityId: ${entityId}`);
               openWorkoutModal(String(entityId));
-            } else {
-              console.warn('Workout notification received without entityId');
             }
+            break;
+          case 'appointment_reminder':
+          case 'appointment_booked':
+            console.log(`Handling '${notificationType}' notification. EventID: ${entityId}`);
+            onOpenCalendar(entityId ? String(entityId) : null);
             break;
           default:
             console.warn(`Unknown notificationType received: ${notificationType}`);
         }
       }, 100);
     }
-  }, [openChatModal, openWorkoutModal, openDataEntryModal]);
+  }, [openChatModal, openWorkoutModal, openDataEntryModal, onOpenCalendar]);
 
-  // --- URL-BASED TRIGGER (The "Landing Pad") ---
   useEffect(() => {
     if (searchParams) {
         const notificationType = searchParams.get('notificationType');
@@ -103,7 +100,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     }
   }, [searchParams, handleNotificationAction, router]);
 
-  // --- INITIALIZATION LOGIC ---
   useEffect(() => {
     if (!user || loading || !userProfile || registrationCompletedForUser.current === user.uid) {
       return;
@@ -126,7 +122,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                 console.log('Native FOREGROUND notification:', notification);
                 LocalNotifications.schedule({
                     notifications: [{
-                        title: notification.title || 'New Message',
+                        title: notification.title || 'Hunger-Free & Happy',
                         body: notification.body || '',
                         id: Date.now(),
                         extra: notification.data,
@@ -161,7 +157,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                 console.log('Web FOREGROUND notification:', message);
                 if (message.data) {
                   const { title, body } = message.data;
-                  const notification = new Notification(title || 'New Message', {
+                  const notification = new Notification(title || 'Hunger-Free & Happy', {
                     body: body || '',
                     icon: '/apple-touch-icon.png',
                     data: message.data
