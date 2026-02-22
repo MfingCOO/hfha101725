@@ -10,6 +10,30 @@ import { storage as adminStorage } from 'firebase-admin';
 
 const SERVER_ERROR = { success: false, error: { message: "Server configuration error." } };
 
+const AddFcmTokenInputSchema = z.object({
+    userId: z.string(),
+    token: z.string(),
+});
+
+export async function addFcmTokenAction(input: z.infer<typeof AddFcmTokenInputSchema>): Promise<{ success: boolean; error?: any }> {
+    if (!adminDb) {
+        return SERVER_ERROR;
+    }
+    try {
+        const { userId, token } = AddFcmTokenInputSchema.parse(input);
+        const clientRef = adminDb.collection('clients').doc(userId);
+
+        await clientRef.set({
+            fcmTokens: FieldValue.arrayUnion(token),
+        }, { merge: true });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Failed to add FCM token for user ${input.userId}:`, error);
+        return { success: false, error: { message: error.message || "An unknown error occurred." } };
+    }
+}
+
 async function getUserProfile_Admin_Robust(userId: string): Promise<any | null> {
     if (!adminDb || !userId) return null;
 
@@ -422,6 +446,7 @@ const PostMessageInputSchema = z.object({
 });
 
 export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>): Promise<{ success: boolean; error?: { message: string; }; }> {
+    console.log('postMessageAction started');
     if (!adminDb || !messaging) {
         return SERVER_ERROR;
     }
@@ -473,7 +498,8 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
 
         const recipients = chatData.participants.filter(pId => pId !== userId);
         const mutedBy = chatData.mutedBy || [];
-        
+        let allRecipientTokens: string[] = [];
+
         for (const recipientId of recipients) {
             if (COACH_UIDS.includes(recipientId) && mutedBy.includes(recipientId)) {
                 continue;
@@ -481,32 +507,44 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
 
             try {
                 const userData = await getUserProfile_Admin_Robust(recipientId);
-
-                if (userData) {
-                    const allTokens = [...(userData.fcmTokens || []), ...(userData.pushToken ? [userData.pushToken] : [])].filter(t => t);
-
-                    if (allTokens.length > 0) {
-                        const safeDataPayload = {
-                            title: `New message from ${userName}`,
-                            body: messageText.slice(0, 100),
-                            chatId: String(chatId),
-                            notificationType: 'chat',
-                            sent_time: String(sentTimestamp.toMillis())
-                        };
-
-                        const payload = {
-                            tokens: allTokens,
-                            data: safeDataPayload,
-                            android: {
-                                priority: 'high' as const,
-                            },
-                        };
-                        await messaging!.sendEachForMulticast(payload as any);
-                    }
+                if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
+                    const validTokens = userData.fcmTokens.filter((t: any) => t);
+                    allRecipientTokens.push(...validTokens);
                 }
             } catch (error) {
-                console.error(`Error sending notification to user ${recipientId}:`, error);
+                console.error(`Error fetching profile for recipient ${recipientId}:`, error);
             }
+        }
+        
+        const uniqueTokens = Array.from(new Set(allRecipientTokens));
+
+        if (uniqueTokens.length > 0) {
+            console.log(`Sending notification to ${uniqueTokens.length} tokens for chat ${chatId}.`);
+            const title = `New message from ${userName}`;
+            const body = messageText.slice(0, 100);
+
+            const payload = {
+                tokens: uniqueTokens,
+                notification: { title, body },
+                data: {
+                    chatId: String(chatId),
+                    notificationType: 'chat',
+                    sent_time: String(sentTimestamp.toMillis())
+                },
+                android: {
+                    priority: 'high' as const,
+                    notification: {
+                        title,
+                        body,
+                        channelId: 'chat_messages',
+                        icon: 'ic_notification',
+                        clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+                    }
+                },
+            };
+            const response = await messaging!.sendEachForMulticast(payload as any);
+            console.log('postMessageAction finished');
+            console.log(`FCM response: ${response.successCount} success, ${response.failureCount} failure.`);
         }
         
         return { success: true };
@@ -834,5 +872,26 @@ export async function deleteChatAction(input: { chatId: string }): Promise<{ suc
     } catch (error: any) {
         console.error(`Failed to delete chat ${chatId}:`, error);
         return { success: false, error: { message: error.message || "An unknown error occurred while deleting the chat." } };
+    }
+}
+
+const DismissEducationalModalSchema = z.object({
+    userId: z.string(),
+});
+
+export async function dismissEducationalModal(input: z.infer<typeof DismissEducationalModalSchema>): Promise<{ success: boolean; error?: any }> {
+    if (!adminDb) {
+        return SERVER_ERROR;
+    }
+    const { userId } = DismissEducationalModalSchema.parse(input);
+    try {
+        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+        await userProfileRef.update({
+            dismissedEducationalModal: true,
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Failed to mark educational modal as seen for user ${userId}:`, error);
+        return { success: false, error: { message: error.message || "An unknown error occurred." } };
     }
 }

@@ -3,9 +3,11 @@ import type { NextConfig } from 'next';
 
 const withPWA = require('next-pwa')({
   dest: 'public',
-  register: true,
+  // THE FIX: We are disabling automatic registration to take manual control.
+  register: false,
   skipWaiting: true,
-  disable: process.env.NODE_ENV === 'development'
+  disable: false,
+  importScripts: ['/firebase-messaging-sw.js'],
 });
 
 const nextConfig: NextConfig = {

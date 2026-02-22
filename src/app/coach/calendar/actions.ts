@@ -4,8 +4,9 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { endOfDay, format } from 'date-fns';
-import type { AvailabilitySettings, SiteSettings } from '@/types';
+import { endOfDay, format, subMinutes } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz'; // ADDED FOR TIMEZONE FORMATTING
+import type { AvailabilitySettings, SiteSettings } from '@/types/index';
 import { createUserNotification } from '@/services/reminders';
 
 const eventSchema = z.object({
@@ -24,7 +25,6 @@ const eventSchema = z.object({
 
 type CalendarEventInput = z.infer<typeof eventSchema>;
 
-// Helper to convert Firestore Timestamps to ISO strings for client-side consumption
 function serializeTimestamps(docData: any): any {
     if (!docData) return docData;
     const newObject: { [key: string]: any } = { ...docData };
@@ -97,14 +97,57 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         
         await eventRef.set(finalEventData, { merge: true });
 
-        if (dataToSave.coachId && dataToSave.clientName) {
-            await createUserNotification(dataToSave.coachId, {
-                type: 'appointment_booked',
-                title: 'New Appointment Booked',
-                message: `${dataToSave.clientName} has booked a call with you for ${format(dataToSave.start, 'PPP p')}`,
-                pillarId: 'calendar',
-                deliverAt: Timestamp.now()
-            });
+        const isAppointment = dataToSave.coachId && dataToSave.clientId;
+
+        if (isAppointment) {
+            // Fetch coach's timezone for accurate notifications
+            const coachProfileSnap = await adminDb.collection('users').doc(dataToSave.coachId!).get();
+            const coachProfile = coachProfileSnap.data();
+            const coachTimezone = coachProfile?.timezone || 'UTC'; // Default to UTC if not found
+
+            // Format the start time in the coach's local timezone
+            const formattedStartTime = formatInTimeZone(dataToSave.start, coachTimezone, 'PPP p');
+
+            // 1. Immediate booking notification for coach
+            if (dataToSave.clientName) {
+                await createUserNotification(dataToSave.coachId!, {
+                    type: 'appointment_booked',
+                    title: 'New Appointment Booked',
+                    message: `${dataToSave.clientName} has booked a call with you for ${formattedStartTime}`,
+                    pillarId: 'calendar',
+                    deliverAt: Timestamp.now(),
+                    entityId: eventRef.id
+                });
+            }
+
+            // 2. Scheduled 10-minute reminders for both coach and client
+            const reminderTime = subMinutes(dataToSave.start, 10);
+            if (reminderTime > new Date()) {
+
+                // Reminder for the coach
+                if (dataToSave.clientName) {
+                    await createUserNotification(dataToSave.coachId!, {
+                        type: 'appointment_reminder',
+                        title: 'Upcoming Appointment',
+                        message: `Your appointment with ${dataToSave.clientName} is in 10 minutes.`,
+                        pillarId: 'calendar',
+                        entityId: eventRef.id,
+                        deliverAt: Timestamp.fromDate(reminderTime)
+                    });
+                }
+
+                // Reminder for the client
+                if (dataToSave.coachName) {
+                     await createUserNotification(dataToSave.clientId!, {
+                        type: 'appointment_reminder',
+                        title: 'Upcoming Appointment',
+                        message: `Your appointment with ${dataToSave.coachName} is in 10 minutes.`,
+                        pillarId: 'calendar',
+                        entityId: eventRef.id,
+                        deliverAt: Timestamp.fromDate(reminderTime)
+                    });
+                }
+            }
         }
 
         return { success: true, id: eventRef.id };
@@ -113,6 +156,7 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         return { success: false, error: error.message };
     }
 }
+
 
 export async function deleteCalendarEvent(eventId: string) {
     try {
@@ -130,7 +174,6 @@ export async function deleteCalendarEvent(eventId: string) {
 export async function saveCoachAvailability(settings: AvailabilitySettings): Promise<{ success: boolean; error?: string }> {
     try {
         const docRef = adminDb.collection('siteSettings').doc('v1');
-        // No data manipulation is needed. The client will provide dates in 'yyyy-MM-dd' string format.
         await docRef.set({ availability: settings }, { merge: true });
         return { success: true };
     } catch (error: any) {
@@ -145,8 +188,6 @@ export async function getCoachAvailabilityAndEvents(startDate: Date, endDate: Da
         const settingsSnap = await settingsDocRef.get();
         const siteSettings = settingsSnap.data() as SiteSettings | undefined;
 
-        // The availability object is fetched and passed through without modification.
-        // Vacation blocks are stored as 'yyyy-MM-dd' strings.
         const availability = siteSettings?.availability || null;
 
         const eventsResult = await getCoachEvents(startDate, endDate);

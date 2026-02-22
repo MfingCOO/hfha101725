@@ -1,24 +1,112 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { Chat } from '@/types';
 import { useAuth } from '@/components/auth/auth-provider';
-import { getChatsForClient, getChatMetadataForUser } from '@/app/chats/actions';
+import { getChatsForClient, getChatMetadataForUser, addFcmTokenAction } from '@/app/chats/actions';
+import { PushNotifications, Token, ActionPerformed } from '@capacitor/push-notifications';
+import { Capacitor } from '@capacitor/core';
 
 interface ChatDialogContextType {
   isChatOpen: boolean;
   openChat: () => void;
   closeChat: () => void;
+  isCoachChatOpen: boolean;
+  openCoachChat: () => void;
+  closeCoachChat: () => void;
+  selectedChatId: string | null;
+  setSelectedChatId: (chatId: string | null) => void;
 }
 
 const ChatDialogContext = createContext<ChatDialogContextType | undefined>(undefined);
 
 export const ChatDialogProvider = ({ children }: { children: React.ReactNode }) => {
+    const { isCoach, loading, user } = useAuth();
     const [isChatOpen, setIsChatOpen] = useState(false);
-    const openChat = () => setIsChatOpen(true);
-    const closeChat = () => setIsChatOpen(false);
+    const [isCoachChatOpen, setIsCoachChatOpen] = useState(false);
+    const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
 
-    const value = useMemo(() => ({ isChatOpen, openChat, closeChat }), [isChatOpen]);
+    // THE DEFINITIVE FIX: Use a ref to track the user's role.
+    // This ensures the notification listener always has the latest value and avoids race conditions.
+    const isCoachRef = useRef(isCoach);
+    useEffect(() => {
+        isCoachRef.current = isCoach;
+    }, [isCoach]);
+
+    const openChat = () => setIsChatOpen(true);
+    const closeChat = () => {
+        setIsChatOpen(false);
+        setSelectedChatId(null);
+    };
+
+    const openCoachChat = () => setIsCoachChatOpen(true);
+    const closeCoachChat = () => {
+        setIsCoachChatOpen(false);
+        setSelectedChatId(null);
+    };
+
+    useEffect(() => {
+        if (loading || !user) return;
+
+        const initPushNotifications = async () => {
+            if (Capacitor.getPlatform() === 'web') return;
+
+            await PushNotifications.removeAllListeners();
+
+            await PushNotifications.addListener('registration', async (token: Token) => {
+                try {
+                    await addFcmTokenAction({ userId: user.uid, token: token.value });
+                } catch (error) {
+                    console.error('Failed to save FCM token:', error);
+                }
+            });
+
+            await PushNotifications.addListener('registrationError', (error: any) => {
+                console.error('Error on push registration:', error);
+            });
+
+            await PushNotifications.addListener('pushNotificationActionPerformed', (event: ActionPerformed) => {
+                const chatId = event.notification.data?.chatId as string;
+                if (chatId) {
+                    // Use the ref to get the LATEST role, breaking the race condition.
+                    setSelectedChatId(chatId);
+                    if (isCoachRef.current) {
+                        openCoachChat();
+                    } else {
+                        openChat();
+                    }
+                }
+            });
+
+            let permStatus = await PushNotifications.checkPermissions();
+            if (permStatus.receive === 'prompt') {
+                permStatus = await PushNotifications.requestPermissions();
+            }
+            if (permStatus.receive !== 'granted') {
+                return;
+            }
+
+            await PushNotifications.register();
+        };
+
+        initPushNotifications();
+
+        return () => {
+            PushNotifications.removeAllListeners();
+        };
+
+    }, [loading, user]);
+
+    const value = useMemo(() => ({
+         isChatOpen, 
+         openChat, 
+         closeChat, 
+         isCoachChatOpen,
+         openCoachChat,
+         closeCoachChat,
+         selectedChatId, 
+         setSelectedChatId 
+    }), [isChatOpen, isCoachChatOpen, selectedChatId]);
 
     return (
         <ChatDialogContext.Provider value={value}>

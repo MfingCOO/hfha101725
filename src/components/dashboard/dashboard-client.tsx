@@ -30,7 +30,7 @@ import {
 import { Loader2 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { FirstUseEducationalModal } from '../modals/FirstUseEducationalModal';
+// import { FirstUseEducationalModal } from '../modals/FirstUseEducationalModal';
 import { educationalContentLibrary, EducationalContent } from '@/lib/educational-content';
 import { UpgradeModal } from '../modals/upgrade-modal';
 import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
@@ -575,7 +575,7 @@ export function DashboardClient() {
       />
 
       
-      {isMounted && educationalModalContent && (
+      {/* {isMounted && educationalModalContent && (
         <FirstUseEducationalModal 
             isOpen={isEducationalModalOpen}
             onClose={handleEducationalModalClose}
@@ -583,7 +583,7 @@ export function DashboardClient() {
             content={educationalModalContent}
             isLocked={isEducationalModalLocked}
         />
-      )}
+      )} */}
       
        {clientProfile && (
         <CalendarDialog
