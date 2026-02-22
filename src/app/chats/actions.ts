@@ -10,26 +10,37 @@ import { storage as adminStorage } from 'firebase-admin';
 
 const SERVER_ERROR = { success: false, error: { message: "Server configuration error." } };
 
-// Helper function to find a user profile across both 'clients' and 'coaches' collections.
-async function getUserProfile_Admin_Robust(userId: string): Promise<UserProfile | null> {
+async function getUserProfile_Admin_Robust(userId: string): Promise<any | null> {
     if (!adminDb || !userId) return null;
-    
-    const collectionsToSearch = ['clients', 'coaches'];
-    for (const collectionName of collectionsToSearch) {
-        try {
-            const docRef = adminDb.collection(collectionName).doc(userId);
-            const docSnap = await docRef.get();
-            if (docSnap.exists) {
-                console.log(`Found user ${userId} in ${collectionName}`);
-                // Return a structure that matches the UserProfile type.
-                return { uid: docSnap.id, ...docSnap.data() } as UserProfile;
-            }
-        } catch (error) {
-            console.error(`Error searching for user ${userId} in ${collectionName}:`, error);
+
+    try {
+        const clientRef = adminDb.collection('clients').doc(userId);
+        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+        const coachRef = adminDb.collection('coaches').doc(userId);
+
+        const [clientSnap, userProfileSnap, coachSnap] = await Promise.all([
+            clientRef.get(),
+            userProfileRef.get(),
+            coachRef.get()
+        ]);
+
+        const clientData = clientSnap.exists ? clientSnap.data() : {};
+        const userProfileData = userProfileSnap.exists ? userProfileSnap.data() : {};
+        const coachData = coachSnap.exists ? coachSnap.data() : {};
+
+        const mergedProfile = { ...clientData, ...userProfileData, ...coachData, uid: userId };
+
+        if (!clientSnap.exists && !userProfileSnap.exists && !coachSnap.exists) {
+            console.warn(`Could not find a profile for user ${userId} in any collection.`);
+            return null;
         }
+
+        return mergedProfile;
+
+    } catch (error) {
+        console.error(`Error merging profiles for user ${userId}:`, error);
+        return null;
     }
-    console.warn(`Could not find a profile for user ${userId} in 'clients' or 'coaches'.`);
-    return null;
 }
 
 function serializeTimestamps(docData: any) {
@@ -71,12 +82,13 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
                 const snapshot = await recentMessagesQuery.get();
                 
                 if (snapshot.empty) {
-                    return { ...chat, lastMessage: null, lastClientMessageTimestamp: null };
+                    return { ...chat, lastMessage: undefined, lastClientMessageTimestamp: null };
                 }
 
                 const recentMessages = snapshot.docs.map(doc => doc.data());
                 const lastMessageData = recentMessages[0];
-                const lastMessage = {
+                const lastMessage: ChatMessage = {
+                    id: lastMessageData.id,
                     text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
                     timestamp: lastMessageData.timestamp || new Timestamp(0, 0),
                     senderId: lastMessageData.userId || 'system'
@@ -89,7 +101,7 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
 
             } catch (error) {
                 console.error(`Error enhancing chat data for chat ${chat.id}:`, error);
-                return { ...chat, lastMessage: null, lastClientMessageTimestamp: null };
+                return { ...chat, lastMessage: undefined, lastClientMessageTimestamp: null };
             }
         });
 
@@ -109,12 +121,11 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
         return SERVER_ERROR;
     }
     try {
-        const userProfileSnap = await adminDb.collection('userProfiles').doc(userId).get();
-        if (!userProfileSnap.exists) {
+        const userProfile = await getUserProfile_Admin_Robust(userId);
+        if (!userProfile) {
             return { success: true, data: [] };
         }
         
-        const userProfile = userProfileSnap.data() as UserProfile;
         const userChatIds = userProfile.chatIds || [];
         const userTier = userProfile.tier;
 
@@ -163,13 +174,14 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
                 const snapshot = await recentMessagesQuery.get();
                 
                 if (snapshot.empty) {
-                    return { ...chat, lastMessage: null, unreadCount: 0 };
+                    return { ...chat, lastMessage: undefined, unreadCount: 0 };
                 }
 
                 const recentMessages = snapshot.docs.map(doc => doc.data());
 
                 const lastMessageData = recentMessages[0];
-                const lastMessage = {
+                const lastMessage: ChatMessage = {
+                    id: lastMessageData.id,
                     text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
                     timestamp: lastMessageData.timestamp || new Timestamp(0, 0),
                     senderId: lastMessageData.userId || 'system'
@@ -190,7 +202,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
 
             } catch (error) {
                 console.error(`Error enhancing chat data for chat ${chat.id}:`, error);
-                return { ...chat, lastMessage: null, unreadCount: 0 };
+                return { ...chat, lastMessage: undefined, unreadCount: 0 };
             }
         });
 
@@ -268,15 +280,12 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
         return SERVER_ERROR;
     }
     try {
-        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
-        const userProfileSnap = await userProfileRef.get();
+        const userProfile = await getUserProfile_Admin_Robust(userId);
 
-        if (!userProfileSnap.exists) {
+        if (!userProfile) {
             throw new Error('User profile not found.');
         }
 
-        const userProfile = userProfileSnap.data() as UserProfile;
-        
         if (userProfile.hasHadCoachingChat) {
             return { success: true };
         }
@@ -285,7 +294,8 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
         if (!primaryCoachId) {
             throw new Error("No coaches are configured.");
         }
-
+        
+        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
         const chatRef = adminDb.collection('chats').doc();
         const participants = [userId, primaryCoachId];
 
@@ -319,11 +329,10 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
 
         await batch.commit();
 
-        const coachProfileSnap = await adminDb.collection('userProfiles').doc(primaryCoachId).get();
-        if (coachProfileSnap.exists) {
-            const coachData = coachProfileSnap.data();
-            if (coachData && coachData.fcmTokens && coachData.fcmTokens.length > 0) {
-                const validTokens = coachData.fcmTokens.filter((t: any) => t);
+        const coachProfile = await getUserProfile_Admin_Robust(primaryCoachId);
+        if (coachProfile) {
+            if (coachProfile.fcmTokens && coachProfile.fcmTokens.length > 0) {
+                const validTokens = coachProfile.fcmTokens.filter((t: any) => t);
                 if (validTokens.length > 0) {
                     const payload = {
                         tokens: validTokens,
@@ -471,11 +480,9 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             }
 
             try {
-                const userRef = adminDb!.collection("userProfiles").doc(recipientId);
-                const userDoc = await userRef.get();
+                const userData = await getUserProfile_Admin_Robust(recipientId);
 
-                if (userDoc.exists) {
-                    const userData = userDoc.data() as UserProfile;
+                if (userData) {
                     const allTokens = [...(userData.fcmTokens || []), ...(userData.pushToken ? [userData.pushToken] : [])].filter(t => t);
 
                     if (allTokens.length > 0) {
@@ -590,7 +597,7 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
             const profilePromises = chatData.participants.map(uid => getUserProfile_Admin_Robust(uid));
             const profileSnapshots = await Promise.all(profilePromises);
             profileSnapshots.forEach(snap => {
-                if (snap) { // Check if a profile was found
+                if (snap) { 
                     participants[snap.uid] = serializeTimestamps(snap) as UserProfile;
                 }
             });

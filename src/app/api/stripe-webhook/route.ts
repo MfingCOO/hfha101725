@@ -11,7 +11,6 @@ const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
     apiVersion: '2024-04-10',
 });
 
-// This internal function creates the user in Firebase and sets up all associated data.
 async function createUserFromStripe(session: Stripe.Checkout.Session) {
     const userDataString = session.metadata?.userData;
     if (!userDataString) {
@@ -40,21 +39,6 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
             data.birthdate = new Date(data.birthdate);
         }
 
-        const batch = adminDb.batch();
-
-        const userProfileRef = adminDb.collection('userProfiles').doc(uid);
-        batch.set(userProfileRef, {
-            uid: uid,
-            email: data.email,
-            fullName: data.fullName,
-            tier: data.tier,
-            role: 'client',
-            stripeCustomerId: customerId,
-            chatIds: [],
-            challengeIds: [],
-            coachId: DEFAULT_COACH_ID,
-        });
-
         const { password, ...onboardingData } = data;
 
         const clientDataForGoals: Partial<ClientProfile> = {
@@ -65,21 +49,23 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
             onboarding: onboardingData,
             stripeCustomerId: customerId,
             coachId: DEFAULT_COACH_ID,
+            chatIds: [],
+            challengeIds: [],
+            role: 'client',
         };
 
         const initialGoals = calculateNutritionalGoals(clientDataForGoals as ClientProfile);
-
         const clientDocRef = adminDb.collection('clients').doc(uid);
 
-        batch.set(clientDocRef, {
+        // A single batch write to the 'clients' collection is sufficient.
+        await clientDocRef.set({
             ...clientDataForGoals,
             createdAt: Timestamp.now(),
             suggestedGoals: initialGoals,
             customGoals: initialGoals,
         });
 
-        await batch.commit();
-        console.log(`[WEBHOOK] Successfully created user ${uid} and client documents.`);
+        console.log(`[WEBHOOK] Successfully created user ${uid} and client document.`);
         return { success: true, uid: uid };
 
     } catch (error: any) {
@@ -127,25 +113,25 @@ export async function POST(req: NextRequest) {
                 }
 
                 await adminDb.runTransaction(async (transaction) => {
-                    const userProfileQuery = adminDb.collection('userProfiles').where('stripeCustomerId', '==', customerId).limit(1);
-                    const userProfileSnapshot = await transaction.get(userProfileQuery);
+                    // REFACTORED: Query the 'clients' collection instead of 'userProfiles'.
+                    const clientQuery = adminDb.collection('clients').where('stripeCustomerId', '==', customerId).limit(1);
+                    const clientSnapshot = await transaction.get(clientQuery);
 
-                    if (userProfileSnapshot.empty) {
-                        console.warn(`[WEBHOOK] Transaction failed: Could not find user for stripeCustomerId: ${customerId}`);
+                    if (clientSnapshot.empty) {
+                        console.warn(`[WEBHOOK] Transaction failed: Could not find client for stripeCustomerId: ${customerId}`);
                         return;
                     }
 
-                    const userProfileDoc = userProfileSnapshot.docs[0];
-                    const uid = userProfileDoc.id;
-                    const clientDocRef = adminDb.collection('clients').doc(uid);
+                    const clientDoc = clientSnapshot.docs[0];
+                    const uid = clientDoc.id;
 
                     const isDeletion = event.type === 'customer.subscription.deleted';
                     const newTier = isDeletion 
                         ? 'free' 
                         : subscription.items.data[0]?.price.metadata.tier as UserTier || 'free';
 
-                    transaction.update(userProfileDoc.ref, { tier: newTier });
-                    transaction.update(clientDocRef, { tier: newTier });
+                    // A single update to the 'clients' collection is sufficient.
+                    transaction.update(clientDoc.ref, { tier: newTier });
 
                     console.log(`[WEBHOOK] Transaction success: Updated user ${uid} to tier ${newTier}.`);
                 });

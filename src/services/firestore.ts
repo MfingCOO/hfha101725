@@ -3,10 +3,50 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { differenceInCalendarDays, startOfDay, endOfDay as fnsEndOfDay, subDays, subHours, format, setHours, setMinutes, setSeconds, addDays, set } from 'date-fns';
 import { toZonedTime, formatInTimeZone, fromZonedTime } from 'date-fns-tz';
-import type { UserTier, ClientProfile, UserProfile, SavedMeal, MealItem, RecentFood } from '@/types';
+import type { UserTier, ClientProfile, Chat, Challenge, ChatMessage } from '@/types';
 import { calculateDailySummaryForUser } from './summary-calculator';
 import { FieldValue, Timestamp, FieldPath, Query } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
+
+// Inlined type definitions to avoid client-side dependencies
+export interface EnrichedFood {
+    fdcId: number;
+    description: string;
+    brandOwner?: string;
+    ingredients?: string;
+    nutrients: any[];
+    source: 'AI_ANALYSIS' | 'USER_PROVIDED' | 'MANUAL_BULK';
+    analysisDate: string;
+    upfAnalysis: any;
+    glutenAnalysis?: any;
+    upfPercentage: any;
+    portionSizes: any[];
+    createdAt?: any;
+    updatedAt?: any;
+    status?: string;
+    createdBy?: string;
+}
+
+export interface MealItem extends EnrichedFood {
+    quantity: number;
+    unit: string;
+    calories: number;
+}
+
+export interface SavedMeal {
+  id: string;
+  uid: string;
+  name: string;
+  items: MealItem[];
+  totalCalories: number;
+  createdAt: any;
+}
+
+export interface RecentFood extends EnrichedFood {
+    lastLogged: any;
+}
+
+
 /**
  * A fire-and-forget function to trigger daily summary recalculation with a delay.
  * Fetches the client's timezone info and introduces a delay to prevent race conditions.
@@ -640,74 +680,6 @@ export async function getWthrData(userId: string) {
     }
 }
 
-
-export interface Chat {
-    id: string;
-    name: string;
-    description: string;
-    type: 'coaching' | 'challenge' | 'open' | 'private_group';
-    participants: string[];
-    participantCount: number;
-    createdAt?: Timestamp;
-    lastClientMessage?: Timestamp;
-    lastCoachMessage?: Timestamp;
-    lastAutomatedMessage?: Timestamp;
-    thumbnailUrl?: string;
-    rules?: string[];
-    ownerId?: string;
-    lastMessage?: Timestamp;
-    unreadCount?: number;
-}
-
-export interface Challenge {
-    id: string;
-    name: string;
-    description: string;
-    dates: { from: Timestamp, to: Timestamp };
-    maxParticipants: number;
-    trackables: any[];
-    thumbnailUrl: string;
-    participants: string[];
-    participantCount: number;
-    points?: { [key: string]: number };
-    streaks?: { [key: string]: { lastLog: Timestamp, count: number } };
-    notes?: string;
-    type: 'challenge';
-    createdAt?: Timestamp;
-    scheduledPillars?: {
-        pillarId: string;
-        days: string[];
-        recurrenceType: 'weekly' | 'custom';
-        recurrenceInterval?: number;
-        notes?: string;
-    }[];
-    scheduledHabits?: {
-        habitId: string;
-        days: string[];
-        recurrenceType: 'weekly' | 'custom';
-        recurrenceInterval?: number;
-    }[];
-    customTasks?: {
-        description: string;
-        startDay: number;
-        unit: 'reps' | 'seconds' | 'minutes';
-        goalType: 'static' | 'progressive' | 'user-records';
-        goal?: number;
-        startingGoal?: number;
-        increaseBy?: number;
-        increaseEvery?: 'week' | '2-weeks' | 'month';
-        notes?: string;
-    }[];
-    progress?: {
-        [userId: string]: {
-            [date: string]: { // format: yyyy-MM-dd
-                [taskDescription: string]: boolean | number;
-            }
-        }
-    }
-}
-
-
 export async function getChallenges() {
     try {
         const q = adminDb.collection("challenges").orderBy("dates.from", "desc");
@@ -723,7 +695,6 @@ export async function getChallenges() {
 export async function joinChallenge(challengeId: string, userId: string) {
     const challengeRef = adminDb.collection('challenges').doc(challengeId);
     const chatRef = adminDb.collection('chats').doc(challengeId);
-    const userProfileRef = adminDb.collection('userProfiles').doc(userId);
     const clientRef = adminDb.collection('clients').doc(userId);
 
     try {
@@ -745,7 +716,7 @@ export async function joinChallenge(challengeId: string, userId: string) {
                 participantCount: FieldValue.increment(1),
             });
 
-            transaction.update(userProfileRef, {
+            transaction.update(clientRef, {
                 chatIds: FieldValue.arrayUnion(challengeId),
             });
 
@@ -768,21 +739,21 @@ export async function joinChallenge(challengeId: string, userId: string) {
 
 export async function joinChat(chatId: string, userId: string) {
     const chatRef = adminDb.collection('chats').doc(chatId);
-    const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+    const clientRef = adminDb.collection('clients').doc(userId);
 
     try {
-        const userProfileSnap = await userProfileRef.get();
-        if (!userProfileSnap.exists) {
+        const clientSnap = await clientRef.get();
+        if (!clientSnap.exists) {
             throw new Error("User profile not found.");
         }
-        const userName = userProfileSnap.data()?.fullName || 'A new user';
+        const userName = clientSnap.data()?.fullName || 'A new user';
         
         await adminDb.runTransaction(async (transaction) => {
             transaction.update(chatRef, {
                 participants: FieldValue.arrayUnion(userId),
                 participantCount: FieldValue.increment(1),
             });
-            transaction.update(userProfileRef, {
+            transaction.update(clientRef, {
                 chatIds: FieldValue.arrayUnion(chatId),
             });
              transaction.set(chatRef.collection('messages').doc(), {
@@ -802,21 +773,21 @@ export async function joinChat(chatId: string, userId: string) {
 
 export async function leaveChatAction(chatId: string, userId: string): Promise<{ success: boolean, error?: string }> {
     const chatRef = adminDb.collection('chats').doc(chatId);
-    const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+    const clientRef = adminDb.collection('clients').doc(userId);
 
     try {
-        const userProfileSnap = await userProfileRef.get();
-        if (!userProfileSnap.exists) {
+        const clientSnap = await clientRef.get();
+        if (!clientSnap.exists) {
             throw new Error("User profile not found.");
         }
-        const userName = userProfileSnap.data()?.fullName || 'A user';
+        const userName = clientSnap.data()?.fullName || 'A user';
 
         await adminDb.runTransaction(async (transaction) => {
             transaction.update(chatRef, {
                 participants: FieldValue.arrayRemove(userId),
                 participantCount: FieldValue.increment(-1),
             });
-            transaction.update(userProfileRef, {
+            transaction.update(clientRef, {
                 chatIds: FieldValue.arrayRemove(chatId),
             });
             transaction.set(chatRef.collection('messages').doc(), {
@@ -835,38 +806,45 @@ export async function leaveChatAction(chatId: string, userId: string): Promise<{
 }
 
 
-export interface ChatMessage {
-    id: string;
-    text: string;
-    userId: string;
-    userName: string;
-    timestamp: Timestamp;
-    isSystemMessage?: boolean;
-    fileUrl?: string;
-    fileName?: string;
-}
 
 export async function getUserChats(userId: string): Promise<{ success: boolean; data?: Chat[]; error?: any; }> {
     try {
+        const clientRef = adminDb.collection('clients').doc(userId);
         const userProfileRef = adminDb.collection('userProfiles').doc(userId);
-        const userProfileSnap = await userProfileRef.get();
 
-        if (!userProfileSnap.exists) {
-             return { success: true, data: [] };
+        const [clientSnap, userProfileSnap] = await Promise.all([
+            clientRef.get(),
+            userProfileRef.get()
+        ]);
+
+        let allChatIds: string[] = [];
+
+        if (clientSnap.exists) {
+            const clientData = clientSnap.data() as ClientProfile;
+            if (clientData.chatIds) {
+                allChatIds.push(...clientData.chatIds);
+            }
         }
-       
-        const userProfileData = userProfileSnap.data() as UserProfile;
-        const chatIds = userProfileData.chatIds || [];
 
-        if (chatIds.length === 0) {
+        if (userProfileSnap.exists) {
+            const userProfileData = userProfileSnap.data();
+            if (userProfileData && userProfileData.chatIds) {
+                allChatIds.push(...userProfileData.chatIds);
+            }
+        }
+
+        // Remove duplicates
+        const uniqueChatIds = [...new Set(allChatIds)];
+
+        if (uniqueChatIds.length === 0) {
             return { success: true, data: [] };
         }
         
         const allData: Chat[] = [];
         const MAX_IDS_PER_QUERY = 30;
         
-        for (let i = 0; i < chatIds.length; i += MAX_IDS_PER_QUERY) {
-            const chunk = chatIds.slice(i, i + MAX_IDS_PER_QUERY);
+        for (let i = 0; i < uniqueChatIds.length; i += MAX_IDS_PER_QUERY) {
+            const chunk = uniqueChatIds.slice(i, i + MAX_IDS_PER_QUERY);
             if(chunk.length > 0) {
                 const q = adminDb.collection('chats').where(FieldPath.documentId(), 'in', chunk);
                 const snapshot = await q.get();
@@ -877,10 +855,12 @@ export async function getUserChats(userId: string): Promise<{ success: boolean; 
         }
         
         allData.sort((a, b) => {
-            const dateA = a.lastClientMessage || a.createdAt;
-            const dateB = b.lastClientMessage || b.createdAt;
+            const dateA = a.lastMessage?.timestamp || a.createdAt;
+            const dateB = b.lastMessage?.timestamp || b.createdAt;
             if (dateA && dateB) {
-                return (dateB as Timestamp).toMillis() - (dateA as Timestamp).toMillis();
+                const timeA = dateA.toMillis ? dateA.toMillis() : new Date(dateA).getTime();
+                const timeB = dateB.toMillis ? dateB.toMillis() : new Date(dateB).getTime();
+                return timeB - timeA;
             }
             return 0;
         });
@@ -888,8 +868,16 @@ export async function getUserChats(userId: string): Promise<{ success: boolean; 
         const serializableData = allData.map(chat => {
             const newChat = {...chat};
              for(const key in newChat) {
-                if (newChat[key] instanceof Timestamp) {
-                    newChat[key] = newChat[key].toDate().toISOString();
+                const value = newChat[key as keyof Chat];
+                if (value instanceof Timestamp) {
+                    (newChat as any)[key] = value.toDate().toISOString();
+                } else if (typeof value === 'object' && value !== null && 'toDate' in value) { // Handle nested timestamps like in lastMessage
+                    (newChat as any)[key] = { ...value, timestamp: value.toDate().toISOString() };
+                } else if (key === 'lastMessage' && value && typeof value ==='object' && value.timestamp instanceof Timestamp) {
+                    newChat.lastMessage = {
+                        ...value,
+                        timestamp: value.timestamp.toDate().toISOString()
+                    };
                 }
             }
             return newChat;
@@ -1110,9 +1098,6 @@ export async function updateFoodAsFavorite(userId: string, fdcId: number, isFavo
 /**
  * Saves a new meal to the user's saved meals collection.
  */
-/**
- * Saves a new meal to the user's saved meals collection.
- */
 export async function saveUserMeal(userId: string, mealName: string, items: MealItem[]): Promise<{ success: boolean; mealId?: string; error?: string }> {
     try {
         if (!userId) throw new Error("User ID is required.");
@@ -1268,4 +1253,3 @@ export async function processAndRescheduleNotification(userId: string, notificat
         return { success: false, error: error.message };
     }
 }
-

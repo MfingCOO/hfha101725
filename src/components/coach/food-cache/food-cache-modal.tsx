@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { getEnrichedFood, getFoodDetails, saveManualEnrichedFood, generateNewFdcId, deleteFoodFromCache } from '@/app/coach/food-cache/actions';
-import { type EnrichedFood, type Nutrient, type PortionSize, NovaGroup } from '@/types';
+import { type EnrichedFood, type Nutrient, type PortionSize, NovaGroup } from '@/types/nutrition';
 import { BaseModal } from '@/components/ui/base-modal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';

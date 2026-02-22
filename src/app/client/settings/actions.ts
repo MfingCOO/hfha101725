@@ -1,10 +1,35 @@
 'use server';
 
 import { db as adminDb, auth as adminAuth } from '@/lib/firebaseAdmin';
-import type { TrackingSettings, ClientProfile, NutritionalGoals } from '@/types';
+import type { ClientProfile } from '@/types';
 import { uploadImageAction } from '@/app/coach/actions';
 import { calculateNutritionalGoals } from '@/services/goals';
 import Stripe from 'stripe';
+
+// Inlined type definitions to avoid client-side module errors
+export interface TrackingSettings {
+    nutrition?: boolean;
+    hydration?: boolean;
+    activity?: boolean;
+    sleep?: boolean;
+    stress?: boolean;
+    measurements?: boolean;
+    units?: 'imperial' | 'metric';
+    reminders?: boolean;
+}
+
+export interface NutritionalGoals {
+    activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+    calculationMode: 'ideal' | 'actual' | 'custom';
+    calorieModifier: number;
+    protein?: number;
+    fat?: number;
+    carbs?: number;
+    fiber?: number;
+    calorieGoal?: number;
+    calorieGoalRange?: { min: number; max: number; };
+    tdee?: number;
+}
 
 const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
     apiVersion: '2024-04-10',
@@ -138,7 +163,6 @@ export async function updateClientSettingsAction(clientId: string, settings: Par
         }
 
         const clientRef = adminDb.collection('clients').doc(clientId);
-        const userProfileRef = adminDb.collection('userProfiles').doc(clientId);
 
         const updatePayload: { [key: string]: any } = {};
 
@@ -155,10 +179,7 @@ export async function updateClientSettingsAction(clientId: string, settings: Par
         }
 
         if (Object.keys(updatePayload).length > 0) {
-            const batch = adminDb.batch();
-            batch.update(clientRef, updatePayload);
-            batch.update(userProfileRef, updatePayload);
-            await batch.commit();
+            await clientRef.update(updatePayload);
         }
 
         return { success: true };
@@ -252,7 +273,12 @@ export async function updateUserProfileAction(uid: string, data: { fullName?: st
         let finalPhotoUrl = photoURL;
 
         if (finalPhotoUrl && finalPhotoUrl.startsWith('data:image')) {
-            const uploadResult = await uploadImageAction(finalPhotoUrl, `profile-pictures/${uid}`);
+            const formData = new FormData();
+            const response = await fetch(finalPhotoUrl);
+            const blob = await response.blob();
+            formData.append('file', blob, 'profile-picture');
+
+            const uploadResult = await uploadImageAction(formData);
             if (uploadResult.success && uploadResult.url) {
                 finalPhotoUrl = uploadResult.url;
             } else {
@@ -269,7 +295,7 @@ export async function updateUserProfileAction(uid: string, data: { fullName?: st
             await adminAuth.updateUser(uid, authUpdatePayload);
         }
         
-        const profileRef = adminDb.collection('userProfiles').doc(uid);
+        const profileRef = adminDb.collection('clients').doc(uid);
         const firestoreUpdatePayload: any = { ...restData };
         if (finalPhotoUrl) firestoreUpdatePayload.photoURL = finalPhotoUrl;
 

@@ -1,7 +1,7 @@
 'use server';
 
 import { auth, db as adminDb } from '@/lib/firebaseAdmin';
-import type { ClientProfile, Chat, UserProfile } from '@/types';
+import type { ClientProfile, Chat } from '@/types';
 import { Timestamp } from 'firebase-admin/firestore';
 
 // Helper function to serialize Firestore Timestamps
@@ -38,9 +38,9 @@ export async function getClientsForCoach(coachId: string): Promise<{ success: bo
 }
 
 // NEW: This is the single, authoritative function for fetching ALL users for the coach UI.
-export async function getAllAppUsers(searchTerm: string = '', tierFilter: string = 'all'): Promise<{ success: boolean; users?: UserProfile[]; error?: string }> {
+export async function getAllAppUsers(searchTerm: string = '', tierFilter: string = 'all'): Promise<{ success: boolean; users?: ClientProfile[]; error?: string }> {
     try {
-        let query: FirebaseFirestore.Query = adminDb.collection('userProfiles');
+        let query: FirebaseFirestore.Query = adminDb.collection('clients');
 
         // Apply tier filter if it's not 'all'
         if (tierFilter !== 'all') {
@@ -48,7 +48,7 @@ export async function getAllAppUsers(searchTerm: string = '', tierFilter: string
         }
 
         const usersSnapshot = await query.get();
-        let users = usersSnapshot.docs.map(doc => serializeTimestamps({ uid: doc.id, ...doc.data() })) as UserProfile[];
+        let users = usersSnapshot.docs.map(doc => serializeTimestamps({ uid: doc.id, ...doc.data() })) as ClientProfile[];
 
         // Apply search term filter on the server side after fetching based on tier
         if (searchTerm.trim() !== '') {
@@ -63,7 +63,7 @@ export async function getAllAppUsers(searchTerm: string = '', tierFilter: string
         console.error("Error fetching all app users:", error);
         // Firestore throws a specific error if an index is needed. We can pass this along.
         if ((error as any).code === 'failed-precondition') {
-            return { success: false, error: `Query requires an index. Please create a composite index for the 'userProfiles' collection on the fields 'tier' and any other fields you are ordering by. The error message was: ${error.message}` };
+            return { success: false, error: `Query requires an index. Please create a composite index for the \'clients\' collection on the fields \'tier\' and any other fields you are ordering by. The error message was: ${error.message}` };
         }
         return { success: false, error: error.message };
     }

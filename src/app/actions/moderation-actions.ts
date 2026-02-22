@@ -2,7 +2,6 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { COACH_UIDS } from '@/lib/coaches';
 import { z } from 'zod';
-// 1. Correctly import Timestamp and FieldPath
 import { Timestamp, FieldPath } from 'firebase-admin/firestore';
 
 // Helper function to verify if the user is a coach
@@ -12,7 +11,6 @@ async function verifyCoach(coachId: string) {
     }
 }
 
-// Schema updated to include user and chat names
 const ReportSchema = z.object({
     id: z.string(),
     messageId: z.string(),
@@ -38,7 +36,6 @@ export async function getPendingReportsAction(coachId: string): Promise<{ succes
             return { success: true, data: [] };
         }
 
-        // Create sets of unique IDs to fetch in batches
         const userIds = new Set<string>();
         const chatIds = new Set<string>();
         reportsSnapshot.docs.forEach(doc => {
@@ -48,41 +45,38 @@ export async function getPendingReportsAction(coachId: string): Promise<{ succes
             chatIds.add(data.chatId);
         });
 
-        // Batch fetch user profiles for all involved users
-        const userProfiles: { [key: string]: string } = {};
+        // SURGICAL CHANGE: Query 'clients' collection instead of 'userProfiles'.
+        const clientData: { [key: string]: string } = {};
         if (userIds.size > 0) {
-            const usersSnapshot = await adminDb.collection('userProfiles').where('uid', 'in', Array.from(userIds)).get();
+            const usersSnapshot = await adminDb.collection('clients').where('uid', 'in', Array.from(userIds)).get();
             usersSnapshot.forEach(doc => {
-                userProfiles[doc.id] = doc.data().fullName || 'Unknown User';
+                clientData[doc.id] = doc.data().fullName || 'Unknown User';
             });
         }
 
-        // Batch fetch chat documents for all involved chats
         const chatNames: { [key: string]: string } = {};
         if (chatIds.size > 0) {
-            // 2. Use the correctly imported FieldPath
             const chatDocs = await adminDb.collection('chats').where(FieldPath.documentId(), 'in', Array.from(chatIds)).get();
             chatDocs.forEach(doc => {
                 chatNames[doc.id] = doc.data().name || 'Unknown Chat';
             });
         }
         
-        // 3. Re-map over the original docs to build the final array, preserving type info
         let reports = reportsSnapshot.docs.map(doc => {
             const reportData = doc.data();
             const timestamp = (reportData.timestamp as Timestamp).toDate().toISOString();
             
+            // SURGICAL CHANGE: Use the new clientData variable.
             return ReportSchema.parse({
                 id: doc.id,
                 ...reportData,
                 timestamp: timestamp,
-                reportedUserName: userProfiles[reportData.reportedUserId],
-                reportingUserName: userProfiles[reportData.reportingUserId],
+                reportedUserName: clientData[reportData.reportedUserId],
+                reportingUserName: clientData[reportData.reportingUserId],
                 chatName: chatNames[reportData.chatId],
             });
         });
 
-        // Sort results by date
         reports.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
         return { success: true, data: reports };
@@ -146,9 +140,11 @@ export async function banUserAndResolveReportAction(coachId: string, reportId: s
         await verifyCoach(coachId);
         const batch = adminDb.batch();
         const reportRef = adminDb.collection('reports').doc(reportId);
-        const userProfileRef = adminDb.collection('userProfiles').doc(userIdToBan);
+        // SURGICAL CHANGE: Reference the 'clients' collection.
+        const clientRef = adminDb.collection('clients').doc(userIdToBan);
 
-        batch.update(userProfileRef, { isBannedFromChat: true });
+        // SURGICAL CHANGE: Use the new clientRef variable.
+        batch.update(clientRef, { isBannedFromChat: true });
         batch.update(reportRef, { status: 'resolved' });
 
         await batch.commit();

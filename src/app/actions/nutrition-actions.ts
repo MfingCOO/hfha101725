@@ -3,7 +3,8 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp, FieldPath } from 'firebase-admin/firestore';
 import { hybridFoodSearch } from '@/app/coach/food-cache/actions';
-import { EnrichedFood, MealItem, SavedMeal, SearchResult, NovaGroup } from '@/types';
+import { EnrichedFood, MealItem, SavedMeal, NovaGroup } from '@/types/nutrition';
+import { SearchResult } from '@/types/index';
 import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 // We no longer need to import `runFlow` or the flow itself.
 

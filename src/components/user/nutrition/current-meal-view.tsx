@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { MealItem, EnrichedFood, NovaGroup } from '@/types';
+import { MealItem, EnrichedFood, NovaGroup } from '@/types/nutrition';
 import { FoodItemRow } from './food-item-row';
 import { Button } from '@/components/ui/button';
 import { Trash2, Save, Loader2, Beef, Brain, Wheat, Sprout, ShieldAlert, UtensilsCrossed } from 'lucide-react';

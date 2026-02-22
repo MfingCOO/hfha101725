@@ -170,7 +170,7 @@ export interface Chat {
     ownerId: string;
     createdAt: any; 
     rules?: string[];
-    lastMessage?: any; 
+    lastMessage?: ChatMessage;
     lastMessageSenderId?: string;
     lastAutomatedMessage?: any;
     lastCoachMessage?: any; 
@@ -188,6 +188,7 @@ export interface ChatMessage {
     text?: string;
     fileUrl?: string;
     fileName?: string;
+    senderId?: string; // Corrected from userId to senderId for consistency
 }
 
 export interface SearchResult {

@@ -4,10 +4,9 @@ import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "../ui/button";
 import { Loader2, MoreVertical, LogOut, CalendarPlus } from "lucide-react";
-import type { Chat, Challenge } from "@/services/firestore";
+import type { Chat } from "@/types";
 import { Badge } from "../ui/badge";
-import { EmbeddedChatDialog } from "../coach/chats/embedded-chat-dialog";
-import { getChallengesForCoach } from "@/app/coach/actions";
+import { EmbeddedChatDialog } from "./embedded-chat-dialog";
 import { joinChat, leaveChat, markChatAsReadAction } from "@/app/chats/actions";
 import { useToast } from "@/hooks/use-toast";
 import { TIER_ACCESS, UserTier } from "@/types";
@@ -97,8 +96,9 @@ export function ClientChatList() {
     
     const handleJoinClick = (chat: SerializableChat) => {
         const requiredTier = 'premium';
-        const currentTierIndex = userProfile ? TIER_ACCESS.indexOf(userProfile.tier) : 0;
-        const requiredTierIndex = TIER_ACCESS.indexOf(requiredTier as UserTier);
+        const tierNames = Object.keys(TIER_ACCESS);
+        const currentTierIndex = userProfile ? tierNames.indexOf(userProfile.tier) : 0;
+        const requiredTierIndex = tierNames.indexOf(requiredTier as UserTier);
 
         if (currentTierIndex < requiredTierIndex) {
             setUpgradeModal({ isOpen: true, requiredTier: requiredTier as UserTier });
@@ -222,7 +222,6 @@ export function ClientChatList() {
                                 <div className="flex-1 min-w-0 w-full">
                                     <div className="flex justify-between items-center">
                                         <p className="font-semibold">{chat.name}</p>
-                                        {chat.type === 'challenge' && <Badge variant="secondary">Challenge</Badge>}
                                     </div>
                                     <p className="text-sm text-muted-foreground line-clamp-2">{chat.description || 'No description.'}</p>
                                 </div>

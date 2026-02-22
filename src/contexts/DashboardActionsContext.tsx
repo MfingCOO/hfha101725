@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import type { Chat } from '@/services/firestore';
+import type { Chat } from '@/types';
 import { useAuth } from '@/components/auth/auth-provider';
 import { getChatsForClient, getChatMetadataForUser } from '@/app/chats/actions';
 
@@ -89,13 +89,20 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     fetchChats();
   }, [user, fetchChats]);
 
-  // ** START: UNREAD COUNT SYNCHRONIZATION **
-  // The unreadCount is now calculated as a simple sum of the `unreadCount` field provided by the backend.
   const unreadChatCount = useMemo(() => {
-    if (!chats) return 0;
-    return chats.reduce((total, chat) => total + (chat.unreadCount || 0), 0);
-  }, [chats]);
-  // ** END: UNREAD COUNT SYNCHRONIZATION **
+    if (!chats || !chatMetadata) return 0;
+
+    return chats.reduce((count, chat) => {
+        const metadata = chatMetadata[chat.id];
+        const lastRead = metadata?.lastReadTimestamp ? new Date(metadata.lastReadTimestamp.seconds * 1000) : new Date(0);
+        const lastMessageTimestamp = chat.lastMessage?.timestamp ? new Date(chat.lastMessage.timestamp) : new Date(0);
+
+        if (lastMessageTimestamp > lastRead && chat.lastMessage?.userId !== user?.uid) {
+            return count + 1;
+        }
+        return count;
+    }, 0);
+  }, [chats, chatMetadata, user?.uid]);
 
   const stateValue = useMemo(() => ({
     chats,

@@ -7,8 +7,8 @@ import Image from 'next/image';
 import { DataEntryDialog } from '@/components/dashboard/data-entry-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '../auth/auth-provider';
-import { ClientProfile, TIER_ACCESS, UserTier } from '@/types';
-import { Challenge, getUpcomingIndulgences, resetBingeStreakAction } from '@/services/firestore';
+import { ClientProfile, UserTier, Challenge } from '@/types';
+import { getUpcomingIndulgences, resetBingeStreakAction } from '@/services/firestore';
 import { getLatestChallengeForClient, joinChallengeAction } from '@/app/challenges/actions';
 import { Skeleton } from '../ui/skeleton';
 import { Badge } from '../ui/badge';
@@ -66,6 +66,7 @@ const pillarsAndTools: Pillar[] = [
   { id: 'insights', label: 'Insights', icon: Lightbulb, color: 'text-foreground', bgColor: 'bg-yellow-400', borderColor: 'border-yellow-600', requiredTier: UserTier.Basic },
   { id: 'measurements', label: 'Measurements', icon: Scale, color: 'text-foreground', bgColor: 'bg-gray-400', borderColor: 'border-gray-600', requiredTier: UserTier.Free },
 ];
+const tierRank: UserTier[] = [UserTier.Free, UserTier.AdFree, UserTier.Basic, UserTier.Premium, UserTier.Coaching];
 
 
 const topRowButtons = pillarsAndTools.slice(0, 5);
@@ -82,7 +83,7 @@ const safeNewDate = (dateSource: any): Date | null => {
 export function DashboardClient() {
   const { showBannerAd } = useAdMob();
   const { onOpenChallenges } = useDashboardActions();
-  const { user, userProfile, isCoach, loading } = useAuth(); // THE FIX: Get loading state
+  const { user, isCoach, loading } = useAuth(); // THE FIX: Get loading state
   const { toast } = useToast();
   const { modalType, closeModal } = useDataEntryModal();
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
@@ -119,7 +120,7 @@ export function DashboardClient() {
   }, []);
 
   useEffect(() => {
-    if (userProfile && process.env.NEXT_PUBLIC_ADMOB_BANNER_ID) {
+    if (clientProfile && clientProfile.tier === UserTier.Free && process.env.NEXT_PUBLIC_ADMOB_BANNER_ID) {
         showBannerAd({
             adId: process.env.NEXT_PUBLIC_ADMOB_BANNER_ID,
             adSize: BannerAdSize.BANNER,
@@ -128,7 +129,7 @@ export function DashboardClient() {
             isTesting: process.env.NODE_ENV !== 'production',
         });
     }
-  }, [userProfile, showBannerAd]);
+  }, [clientProfile, showBannerAd]);
 
   const hasSeenFeature = useCallback((featureId: string) => {
     if (typeof window === 'undefined') return false;
@@ -152,10 +153,10 @@ export function DashboardClient() {
 
 
   const handlePillarClick = (pillar: Pillar) => {
-    if (!userProfile || !isMounted) return;
+    if (!clientProfile || !isMounted) return;
 
-    const currentTierIndex = TIER_ACCESS.indexOf(userProfile.tier);
-    const requiredTierIndex = TIER_ACCESS.indexOf(pillar.requiredTier as UserTier);
+    const currentTierIndex = tierRank.indexOf(clientProfile.tier || UserTier.Free);
+    const requiredTierIndex = tierRank.indexOf(pillar.requiredTier);
 
     // First, check if the user's tier is high enough.
     if (currentTierIndex < requiredTierIndex) {
@@ -221,16 +222,13 @@ export function DashboardClient() {
     });
   }, [user, toast]);
 
-  // --- THIS IS THE FIX --- //
   useEffect(() => {
-    // Do not run any data fetching logic until auth has settled.
     if (loading) return;
 
     if (user) {
       fetchDashboardData();
     }
 
-    // This listener should ONLY run for clients, not coaches.
     if (user?.uid && !isCoach) {
       const docRef = doc(db, 'clients', user.uid);
       const unsubscribe = onSnapshot(docRef, (docSnap) => {
@@ -315,9 +313,9 @@ export function DashboardClient() {
   };
 
   const bingeFreeSinceDate = useMemo(() => {
-      const source = liveBingeFreeSince || (userProfile as ClientProfile)?.bingeFreeSince;
+      const source = liveBingeFreeSince || clientProfile?.bingeFreeSince;
       return safeNewDate(source);
-  }, [liveBingeFreeSince, userProfile]);
+  }, [liveBingeFreeSince, clientProfile]);
 
   const bingeFreeDays = useMemo(() => {
     if (!bingeFreeSinceDate) return 0;
@@ -351,8 +349,8 @@ export function DashboardClient() {
 
   const renderPillarButton = (pillar: Pillar) => {
     const Icon = pillar.icon;
-    const currentTierIndex = userProfile ? TIER_ACCESS.indexOf(userProfile.tier) : 0;
-    const requiredTierIndex = TIER_ACCESS.indexOf(pillar.requiredTier as UserTier);
+    const currentTierIndex = clientProfile ? tierRank.indexOf(clientProfile.tier || UserTier.Free) : 0;
+    const requiredTierIndex = tierRank.indexOf(pillar.requiredTier);
     const isLocked = currentTierIndex < requiredTierIndex;
 
     return (
@@ -404,8 +402,8 @@ export function DashboardClient() {
     const challengeStartDate = safeNewDate(latestChallenge.dates.from);
     if(!challengeStartDate) return null;
     const isUpcoming = challengeStartDate > now;
-    const canJoin = !isParticipant && TIER_ACCESS.indexOf(userProfile?.tier || UserTier.Free) >= TIER_ACCESS.indexOf(UserTier.Premium);
-    const needsUpgrade = !isParticipant && TIER_ACCESS.indexOf(userProfile?.tier || UserTier.Free) < TIER_ACCESS.indexOf(UserTier.Premium);
+    const canJoin = !isParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) >= tierRank.indexOf(UserTier.Premium);
+    const needsUpgrade = !isParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) < tierRank.indexOf(UserTier.Premium);
 
     let badgeText = "";
     let badgeVariant: "secondary" | "default" | "destructive" | "outline" | null | undefined = "secondary";
@@ -453,12 +451,12 @@ export function DashboardClient() {
     );
   };
 
-  const isEducationalModalLocked = userProfile && educationalModalContent ? TIER_ACCESS.indexOf(userProfile.tier) < TIER_ACCESS.indexOf(educationalModalContent.requiredTier as UserTier) : false;
+  const isEducationalModalLocked = clientProfile && educationalModalContent ? tierRank.indexOf(clientProfile.tier || UserTier.Free) < tierRank.indexOf(educationalModalContent.requiredTier) : false;
 
   return (
     <div className="space-y-6 pb-10">
         <div>
-            <h2 className="text-2xl font-bold tracking-tight">Welcome, {userProfile?.fullName.split(' ')[0]}!</h2>
+            <h2 className="text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2>
             <p className="text-lg text-muted-foreground">
             &ldquo;{quoteOfTheDay}&rdquo; ~Alan Roberts
             </p>
@@ -475,14 +473,14 @@ export function DashboardClient() {
       {renderChallengeSection()}
 
       <ProgramWidget 
-        userProfile={userProfile}
+        userProfile={clientProfile}
         clientProfile={clientProfile}
         onOpenProgramList={handleOpenProgramList}
         onOpenCurrentProgram={handleOpenCurrentProgram}
       />
 
       <UpcomingEventWidget 
-        userProfile={userProfile}
+        userProfile={clientProfile}
         clientProfile={clientProfile}
         onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
       />
@@ -517,7 +515,7 @@ export function DashboardClient() {
         </Card>
       )}
 
-      {userProfile && bingeFreeSinceDate && (
+      {clientProfile && bingeFreeSinceDate && (
         <Card className="p-3">
             <CardContent className="p-0 flex items-center justify-between gap-4">
                 <div className="flex-1">
@@ -542,7 +540,7 @@ export function DashboardClient() {
       <ProgramListDialog
         isOpen={isProgramListOpen}
         onClose={() => setIsProgramListOpen(false)}
-        userProfile={userProfile}
+        userProfile={clientProfile}
         onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
       />
 
@@ -587,11 +585,11 @@ export function DashboardClient() {
         />
       )}
       
-       {userProfile && (
+       {clientProfile && (
         <CalendarDialog
             isOpen={isCalendarOpen}
             onClose={() => setIsCalendarOpen(false)}
-            client={userProfile as ClientProfile}
+            client={clientProfile as ClientProfile}
             initialDate={initialCalendarDate}
             highlightedEntryId={highlightedEntryId}
         />
