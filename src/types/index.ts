@@ -129,7 +129,7 @@ export interface UserProfile {
     pushToken?: string;
 }
 
-export type ClientProfile = UserProfile;
+export interface ClientProfile extends UserProfile {}
 
 // CORRECTED: Restoring CreateClientInput to its full, correct definition where all fields are required.
 export type CreateClientInput = {

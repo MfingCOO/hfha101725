@@ -4,11 +4,12 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { endOfDay, format, subMinutes } from 'date-fns';
-import { formatInTimeZone } from 'date-fns-tz'; // ADDED FOR TIMEZONE FORMATTING
+import { endOfDay, subMinutes } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 import type { AvailabilitySettings, SiteSettings } from '@/types/index';
 import { createUserNotification } from '@/services/reminders';
 
+// ADDED clientTimezone to the schema
 const eventSchema = z.object({
     id: z.string().optional(),
     title: z.string().min(1, "Title is required."),
@@ -21,6 +22,7 @@ const eventSchema = z.object({
     attachVideoLink: z.boolean().default(false),
     coachId: z.string().optional().nullable(),
     coachName: z.string().optional().nullable(),
+    clientTimezone: z.string().optional(), // IANA timezone string, e.g., 'America/New_York'
 });
 
 type CalendarEventInput = z.infer<typeof eventSchema>;
@@ -81,6 +83,9 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
             end: Timestamp.fromDate(dataToSave.end),
             videoCallLink: null, 
         };
+        // We don't want to save the timezone to the main event document
+        delete finalEventData.clientTimezone;
+
 
         if (dataToSave.attachVideoLink) {
             const settingsDocRef = adminDb.collection('siteSettings').doc('v1');
@@ -100,15 +105,23 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         const isAppointment = dataToSave.coachId && dataToSave.clientId;
 
         if (isAppointment) {
-            // Fetch coach's timezone for accurate notifications
-            const coachProfileSnap = await adminDb.collection('users').doc(dataToSave.coachId!).get();
-            const coachProfile = coachProfileSnap.data();
-            const coachTimezone = coachProfile?.timezone || 'UTC'; // Default to UTC if not found
+            // TIMEZONE FIX: Determine the correct timezone for the notification.
+            let notificationTimezone = dataToSave.clientTimezone; // 1. Prioritize timezone from the browser.
 
-            // Format the start time in the coach's local timezone
-            const formattedStartTime = formatInTimeZone(dataToSave.start, coachTimezone, 'PPP p');
+            // 2. As a fallback, check the coach's saved profile in the database.
+            if (!notificationTimezone && dataToSave.coachId) {
+                const coachProfileSnap = await adminDb.collection('clients').doc(dataToSave.coachId).get();
+                const coachProfile = coachProfileSnap.data();
+                if (coachProfile?.timezone) {
+                    notificationTimezone = coachProfile.timezone;
+                }
+            }
+            
+            // 3. Last resort is UTC, which was causing the bug.
+            const finalTimezone = notificationTimezone || 'UTC';
 
-            // 1. Immediate booking notification for coach
+            const formattedStartTime = formatInTimeZone(dataToSave.start, finalTimezone, 'PPP p');
+
             if (dataToSave.clientName) {
                 await createUserNotification(dataToSave.coachId!, {
                     type: 'appointment_booked',
@@ -120,11 +133,9 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                 });
             }
 
-            // 2. Scheduled 10-minute reminders for both coach and client
             const reminderTime = subMinutes(dataToSave.start, 10);
             if (reminderTime > new Date()) {
 
-                // Reminder for the coach
                 if (dataToSave.clientName) {
                     await createUserNotification(dataToSave.coachId!, {
                         type: 'appointment_reminder',
@@ -136,7 +147,6 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                     });
                 }
 
-                // Reminder for the client
                 if (dataToSave.coachName) {
                      await createUserNotification(dataToSave.clientId!, {
                         type: 'appointment_reminder',

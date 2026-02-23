@@ -135,7 +135,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                         body: notification.body || '',
                         id: Math.floor(Math.random() * 2147483647),
                         extra: notification.data,
-                        smallIcon: 'res://public/app/icon.png'
+                        smallIcon: 'ic_stat_notification'
                     } as LocalNotificationSchema]
                 });
             });

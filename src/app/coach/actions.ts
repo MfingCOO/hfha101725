@@ -1,9 +1,27 @@
+
 'use server';
 
 import { admin, db as adminDb, auth } from "@/lib/firebaseAdmin";
 import { Chat, Challenge, ClientProfile } from "@/types";
 import { Timestamp, FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+
+// Helper function to serialize Firestore Timestamps
+function serializeTimestamps(obj: any): any {
+    if (!obj) return obj;
+    if (obj instanceof Timestamp) return obj.toDate().toISOString();
+    if (Array.isArray(obj)) return obj.map(item => serializeTimestamps(item));
+    if (typeof obj === 'object') {
+        const newObj: { [key: string]: any } = {};
+        for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                newObj[key] = serializeTimestamps(obj[key]);
+            }
+        }
+        return newObj;
+    }
+    return obj;
+}
 
 
 /**
@@ -90,13 +108,17 @@ export async function createOpenChat(name: string, description: string, rules: s
 /**
  * Fetches all challenges, including participant data.
  * This is a coach-specific action.
+ * BUG FIX: Now serializes timestamps before returning data.
  */
 export async function getChallengesForCoach(): Promise<{ success: boolean; data?: Challenge[]; error?: any; }> {
     try {
         const q = adminDb.collection("challenges").orderBy("dates.from", "desc");
         const querySnapshot = await q.get();
         const challenges = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Challenge));
-        return { success: true, data: challenges };
+        
+        const serializedChallenges = serializeTimestamps(challenges);
+
+        return { success: true, data: serializedChallenges };
     } catch (error) {
         console.error("Error fetching challenges for coach:", error);
         return { success: false, error };
@@ -161,13 +183,17 @@ export async function createChallengeAction(challengeData: Omit<Challenge, 'id' 
 
 /**
  * Fetches all clients for a specific coach.
+ * BUG FIX: Now serializes timestamps before returning data.
  */
 export async function getClientsForCoach(coachId: string): Promise<{ success: boolean; data?: ClientProfile[]; error?: any; }> {
     try {
         const q = adminDb.collection('clients').where('coachId', '==', coachId);
         const querySnapshot = await q.get();
         const clients = querySnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as ClientProfile));
-        return { success: true, data: clients };
+        
+        const serializedClients = serializeTimestamps(clients);
+
+        return { success: true, data: serializedClients };
     } catch (error) {
         console.error("Error fetching clients:", error);
         return { success: false, error };

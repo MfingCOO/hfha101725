@@ -15,7 +15,7 @@ import { Label } from '../ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { saveDataAction, saveHydrationSettingsAction } from '@/services/firestore';
 import { useAuth } from '../auth/auth-provider';
-import type { ClientProfile, MealItem, Nutrient } from '@/types';
+import type { ClientProfile } from '@/types';
 import { useAdMob } from '@/hooks/useAdMob';
 import { updateClientWthr } from '@/app/coach/clients/actions';
 import { getTodaysContextualData, triggerSummaryRecalculation } from '@/app/calendar/actions';
@@ -43,7 +43,7 @@ interface DataEntryDialogProps {
     onSwitchPillar?: (pillarId: string) => void; 
 }
 
-const DateTimePicker = ({ date, setDate }: { date: Date, setDate: (date: Date) => void }) => {
+const DateTimePicker = ({ date, setDate, showTime = true }: { date: Date, setDate: (date: Date) => void, showTime?: boolean }) => {
     const isMobile = useIsMobile();
 
     if (!(date instanceof Date) || isNaN(date.getTime())) {
@@ -63,7 +63,7 @@ const DateTimePicker = ({ date, setDate }: { date: Date, setDate: (date: Date) =
         const [year, month, day] = dateValue.split('-').map(Number);
         const newDate = new Date(date);
         newDate.setFullYear(year, month - 1, day);
-        setDate(newDate);
+        setDate(startOfDay(newDate));
     }
     
     if (isMobile) {
@@ -75,13 +75,13 @@ const DateTimePicker = ({ date, setDate }: { date: Date, setDate: (date: Date) =
                     onChange={e => setDateFromInput(e.target.value)}
                     className="w-auto h-8 p-1 text-xs border-input bg-transparent text-white"
                 />
-                 <div className="h-4 w-px bg-border" />
-                <Input 
+                {showTime && <div className="h-4 w-px bg-border" />}
+                {showTime && <Input 
                     type="time" 
                     value={format(date, 'HH:mm')}
                     onChange={e => setTime(e.target.value)}
                     className="w-auto h-8 p-1 text-xs border-input bg-transparent text-white"
-                />
+                />}
             </div>
         )
     }
@@ -99,13 +99,13 @@ const DateTimePicker = ({ date, setDate }: { date: Date, setDate: (date: Date) =
                     <Calendar
                         mode="single"
                         selected={date}
-                        onSelect={(d) => setDate(d || new Date())}
+                        onSelect={(d) => setDate(startOfDay(d || new Date()))}
                         initialFocus
                     />
                 </PopoverContent>
             </Popover>
-            <div className="h-4 w-px bg-border" />
-            <div className="relative flex h-7 items-center justify-start gap-1 rounded-md border border-input bg-transparent px-2">
+            {showTime && <div className="h-4 w-px bg-border" />}
+            {showTime && <div className="relative flex h-7 items-center justify-start gap-1 rounded-md border border-input bg-transparent px-2">
                 <Clock className="h-3 w-3 text-white" />
                 <Input 
                     type="time" 
@@ -113,7 +113,7 @@ const DateTimePicker = ({ date, setDate }: { date: Date, setDate: (date: Date) =
                     onChange={e => setTime(e.target.value)}
                     className="h-full w-full appearance-none border-none bg-transparent p-0 focus:ring-0 focus-visible:ring-0"
                 />
-            </div>
+            </div>}
         </div>
     )
 }
@@ -155,16 +155,18 @@ export function DataEntryDialog({
 
     const getInitialFormState = useCallback((pillarId: string, initialData: any, contextData: any, clientData: ClientProfile | null) => {
         const { lastNightSleep, todaysHydration } = contextData || {};
+        // @ts-ignore
+        const hydrationSettings = clientData?.hydrationSettings;
         switch (pillarId) {
             case 'hydration':
                 return {
                     amount: initialData?.amount || '',
                     hunger: initialData?.hunger || 5,
                     notes: initialData?.notes || '',
-                    target: initialData?.target || clientData?.hydrationSettings?.target || 0,
-                    unit: initialData?.unit || clientData?.hydrationSettings?.unit || 'oz',
-                    remindersEnabled: initialData?.remindersEnabled || clientData?.hydrationSettings?.remindersEnabled || false,
-                    reminderTimes: initialData?.reminderTimes || clientData?.hydrationSettings?.reminderTimes || [],
+                    target: initialData?.target || hydrationSettings?.target || 0,
+                    unit: initialData?.unit || hydrationSettings?.unit || 'oz',
+                    remindersEnabled: initialData?.remindersEnabled || hydrationSettings?.remindersEnabled || false,
+                    reminderTimes: initialData?.reminderTimes || hydrationSettings?.reminderTimes || [],
                 };
             case 'sleep':
                 return {
@@ -581,6 +583,7 @@ export function DataEntryDialog({
 
     const dialogTitle = `${logId ? 'Edit' : 'Log'} ${pillar.label}`;
     const dialogDescription = randomQuote || undefined;
+    const pillarUsesTime = !['planner', 'measurements'].includes(pillar.id);
 
     const buttonText = logId 
     ? 'Update Entry' 
@@ -630,13 +633,13 @@ export function DataEntryDialog({
                  {pillar.id !== 'planner' && (
                     <div className="flex-shrink-0 flex justify-center py-1">
                          <Label className="text-xs mr-2">{pillar.id === 'sleep' ? 'Wake Up Time' : 'Entry Time'}</Label>
-                        <DateTimePicker date={entryDate} setDate={setEntryDate} />
+                        <DateTimePicker date={entryDate} setDate={setEntryDate} showTime={pillarUsesTime} />
                     </div>
                 )}
                 {pillar.id === 'planner' && (
                     <div className="flex-shrink-0 flex justify-center pyy-1">
                         <Label className="text-xs mr-2">Date of Indulgence</Label>
-                        <DateTimePicker date={entryDate} setDate={setEntryDate} />
+                        <DateTimePicker date={entryDate} setDate={setEntryDate} showTime={pillarUsesTime} />
                     </div>
                 )}
                 {isLoadingContent ? (

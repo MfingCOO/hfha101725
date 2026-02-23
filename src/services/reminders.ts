@@ -16,34 +16,32 @@ export interface Reminder {
     deliverAt: Timestamp;
 }
 
-function serializeTimestamps(obj: any): any {
-    if (!obj) return obj;
-    if (obj instanceof Timestamp) return obj.toDate().toISOString();
-    if (Array.isArray(obj)) return obj.map(item => serializeTimestamps(item));
-    if (typeof obj === 'object') {
-        const newObj: { [key: string]: any } = {};
-        for (const key in obj) {
-            if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                newObj[key] = serializeTimestamps(obj[key]);
-            }
-        }
-        return newObj;
-    }
-    return obj;
-}
+const IMMEDIATE_PUSH_TYPES: Reminder['type'][] = [
+    'appointment_booked', 
+    'mia_alert', 
+    'challenge_checkin',
+    'streak-congrats',
+    'custom-popup'
+];
 
 export async function createUserNotification(userId: string, reminder: Omit<Reminder, 'id'>) {
     if (!userId) return;
 
     try {
-        const clientRef = db.collection('clients').doc(userId);
-        const clientDoc = await clientRef.get();
+        const notificationRef = db.collection(`clients/${userId}/notifications`).doc();
+        await notificationRef.set({
+            ...reminder,
+            createdAt: FieldValue.serverTimestamp(),
+            seen: false,
+        });
 
-        if (clientDoc.exists) {
-            const clientData = clientDoc.data();
+        if (IMMEDIATE_PUSH_TYPES.includes(reminder.type)) {
+            const clientRef = db.collection('clients').doc(userId);
+            const clientDoc = await clientRef.get();
 
-            if (clientData && clientData.fcmTokens && clientData.fcmTokens.length > 0) {
-                const tokens = clientData.fcmTokens.filter((t: string) => t); 
+            if (clientDoc.exists) {
+                const clientData = clientDoc.data();
+                const tokens = clientData?.fcmTokens?.filter((t: string) => t) || [];
 
                 if (tokens.length > 0) {
                     const dataPayload: { [key: string]: string } = {
@@ -58,29 +56,32 @@ export async function createUserNotification(userId: string, reminder: Omit<Remi
                     const payload: MulticastMessage = {
                         tokens: tokens,
                         data: dataPayload,
-                        notification: { 
-                            title: reminder.title,
-                            body: reminder.message
+                        apns: {
+                            headers: { 'apns-priority': '10' },
+                            payload: {
+                                aps: {
+                                    sound: 'default'
+                                }
+                            }
                         },
-                        apns: { headers: { 'apns-priority': '10' } },
-                        android: { priority: "high" },
+                        android: {
+                            priority: "high",
+                            // BUG FIX: Added channelId for Android notifications
+                            notification: {
+                                channelId: "default",
+                                sound: "default"
+                            }
+                        },
                     };
 
                     await admin.messaging().sendEachForMulticast(payload);
-                    console.log(`Push notification sent to user ${userId} for reminder type ${reminder.type}`);
+                    console.log(`IMMEDIATE push notification sent to user ${userId} for type ${reminder.type}`);
                 }
-            } else {
-                console.log(`User ${userId} does not have any FCM tokens. Skipping push notification.`);
             }
+        } else {
+            console.log(`Notification for user ${userId} (type: ${reminder.type}) is scheduled. Stored in DB, push will be sent later.`);
         }
 
-        const notificationRef = db.collection(`clients/${userId}/notifications`).doc();
-        await notificationRef.set({
-            ...reminder,
-            createdAt: FieldValue.serverTimestamp(),
-            seen: false,
-        });
-        
         return { id: notificationRef.id, ...reminder };
 
     } catch (error) {
@@ -89,7 +90,6 @@ export async function createUserNotification(userId: string, reminder: Omit<Remi
     }
 }
 
-// **THE FIX:** Corrected the function name from the typo 'disposeReminderAction'
 export async function dismissReminderAction(userId: string, notificationId: string): Promise<{ success: boolean; error?: string; }> {
     try {
         if (!userId || !notificationId) {
@@ -148,6 +148,3 @@ export async function sendScheduledPopupNotification(popupData: any) {
     return { success: false, error: error.message };
   }
 }
-
-// The rest of the file is unchanged and was already correct.
-// ...

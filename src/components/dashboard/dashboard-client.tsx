@@ -38,8 +38,6 @@ import { ProgramWidget } from '@/components/client/ProgramWidget';
 import { ProgramListDialog } from '@/components/programs/program-list-dialog';
 import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
 import quotes from '@/lib/quotes.json';
-import { useAdMob } from '@/hooks/useAdMob';
-import { BannerAdPosition, BannerAdSize } from '@capacitor-community/admob';
 
 import { LucideIcon } from 'lucide-react';
 import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
@@ -81,7 +79,6 @@ const safeNewDate = (dateSource: any): Date | null => {
 }
 
 export function DashboardClient() {
-  const { showBannerAd } = useAdMob();
   const { onOpenChallenges } = useDashboardActions();
   const { user, isCoach, loading } = useAuth(); // THE FIX: Get loading state
   const { toast } = useToast();
@@ -119,18 +116,6 @@ export function DashboardClient() {
     setIsMounted(true);
   }, []);
 
-  useEffect(() => {
-    if (clientProfile && clientProfile.tier === UserTier.Free && process.env.NEXT_PUBLIC_ADMOB_BANNER_ID) {
-        showBannerAd({
-            adId: process.env.NEXT_PUBLIC_ADMOB_BANNER_ID,
-            adSize: BannerAdSize.BANNER,
-            position: BannerAdPosition.BOTTOM_CENTER,
-            margin: 0,
-            isTesting: process.env.NODE_ENV !== 'production',
-        });
-    }
-  }, [clientProfile, showBannerAd]);
-
   const hasSeenFeature = useCallback((featureId: string) => {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem(`hasSeen_${featureId}`) === 'true';
@@ -158,24 +143,13 @@ export function DashboardClient() {
     const currentTierIndex = tierRank.indexOf(clientProfile.tier || UserTier.Free);
     const requiredTierIndex = tierRank.indexOf(pillar.requiredTier);
 
-    // First, check if the user's tier is high enough.
     if (currentTierIndex < requiredTierIndex) {
-        // If it's not, set the active pillar and open the real upgrade modal.
         setActivePillar(pillar);
         setIsUpgradeModalOpen(true);
-        return; // Stop here.
+        return;
     }
 
-    // If they have access, continue with the original logic.
-    const content = educationalContentLibrary[pillar.id];
-    const hasSeen = hasSeenFeature(pillar.id);
-
-    if (content && !hasSeen) {
-        setEducationalModalContent(content);
-        setIsEducationalModalOpen(true);
-    } else {
-        executePillarAction(pillar);
-    }
+    executePillarAction(pillar);
   };
 
 
@@ -458,7 +432,7 @@ export function DashboardClient() {
         <div>
             <h2 className="text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2>
             <p className="text-lg text-muted-foreground">
-            &ldquo;{quoteOfTheDay}&rdquo; ~Alan Roberts
+            &ldquo;{quoteOfTheDay}&rdquo; 
             </p>
         </div>
 
@@ -554,6 +528,7 @@ export function DashboardClient() {
           open={dataEntryDialogOpen}
           onOpenChange={handleDataEntryDialogClose}
           pillar={activePillar}
+          clientProfile={clientProfile}
           onSwitchPillar={handleSwitchPillar}
         />
       )}

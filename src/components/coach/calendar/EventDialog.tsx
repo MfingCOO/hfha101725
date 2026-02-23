@@ -27,18 +27,15 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect } from 'react';
-import { Loader2, Trash2, Calendar as CalendarIcon, Link as LinkIcon } from 'lucide-react';
+import { Loader2, Trash2, Link as LinkIcon } from 'lucide-react';
 import { saveCalendarEvent, deleteCalendarEvent } from '@/app/coach/calendar/actions';
 import { getAllAppUsers } from '@/app/coach/dashboard/actions';
 import type { UserProfile } from '@/types';
 import { Combobox } from '@/components/ui/combobox';
 import { format } from 'date-fns';
 import { Switch } from '@/components/ui/switch';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/components/auth/auth-provider';
-import { getUserTimezone, convertToUTC } from '@/services/time';
 
 const eventSchema = z.object({
     id: z.string().optional(),
@@ -139,24 +136,26 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
   const onSubmit = async (values: EventFormValues) => {
     setIsLoading(true);
 
-    const coachTimezone = getUserTimezone();
-    const startUTC = convertToUTC(values.start.toISOString(), coachTimezone);
-
-    const endUTC = new Date(startUTC);
-    endUTC.setDate(endUTC.getDate() + (values.durationDays || 0));
-    endUTC.setHours(endUTC.getHours() + (values.durationHours || 0));
-    endUTC.setMinutes(endUTC.getMinutes() + (values.durationMinutes || 0));
+    // BUG FIX: Correctly calculate the end time based on local start time.
+    const startDateTime = new Date(values.start);
+    const endDateTime = new Date(startDateTime);
+    endDateTime.setDate(endDateTime.getDate() + (values.durationDays || 0));
+    endDateTime.setHours(endDateTime.getHours() + (values.durationHours || 0));
+    endDateTime.setMinutes(endDateTime.getMinutes() + (values.durationMinutes || 0));
 
     try {
         const client = clients.find(c => c.uid === values.clientId);
         const dataToSave = {
             ...values,
-            start: startUTC,
-            end: endUTC,
+            start: startDateTime, // Use the local start time
+            end: endDateTime, // Use the calculated local end time
             clientName: client?.fullName || null,
             coachId: user?.uid,
             coachName: user?.displayName,
+            // TIMEZONE FIX: Pass the browser's timezone directly to the server action
+            clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         };
+
         const result = await saveCalendarEvent(dataToSave as any);
         if (result.success) {
             toast({ title: 'Success!', description: `Appointment has been ${values.id ? 'updated' : 'created'}.` });
@@ -212,6 +211,7 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
                         <FormItem><FormLabel>Title</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
                   
+                  {/* BUG FIX: Simplified and corrected date/time input handling */}
                   <div className="flex flex-col sm:flex-row sm:items-end gap-2">
                       <FormField control={form.control} name="start" render={({ field }) => (
                           <FormItem className="flex-1 flex flex-col">
@@ -219,14 +219,14 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
                                 <div className="flex gap-2">
                                   <Input 
                                       type="date" 
-                                      value={format(field.value, "yyyy-MM-dd")} 
+                                      value={format(field.value, "yyyy-MM-dd")}
                                       onChange={e => {
-                                          const newDate = new Date(e.target.value);
-                                          const timezoneOffset = newDate.getTimezoneOffset() * 60000;
-                                          const adjustedDate = new Date(newDate.getTime() + timezoneOffset);
-                                          const finalDate = new Date(field.value);
-                                          finalDate.setFullYear(adjustedDate.getFullYear(), adjustedDate.getMonth(), adjustedDate.getDate());
-                                          field.onChange(finalDate);
+                                        const datePart = e.target.value;
+                                        if (!datePart) return;
+                                        const [year, month, day] = datePart.split('-').map(Number);
+                                        const newDate = new Date(field.value);
+                                        newDate.setFullYear(year, month - 1, day);
+                                        field.onChange(newDate);
                                       }}
                                   />
                                   <Input 
