@@ -13,7 +13,7 @@
     "node": "24.x"
   },
   "dependencies": {
-    "@capacitor-community/admob": "^5.5.0",
+    "@capacitor-community/admob": "^5.4.1",
     "@capacitor/local-notifications": "^5.0.7",
     "@capacitor/push-notifications": "^5.1.1",
     "@firebase/testing": "^0.20.11",
