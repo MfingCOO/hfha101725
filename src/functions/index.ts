@@ -200,7 +200,6 @@ export const appointmentReminderEngine = onSchedule('every 1 minutes', async (ev
     await Promise.all(promises);
 });
 
-// NEWLY ADDED: Engine for scheduled workout reminders
 export const workoutReminderEngine = onSchedule('every 1 minutes', async (event) => {
     const now = new Date();
     const tenMinutesFromNow = new Date(now.getTime() + 10 * 60 * 1000);
@@ -224,7 +223,7 @@ export const workoutReminderEngine = onSchedule('every 1 minutes', async (event)
 
     const promises = snapshot.docs.map(async (doc) => {
         const workout = doc.data();
-        const workoutId = workout.workoutId; // Assuming the ID of the plan is stored here
+        const workoutId = workout.workoutId;
         const userId = workout.userId;
         const workoutName = workout.workoutName || 'your workout';
 
@@ -241,19 +240,17 @@ export const workoutReminderEngine = onSchedule('every 1 minutes', async (event)
 
         console.log(`Creating workout reminder for ${userId} for workout ${workoutId}`);
         await db.collection('notifications').add(notificationData);
-        // Mark the reminder as processed to prevent re-sending
         return doc.ref.update({ status: 'reminder_sent' });
     });
 
     await Promise.all(promises);
 });
 
-
 // -----------------------------------------------------------------------------
 // PART B: THE ENGINE (SENDS ALL PUSH NOTIFICATIONS)
 // -----------------------------------------------------------------------------
 
-async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
+async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string, sentTime?: Timestamp) {
     const userDoc = await db.collection('clients').doc(userId).get();
     if (!userDoc.exists) {
         console.log(`sendPushNotification: User profile ${userId} not found in 'clients'.`);
@@ -277,11 +274,14 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
     }
 
+    // --- THE FIX: START ---
+    // Create a base payload and ensure every value is a string.
     const basePayload: { [key: string]: string } = {
         title: String(title),
         body: String(message),
         ctaUrl: String(ctaUrl || '/'),
         notificationType: String(notificationType || 'general'),
+        sent_time: String(sentTime?.toMillis() || Date.now()), // Add sent_time
     };
 
     const type = notificationType || 'general';
@@ -292,7 +292,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
             basePayload['chatId'] = String(id);
             break;
         case 'workout':
-        case 'workout_reminder': // Added to handle the new reminder type
+        case 'workout_reminder':
             basePayload['workoutId'] = String(id);
             break;
         case 'appointment_reminder':
@@ -303,6 +303,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
             basePayload['entityId'] = String(id);
             break;
     }
+    // --- THE FIX: END ---
 
     const payload = {
         tokens: tokens,
@@ -314,9 +315,8 @@ async function sendPushNotification(userId: string, title: string, message: stri
             notification: { 
                 title, 
                 body: message, 
-                channelId: 'default_notification_channel', 
-                icon: 'ic_notification', 
-                clickAction: 'FLUTTER_NOTIFICATION_CLICK' 
+                channelId: 'chat_messages', 
+                icon: 'ic_stat_notification',
             }
         },
         apns: {
@@ -345,7 +345,7 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
     const notification = doc.data();
     await doc.ref.update({ processed: true });
     console.log(`unifiedNotificationEngine: Processing notification ${doc.id} for user ${notification.userId}`);
-    await sendPushNotification(notification.userId, notification.title, notification.message, notification.ctaUrl, notification.notificationType, notification.entityId);
+    await sendPushNotification(notification.userId, notification.title, notification.message, notification.ctaUrl, notification.notificationType, notification.entityId, notification.sendTime);
   });
   await Promise.all(promises);
 });
