@@ -46,7 +46,6 @@ export async function upsertProgramAction(params: {
 
     await docRef.set(finalProgram, { merge: true });
 
-    revalidatePath('/coach/library');
     return { success: true, data: finalProgram };
 
   } catch (error: any) {
@@ -69,7 +68,6 @@ export async function getProgramsAction(): Promise<ActionResponse<Program[]>> {
 export async function deleteProgramAction(programId: string): Promise<ActionResponse<{}>> {
     try {
         await firestore.collection('programs').doc(programId).delete();
-        revalidatePath('/coach/library');
         return { success: true, data: {} };
     } catch (error: any) {
         console.error("Error deleting program:", error);

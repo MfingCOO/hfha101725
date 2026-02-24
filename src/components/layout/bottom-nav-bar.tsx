@@ -14,7 +14,7 @@ interface NavItem {
 
 export default function BottomNavBar() {
     const { unreadChatCount } = useDashboardState();
-    const { onOpenCalendar, onOpenChallenges, isCalendarOpen, isChallengesOpen, onCloseCalendar, onCloseChallenges } = useDashboardActions();
+    const { onOpenCalendar, onOpenChallenges, isCalendarOpen, isChallengesOpen, onCloseCalendar, onCloseChallenges, onOpenSettings } = useDashboardActions();
     const { openModal: openChatModal, isOpen: isChatOpen, closeModal: closeChatModal } = useChatModalStore();
 
     const navItems: NavItem[] = [
@@ -30,7 +30,7 @@ export default function BottomNavBar() {
             label: "Chats",
             icon: MessageSquare,
             notificationCount: unreadChatCount,
-            onClick: () => isChatOpen ? closeChatModal() : openChatModal(null)
+            onClick: () => isChatOpen ? closeChatModal() : openChatModal()
         },
         { 
             href: "#", 
@@ -38,7 +38,7 @@ export default function BottomNavBar() {
             icon: Trophy, 
             onClick: () => isChallengesOpen ? onCloseChallenges() : onOpenChallenges() 
         },
-        { href: "/client/settings", label: "Profile", icon: User },
+        { href: "#", label: "Profile", icon: User, onClick: onOpenSettings },
     ];
 
     if (typeof window === 'undefined') {

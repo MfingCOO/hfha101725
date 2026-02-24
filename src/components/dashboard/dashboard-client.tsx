@@ -33,6 +33,7 @@ import { db } from '@/lib/firebase';
 // import { FirstUseEducationalModal } from '../modals/FirstUseEducationalModal';
 import { educationalContentLibrary, EducationalContent } from '@/lib/educational-content';
 import { UpgradeModal } from '../modals/upgrade-modal';
+import { SettingsDialog } from '../settings/SettingsDialog';
 import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
 import { ProgramWidget } from '@/components/client/ProgramWidget'; 
 import { ProgramListDialog } from '@/components/programs/program-list-dialog';
@@ -79,7 +80,7 @@ const safeNewDate = (dateSource: any): Date | null => {
 }
 
 export function DashboardClient() {
-  const { onOpenChallenges } = useDashboardActions();
+  const { onOpenChallenges, onOpenCalendar, isSettingsOpen, onCloseSettings } = useDashboardActions();
   const { user, isCoach, loading } = useAuth(); // THE FIX: Get loading state
   const { toast } = useToast();
   const { modalType, closeModal } = useDataEntryModal();
@@ -110,8 +111,6 @@ export function DashboardClient() {
   const [isProgramHubOpen, setIsProgramHubOpen] = useState(false);
   const [isJoiningChallenge, setIsJoiningChallenge] = useState(false);
 
-  const { onOpenCalendar } = useDashboardActions();
-  
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -536,6 +535,11 @@ export function DashboardClient() {
       <InsightsDialog 
         isOpen={insightsDialogOpen}
         onClose={() => setInsightsDialogOpen(false)}
+      />
+
+      <SettingsDialog
+        open={isSettingsOpen}
+        onOpenChange={onCloseSettings}
       />
 
       <UpgradeModal

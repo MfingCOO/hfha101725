@@ -281,7 +281,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
         body: String(message),
         ctaUrl: String(ctaUrl || '/'),
         notificationType: String(notificationType || 'general'),
-        sent_time: String(sentTime?.toMillis() || Date.now()), // Add sent_time
+        sent_time: String(sentTime?.toMillis() || Date.now()),
     };
 
     const type = notificationType || 'general';

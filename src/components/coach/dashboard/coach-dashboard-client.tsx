@@ -15,7 +15,6 @@ import { ManageChallengesDialog } from "@/components/coach/challenges/manage-cha
 import { ManagePopupsDialog } from "@/components/coach/popups/manage-popups-dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ManageLibraryDialog } from "@/components/coach/library/manage-library-dialog";
 import { ManageChatsDialog } from "@/components/coach/chats/manage-chats-dialog";
 import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
 import { getCoachingChatIdForClient } from "@/app/coach/clients/actions";
@@ -45,7 +44,6 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [isChallengesOpen, setIsChallengesOpen] = useState(false);
     const [isPopupsOpen, setIsPopupsOpen] = useState(false);
     const [isChatsOpen, setIsChatsOpen] = useState(false);
-    const [isLibraryOpen, setIsLibraryOpen] = useState(false);
     const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [isFoodCacheOpen, setIsFoodCacheOpen] = useState(false);
     const [isModerationOpen, setIsModerationOpen] = useState(false);
@@ -156,7 +154,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
         { label: 'Chats', icon: MessageSquare, action: () => setIsChatsOpen(true), count: unreadChatCount },
         { label: 'Challenges', icon: Trophy, action: () => setIsChallengesOpen(true) },
         { label: 'Pop-ups', icon: Megaphone, action: () => setIsPopupsOpen(true) },
-        { label: 'Library', icon: Library, action: () => setIsLibraryOpen(true) },
+        { label: 'Future', icon: Library, action: () => {} }, // **THE FIX**: Changed label and action
         { label: 'Calendar', icon: Calendar, action: () => setIsCalendarOpen(true) },
         { label: 'Food Cache', icon: Database, action: () => setIsFoodCacheOpen(true), count: pendingFoodCount },
     ];
@@ -228,7 +226,6 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             <ManageChatsDialog open={isChatsOpen} onOpenChange={setIsChatsOpen} />
             <ManageChallengesDialog open={isChallengesOpen} onOpenChange={setIsChallengesOpen} />
             <ManagePopupsDialog open={isPopupsOpen} onOpenChange={setIsPopupsOpen} />
-            <ManageLibraryDialog open={isLibraryOpen} onOpenChange={setIsLibraryOpen} />
             <CoachCalendarDialog open={isCalendarOpen} onOpenChange={setIsCalendarOpen} />
             <ManageFoodCacheDialog open={isFoodCacheOpen} onOpenChange={setIsFoodCacheOpen} />
             <ModerationDialog isOpen={isModerationOpen} onClose={() => setIsModerationOpen(false)} />
