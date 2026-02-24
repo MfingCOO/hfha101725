@@ -1,4 +1,3 @@
-
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
@@ -13,11 +12,8 @@ const messaging = getMessaging();
 // PART A: INFORMATIVE NOTIFICATION TRIGGERS
 // -----------------------------------------------------------------------------
 
-// --- Function to get a user's name from their user profile ---
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
-    
-    // **THE FIX:** We now only look in the 'clients' collection for ALL users.
     try {
         const doc = await db.collection('clients').doc(userId).get();
         if (doc.exists && doc.data()?.fullName) {
@@ -27,11 +23,9 @@ const getUserName = async (userId: string): Promise<string | null> => {
     } catch (error) {
          console.error(`Error searching for user ${userId} in 'clients':`, error);
     }
-    
     console.log(`getUserName: Could not find a name for userId: ${userId} in the 'clients' collection.`);
     return null;
 };
-
 
 export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => {
     const message = event.data?.data();
@@ -67,7 +61,6 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     const body = messageText.substring(0, 100);
     let title = `New message from ${senderName || 'someone'}`;
 
-    // For group chats, the title should be the name of the group.
     if (chatData.isGroup) {
         title = `New message in ${chatData.name || 'your group chat'}`;
     }
@@ -93,7 +86,6 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     console.log(`onNewMessage: Successfully created ${recipients.length} notification documents for chat ${chatId}.`);
 });
 
-// --- HYDRATION REMINDER ENGINE (No changes needed here) ---
 export const hydrationReminderEngine = onSchedule('every 15 minutes', async (event) => {
     const now = Timestamp.now();
     const query = db.collection('hydration_reminders').where('status', '==', 'scheduled').where('scheduledAt', '<=', now);
@@ -114,7 +106,11 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
                 return;
             }
             const userData = userDoc.data();
-            const userTier = userData?.tier;
+            if (!userData) {
+                console.log(`User data is empty for ${userId}. Skipping reminder ${reminderId}.`);
+                return;
+            }
+            const userTier = userData.tier;
             const ineligibleTiers = ['free', 'ad-free'];
             if (ineligibleTiers.includes(userTier)) {
                 console.log(`User ${userId} is on tier '${userTier}' and not eligible for reminders. Skipping.`);
@@ -123,7 +119,7 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
             const notificationData = {
                 userId: userId,
                 title: '💧 Time to Hydrate!',
-                message: 'Don\'t forget to log your water intake to stay on track with your goals.',
+                message: 'A quick reminder to drink some water and log your intake.',
                 ctaUrl: `/client/dashboard?notificationType=hydration`,
                 notificationType: 'hydration',
                 entityId: 'hydration', 
@@ -147,24 +143,82 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
     await Promise.all(promises);
 });
 
+export const appointmentReminderEngine = onSchedule('every 1 minutes', async (event) => {
+    const now = new Date();
+    const tenMinutesFromNow = new Date(now.getTime() + 10 * 60 * 1000);
+    const elevenMinutesFromNow = new Date(now.getTime() + 11 * 60 * 1000);
+
+    const tenMinutesFromNowTimestamp = Timestamp.fromDate(tenMinutesFromNow);
+    const elevenMinutesFromNowTimestamp = Timestamp.fromDate(elevenMinutesFromNow);
+
+    const query = db.collection('events')
+        .where('startTime', '>=', tenMinutesFromNowTimestamp)
+        .where('startTime', '<', elevenMinutesFromNowTimestamp)
+        .where('type', '==', 'one_on_one');
+
+    const snapshot = await query.get();
+
+    if (snapshot.empty) {
+        return; // No console log needed for quiet operation
+    }
+
+    console.log(`Found ${snapshot.docs.length} upcoming appointments for reminders.`);
+
+    const promises = snapshot.docs.map(async (doc) => {
+        const appointment = doc.data();
+        const appointmentId = doc.id;
+        const clientId = appointment.clientId;
+        const coachId = appointment.coachId;
+
+        const clientName = await getUserName(clientId);
+
+        const notificationPromises = [clientId, coachId].map(userId => {
+            if (!userId) return Promise.resolve();
+
+            const isCoach = userId === coachId;
+            const title = 'Upcoming Appointment';
+            const message = `Your appointment with ${isCoach ? clientName : 'your coach'} is in 10 minutes.`;
+
+            const notificationData = {
+                userId: userId,
+                title: title,
+                message: message,
+                ctaUrl: `/client/dashboard?notificationType=appointment_reminder&entityId=${appointmentId}`,
+                notificationType: 'appointment_reminder',
+                entityId: appointmentId,
+                sendTime: Timestamp.now(),
+                processed: false,
+            };
+
+            console.log(`Creating appointment reminder for ${userId} for appointment ${appointmentId}`);
+            return db.collection('notifications').add(notificationData);
+        });
+
+        return Promise.all(notificationPromises);
+    });
+
+    await Promise.all(promises);
+});
+
 // -----------------------------------------------------------------------------
 // PART B: THE ENGINE (SENDS ALL PUSH NOTIFICATIONS)
 // -----------------------------------------------------------------------------
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string) {
-    let userData: any = null;
-    
-    // **THE FIX:** We now ONLY search the 'clients' collection for ALL users.
     const userDoc = await db.collection('clients').doc(userId).get();
-    if (userDoc.exists) {
-        userData = userDoc.data();
-    } else {
-        console.log(`sendPushNotification: User profile ${userId} not found in 'clients'. Cannot send notification.`);
+    if (!userDoc.exists) {
+        console.log(`sendPushNotification: User profile ${userId} not found in 'clients'.`);
+        return;
+    }
+
+    const userData = userDoc.data();
+    if (!userData) {
+        console.log(`sendPushNotification: User data is empty for user ${userId}.`);
         return;
     }
 
     if (!userData.fcmTokens || userData.fcmTokens.length === 0) {
-        console.log(`sendPushNotification: User ${userId} has no FCM tokens. Cannot send notification.`);
+        console.log(`sendPushNotification: User ${userId} has no FCM tokens.`);
         return;
     }
 
@@ -174,22 +228,51 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
     }
 
-    const dataPayload = {
-        title: title,
-        body: message,
-        ctaUrl: ctaUrl || '/',
-        notificationType: notificationType || 'general',
-        entityId: entityId || 'none',
+    // --- START: Dynamic & String-Only Payload ---
+    const basePayload: { [key: string]: string } = {
+        title: String(title),
+        body: String(message),
+        ctaUrl: String(ctaUrl || '/'),
+        notificationType: String(notificationType || 'general'),
     };
+
+    const type = notificationType || 'general';
+    const id = entityId || 'none';
+
+    switch (type) {
+        case 'chat':
+            basePayload['chatId'] = String(id);
+            break;
+        case 'workout':
+            basePayload['workoutId'] = String(id);
+            break;
+        case 'appointment_reminder':
+        case 'appointment_booked':
+            basePayload['appointmentId'] = String(id);
+            break;
+        default:
+            basePayload['entityId'] = String(id);
+            break;
+    }
+    // --- END: Dynamic & String-Only Payload ---
 
     const payload = {
         tokens: tokens,
-        data: dataPayload,
+        data: basePayload, // CORRECT: Top-level data payload for Android
         notification: { title, body: message },
-        webpush: { fcmOptions: { link: ctaUrl || '/' }, notification: { icon: '/icon.png', data: dataPayload } },
-        android: { priority: 'high' as const, notification: { title, body: message, channelId: 'default_notification_channel', icon: 'ic_notification', clickAction: 'FLUTTER_NOTIFICATION_CLICK' } },
+        webpush: { fcmOptions: { link: ctaUrl || '/' }, notification: { icon: '/icon.png', data: basePayload } },
+        android: { 
+            priority: 'high' as const, 
+            notification: { 
+                title, 
+                body: message, 
+                channelId: 'default_notification_channel', 
+                icon: 'ic_notification', 
+                clickAction: 'FLUTTER_NOTIFICATION_CLICK' 
+            }
+        },
         apns: {
-            payload: { aps: { alert: { title, body: message }, 'content-available': 1, sound: 'default', badge: 1, category: 'HUNGREE_NOTIFICATION_ACTIONS' }, ...dataPayload },
+            payload: { aps: { alert: { title, body: message }, 'content-available': 1, sound: 'default', badge: 1, category: 'HUNGREE_NOTIFICATION_ACTIONS' }, ...basePayload },
             headers: { 'apns-push-type': 'alert', 'apns-priority': '10' },
         },
     };

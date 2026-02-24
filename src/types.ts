@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 export enum UserTier { Free = 'free', AdFree = 'ad-free', Basic = 'basic', Premium = 'premium', Coaching = 'coaching' }
 
-// DEPRECATED: This is legacy. Use ClientProfile instead.
+// DEPRECATED: This is legacy but still used for the chat system.
 export interface UserProfile {
   uid: string;
   email?: string;
@@ -20,6 +20,31 @@ export interface UserProfile {
   lastInteraction?: any;
   bedtime?: string;
   activeChallengeId?: string;
+}
+
+// SURGICAL FIX: Adding the DailySummary interface back.
+export interface DailySummary {
+    lastUpdated: any;
+    unit: 'kg' | 'lbs';
+    startWeight: number | null;
+    currentWeight: number | null;
+    lastWeightDate: string | null;
+    startWthr: number | null;
+    currentWthr: number | null;
+    lastWaistDate: string | null;
+    avgSleep: number;
+    avgActivity: number;
+    avgHydration: number;
+    cravings: number;
+    binges: number;
+    stressEvents: number;
+    avgUpf: number;
+    avgNutrients?: {
+        Energy?: number;
+        Protein?: number;
+        'Total lipid (fat)'?: number;
+        'Carbohydrate, by difference'?: number;
+    };
 }
 
 // SOURCE OF TRUTH: Represents a document in the 'clients' collection.
@@ -41,8 +66,14 @@ export interface ClientProfile {
   stripeCustomerId?: string;
   role?: 'client' | 'coach';
   challengeIds?: string[];
-  customGoals?: NutritionalGoals; // ADDED
-  trackingSettings?: TrackingSettings; // ADDED
+  customGoals?: NutritionalGoals;
+  trackingSettings?: TrackingSettings;
+  // SURGICAL FIX: Adding missing properties to fix dashboard and stats display.
+  photoURL?: string;
+  createdAt?: any;
+  dailySummaries?: { [date: string]: DailySummary };
+  dob?: string | null;
+  sex?: 'male' | 'female' | 'unspecified' | null;
 }
 
 export const TIER_ACCESS: { [key in UserTier]: { [feature: string]: boolean } } = {
@@ -61,11 +92,11 @@ export interface ChatMessage {
   id: string;
   text: string;
   senderId: string;
-  timestamp: any; // Can be a string (ISO) on the client, or a Firestore Timestamp on the server
+  timestamp: any; 
   isSystemMessage?: boolean;
   fileUrl?: string;
   fileName?: string;
-  userId?: string; // DEPRECATED: Prefer senderId
+  userId?: string; 
   userName?: string;
 }
 
@@ -77,13 +108,12 @@ export interface Chat {
   ownerId?: string;
   participants: string[];
   participantCount: number;
-  createdAt: any; // Can be a string (ISO) on the client, or a Firestore Timestamp on the server
-  lastMessage?: ChatMessage; // This will hold the last message object for display
-  unreadCount?: number; // For the notification badge
+  createdAt: any; 
+  lastMessage?: ChatMessage; 
+  unreadCount?: number; 
   thumbnailUrl?: string;
   rules?: string[];
   mutedBy?: string[];
-  // Timestamps for internal backend logic, can be strings on the client
   lastClientMessage?: any;
   lastCoachMessage?: any;
   lastAutomatedMessage?: any;
@@ -93,7 +123,7 @@ export interface Chat {
 // -----------------------------------------------------------------------------
 // NUTRITION & FOOD-RELATED TYPES
 // -----------------------------------------------------------------------------
-
+ 
 export type NovaGroup = 1 | 2 | 3 | 4;
 
 export const PortionSizesSchema = z.object({

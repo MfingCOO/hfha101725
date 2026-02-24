@@ -30,7 +30,8 @@ import { useState, useEffect } from 'react';
 import { Loader2, Trash2, Link as LinkIcon } from 'lucide-react';
 import { saveCalendarEvent, deleteCalendarEvent } from '@/app/coach/calendar/actions';
 import { getAllAppUsers } from '@/app/coach/dashboard/actions';
-import type { UserProfile } from '@/types';
+// THE FIX: Replaced UserProfile with ClientProfile.
+import type { ClientProfile } from '@/types';
 import { Combobox } from '@/components/ui/combobox';
 import { format } from 'date-fns';
 import { Switch } from '@/components/ui/switch';
@@ -63,7 +64,8 @@ interface EventDialogProps {
 export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [clients, setClients] = useState<UserProfile[]>([]);
+  // THE FIX: Use the correct ClientProfile type for the clients state.
+  const [clients, setClients] = useState<ClientProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<EventFormValues>({
@@ -83,8 +85,8 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
   });
 
   useEffect(() => {
-    if (isOpen) {
-      getAllAppUsers().then(result => {
+    if (isOpen && user) {
+      getAllAppUsers(user.uid).then(result => {
         if (result.success && result.users) {
           setClients(result.users);
         }
@@ -131,12 +133,11 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
         });
       }
     }
-  }, [isOpen, event, form]);
+  }, [isOpen, event, form, user]);
 
   const onSubmit = async (values: EventFormValues) => {
     setIsLoading(true);
 
-    // BUG FIX: Correctly calculate the end time based on local start time.
     const startDateTime = new Date(values.start);
     const endDateTime = new Date(startDateTime);
     endDateTime.setDate(endDateTime.getDate() + (values.durationDays || 0));
@@ -147,12 +148,11 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
         const client = clients.find(c => c.uid === values.clientId);
         const dataToSave = {
             ...values,
-            start: startDateTime, // Use the local start time
-            end: endDateTime, // Use the calculated local end time
+            start: startDateTime,
+            end: endDateTime,
             clientName: client?.fullName || null,
             coachId: user?.uid,
             coachName: user?.displayName,
-            // TIMEZONE FIX: Pass the browser's timezone directly to the server action
             clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         };
 
@@ -211,7 +211,6 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
                         <FormItem><FormLabel>Title</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
                   
-                  {/* BUG FIX: Simplified and corrected date/time input handling */}
                   <div className="flex flex-col sm:flex-row sm:items-end gap-2">
                       <FormField control={form.control} name="start" render={({ field }) => (
                           <FormItem className="flex-1 flex flex-col">
