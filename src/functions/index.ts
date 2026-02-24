@@ -88,7 +88,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
 
 export const hydrationReminderEngine = onSchedule('every 15 minutes', async (event) => {
     const now = Timestamp.now();
-    const query = db.collection('hydration_reminders').where('status', '==', 'scheduled').where('scheduledAt', '<=', now);
+    const query = db.collection('reminders').where('status', '==', 'scheduled').where('scheduledAt', '<=', now);
     const snapshot = await query.get();
     if (snapshot.empty) {
         return;
@@ -151,15 +151,15 @@ export const appointmentReminderEngine = onSchedule('every 1 minutes', async (ev
     const tenMinutesFromNowTimestamp = Timestamp.fromDate(tenMinutesFromNow);
     const elevenMinutesFromNowTimestamp = Timestamp.fromDate(elevenMinutesFromNow);
 
-    const query = db.collection('events')
-        .where('startTime', '>=', tenMinutesFromNowTimestamp)
-        .where('startTime', '<', elevenMinutesFromNowTimestamp)
+    const query = db.collection('coachCalendar')
+        .where('start', '>=', tenMinutesFromNowTimestamp)
+        .where('start', '<', elevenMinutesFromNowTimestamp)
         .where('type', '==', 'one_on_one');
 
     const snapshot = await query.get();
 
     if (snapshot.empty) {
-        return; // No console log needed for quiet operation
+        return;
     }
 
     console.log(`Found ${snapshot.docs.length} upcoming appointments for reminders.`);
@@ -200,6 +200,55 @@ export const appointmentReminderEngine = onSchedule('every 1 minutes', async (ev
     await Promise.all(promises);
 });
 
+// NEWLY ADDED: Engine for scheduled workout reminders
+export const workoutReminderEngine = onSchedule('every 1 minutes', async (event) => {
+    const now = new Date();
+    const tenMinutesFromNow = new Date(now.getTime() + 10 * 60 * 1000);
+    const elevenMinutesFromNow = new Date(now.getTime() + 11 * 60 * 1000);
+
+    const tenMinutesFromNowTimestamp = Timestamp.fromDate(tenMinutesFromNow);
+    const elevenMinutesFromNowTimestamp = Timestamp.fromDate(elevenMinutesFromNow);
+
+    const query = db.collection('scheduledWorkouts')
+        .where('scheduledDate', '>=', tenMinutesFromNowTimestamp)
+        .where('scheduledDate', '<', elevenMinutesFromNowTimestamp)
+        .where('status', '==', 'scheduled');
+
+    const snapshot = await query.get();
+
+    if (snapshot.empty) {
+        return;
+    }
+
+    console.log(`Found ${snapshot.docs.length} upcoming workouts for reminders.`);
+
+    const promises = snapshot.docs.map(async (doc) => {
+        const workout = doc.data();
+        const workoutId = workout.workoutId; // Assuming the ID of the plan is stored here
+        const userId = workout.userId;
+        const workoutName = workout.workoutName || 'your workout';
+
+        const notificationData = {
+            userId: userId,
+            title: 'Workout Reminder',
+            message: `Your scheduled workout, "${workoutName}," is in 10 minutes!`,
+            ctaUrl: `/client/dashboard?notificationType=workout_reminder&entityId=${workoutId}`,
+            notificationType: 'workout_reminder',
+            entityId: workoutId,
+            sendTime: Timestamp.now(),
+            processed: false,
+        };
+
+        console.log(`Creating workout reminder for ${userId} for workout ${workoutId}`);
+        await db.collection('notifications').add(notificationData);
+        // Mark the reminder as processed to prevent re-sending
+        return doc.ref.update({ status: 'reminder_sent' });
+    });
+
+    await Promise.all(promises);
+});
+
+
 // -----------------------------------------------------------------------------
 // PART B: THE ENGINE (SENDS ALL PUSH NOTIFICATIONS)
 // -----------------------------------------------------------------------------
@@ -228,7 +277,6 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
     }
 
-    // --- START: Dynamic & String-Only Payload ---
     const basePayload: { [key: string]: string } = {
         title: String(title),
         body: String(message),
@@ -244,6 +292,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
             basePayload['chatId'] = String(id);
             break;
         case 'workout':
+        case 'workout_reminder': // Added to handle the new reminder type
             basePayload['workoutId'] = String(id);
             break;
         case 'appointment_reminder':
@@ -254,11 +303,10 @@ async function sendPushNotification(userId: string, title: string, message: stri
             basePayload['entityId'] = String(id);
             break;
     }
-    // --- END: Dynamic & String-Only Payload ---
 
     const payload = {
         tokens: tokens,
-        data: basePayload, // CORRECT: Top-level data payload for Android
+        data: basePayload,
         notification: { title, body: message },
         webpush: { fcmOptions: { link: ctaUrl || '/' }, notification: { icon: '/icon.png', data: basePayload } },
         android: { 

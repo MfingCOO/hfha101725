@@ -37,7 +37,7 @@ const MetricCard = ({ icon: Icon, title, value, unit, context }: { icon: LucideI
     </div>
 );
 
-// **THE FIX**: Helper to get the most recent summary, not just today's.
+// Helper to get the most recent summary, not just today's.
 const getLatestSummary = (summaries: { [date: string]: DailySummary } | undefined): DailySummary | undefined => {
     if (!summaries || Object.keys(summaries).length === 0) {
         return undefined;
@@ -52,11 +52,29 @@ export function ClientStatsDashboard({
   isRefreshing,
 }: ClientStatsDashboardProps) {
 
-    // **THE FIX**: Use the helper to find the latest summary, removing the dependency on 'today'.
     const latestSummary = useMemo(() => getLatestSummary(client.dailySummaries), [client.dailySummaries]);
 
+    // **THE FIX**: Fallback logic for Weight and WtHR
+    const displayWeight = useMemo(() => {
+        const weight = latestSummary?.currentWeight ?? client.onboarding?.weight;
+        const unit = latestSummary?.unit ?? (client.onboarding?.units === 'imperial' ? 'lbs' : 'kg');
+        return weight ? `${weight} ${unit}` : 'N/A';
+    }, [latestSummary, client.onboarding]);
+
+    const displayWthr = useMemo(() => {
+        let wthr = latestSummary?.currentWthr;
+        if (!wthr) {
+            const waist = client.onboarding?.waist;
+            const height = client.onboarding?.height;
+            if (waist && height && height > 0) {
+                wthr = waist / height;
+            }
+        }
+        return wthr ? wthr.toFixed(2) : 'N/A';
+    }, [latestSummary, client.onboarding]);
+
     const metricCards = useMemo(() => {
-        if (!latestSummary) return []; // Use latestSummary
+        if (!latestSummary) return []; 
         const insightPeriod = 7; 
 
         return [
@@ -89,11 +107,11 @@ export function ClientStatsDashboard({
         <Separator />
         
         <div className="flex flex-wrap justify-around items-center gap-4">
-            {/* **THE FIX**: Pull data from `latestSummary` and the root `client` object. */}
-            <SummaryStat title="Weight" value={`${latestSummary?.currentWeight || 'N/A'} ${latestSummary?.unit || 'lbs'}`} />
-            <SummaryStat title="WtHR" value={latestSummary?.currentWthr?.toFixed(2) || 'N/A'} />
-            <SummaryStat title="DOB" value={client.dob || 'N/A'} />
-            <SummaryStat title="Sex" value={client.sex ? client.sex.charAt(0).toUpperCase() : 'N/A'} />
+            {/* **THE FIX**: Using the new display variables with fallback logic */}
+            <SummaryStat title="Weight" value={displayWeight} />
+            <SummaryStat title="WtHR" value={displayWthr} />
+            <SummaryStat title="DOB" value={client.onboarding?.birthdate ? format(parseISO(client.onboarding.birthdate), 'MM/dd/yyyy') : 'N/A'} />
+            <SummaryStat title="Sex" value={client.onboarding?.sex ? client.onboarding.sex.charAt(0).toUpperCase() : 'N/A'} />
             <SummaryStat title="Duration" value={`${durationInDays}d`} />
         </div>
         
@@ -103,7 +121,6 @@ export function ClientStatsDashboard({
             <div className="flex items-center justify-center p-12">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-        // **THE FIX**: Check for latestSummary instead of the old, broken 'summary' variable.
         ) : latestSummary ? (
             <div className="grid gap-2.5 grid-cols-[repeat(auto-fit,minmax(100px,1fr))]">
                 {metricCards.map(card => <MetricCard key={card.title} {...card} />)}

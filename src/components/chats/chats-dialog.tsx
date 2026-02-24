@@ -1,15 +1,27 @@
 
 'use client';
 
+import { useChatModalStore } from '@/store/ui-store';
+import { EmbeddedChatDialog } from './embedded-chat-dialog';
 import { BaseModal } from '@/components/ui/base-modal';
 import { ClientChatList } from './client-chat-list';
-import { useChatModalStore } from '@/store/ui-store';
 
-// ** THE FIX: This component now controls its own state by subscribing to the global Zustand store. **
-// It no longer needs to be controlled by a parent component like DialogManager.
 export function ChatsDialog() {
-  const { isOpen, closeModal } = useChatModalStore();
+  const { isOpen, closeModal, entityId } = useChatModalStore();
 
+  // If there's a specific chat ID from the notification, show the embedded chat view.
+  if (entityId) {
+    return (
+      <EmbeddedChatDialog
+        chatId={entityId}
+        chatName="Chat" // Using a generic title as the name isn't readily available here
+        isOpen={isOpen}
+        onClose={closeModal}
+      />
+    );
+  }
+
+  // Otherwise, show the list of all chats (the original behavior).
   return (
     <BaseModal
       isOpen={isOpen}
