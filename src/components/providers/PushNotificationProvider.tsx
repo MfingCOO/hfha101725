@@ -1,15 +1,14 @@
 'use client';
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications, ActionPerformed, Token, PushNotificationSchema, PermissionStatus } from '@capacitor/push-notifications';
 import { LocalNotifications, LocalNotificationSchema, LocalNotificationActionPerformed } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
 import { messaging } from '@/lib/firebase';
-import { getToken, onMessage } from 'firebase/messaging';
+import { getToken } from 'firebase/messaging';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useChatModalStore, useWorkoutModalStore, useCalendarStore } from '@/store/ui-store';
-import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
+import { useNotificationStore } from '@/store/notification-store';
 
 const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, idToken: string | null) => {
     if (!idToken) {
@@ -41,52 +40,51 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const { user, isCoach, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-
-  const { openModal: openChatModal } = useChatModalStore();
-  const { openModal: openWorkoutModal } = useWorkoutModalStore();
-  const { openModal: openDataEntryModal } = useDataEntryModal();
-  const { onOpen: onOpenCalendar } = useCalendarStore();
+  const { 
+    setNotificationChatId, 
+    setNotificationAppointmentId, 
+    setNotificationWorkoutId, 
+    setTriggerHydrationModal 
+  } = useNotificationStore();
   
   const listenersAttachedForUser = useRef<string | null>(null);
 
-  const handleNotificationAction = useCallback((data: { [key: string]: any } | undefined) => {
+  const handleNotificationAction = (data: { [key: string]: any } | undefined) => {
     if (!data) {
-        console.warn("handleNotificationAction called with no data. This may be due to a server-side data type error.");
+        console.warn("handleNotificationAction called with no data.");
         return;
     }
-    console.log("Unified Action Handler: Processing notification action with data:", data);
+    console.log("Provider: Processing notification action with data:", data);
     
     const { notificationType } = data;
 
-    setTimeout(() => {
-      switch (String(notificationType)) {
-        case 'hydration':
-          console.log('Opening hydration modal');
-          openDataEntryModal('hydration');
-          break;
-        case 'chat':
-          const chatId = data.chatId;
-          console.log(`Handling 'chat' notification. ChatID: ${chatId}`);
-          if (chatId) openChatModal(String(chatId));
-          break;
-        case 'workout':
-          const workoutId = data.workoutId;
-          console.log(`Handling 'workout' notification. WorkoutID: ${workoutId}`);
-          if (workoutId) openWorkoutModal(String(workoutId));
-          break;
-        case 'appointment_reminder':
-        case 'appointment_booked':
-          const appointmentId = data.appointmentId;
-          console.log(`Handling '${notificationType}' notification. EventID: ${appointmentId}`);
-          onOpenCalendar(appointmentId ? String(appointmentId) : undefined);
-          break;
-        default:
-          console.warn(`Unknown notificationType received: ${notificationType}`);
-          router.push(isCoach ? '/coach/dashboard' : '/client/dashboard');
-          break;
-      }
-    }, 250);
-  }, [openChatModal, openWorkoutModal, openDataEntryModal, onOpenCalendar, router, isCoach]);
+    switch (String(notificationType)) {
+      case 'hydration':
+        console.log('Provider: Setting hydration trigger.');
+        setTriggerHydrationModal(true);
+        break;
+      case 'chat':
+        const chatId = data.chatId;
+        console.log(`Provider: Setting notification chat ID: ${chatId}`);
+        if (chatId) setNotificationChatId(String(chatId));
+        break;
+      case 'workout':
+        const workoutId = data.workoutId;
+        console.log(`Provider: Setting notification workout ID: ${workoutId}`);
+        if (workoutId) setNotificationWorkoutId(String(workoutId));
+        break;
+      case 'appointment_reminder':
+      case 'appointment_booked':
+        const appointmentId = data.appointmentId;
+        console.log(`Provider: Setting notification appointment ID: ${appointmentId}`);
+        if (appointmentId) setNotificationAppointmentId(String(appointmentId));
+        break;
+      default:
+        console.warn(`Provider: Unknown notificationType received: ${notificationType}`);
+        // No navigation here, the handler will decide what to do.
+        break;
+    }
+  };
 
   useEffect(() => {
     if (Capacitor.isNativePlatform() || !searchParams) return;
@@ -98,7 +96,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         handleNotificationAction(payload);
         router.replace(isCoach ? '/coach/dashboard' : '/client/dashboard', { scroll: false });
     }
-  }, [searchParams, handleNotificationAction, router, isCoach]);
+  }, [searchParams, router, isCoach]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || !user || loading || listenersAttachedForUser.current === user.uid) {
@@ -164,7 +162,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         LocalNotifications.removeAllListeners();
       }
     };
-  }, [user, isCoach, loading, handleNotificationAction]);
+  }, [user, isCoach, loading]);
 
   return <>{children}</>;
 };

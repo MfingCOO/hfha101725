@@ -15,6 +15,7 @@ import type { ClientProfile } from '@/types';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
+import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -75,6 +76,7 @@ function DialogManager() {
 
     return (
         <>
+            <NotificationActionHandler />
             <ChallengesDialog
                 key="challenges"
                 isOpen={isChallengesOpen}
