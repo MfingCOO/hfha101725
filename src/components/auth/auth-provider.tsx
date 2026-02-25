@@ -14,7 +14,7 @@ const COACH_UIDS = [
 
 interface AuthContextType {
     user: User | null;
-    userProfile: DocumentData | null; // THE FIX: Add userProfile back to the context
+    userProfile: DocumentData | null;
     loading: boolean;
     isCoach: boolean;
 }
@@ -23,7 +23,7 @@ const AuthContext = createContext<AuthContextType>({ user: null, userProfile: nu
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<User | null>(null);
-    const [userProfile, setUserProfile] = useState<DocumentData | null>(null); // THE FIX: Create state for profile data
+    const [userProfile, setUserProfile] = useState<DocumentData | null>(null);
     const [loading, setLoading] = useState(true);
     const [isCoach, setIsCoach] = useState(false);
     const router = useRouter();
@@ -38,7 +38,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 if (userDoc.exists()) {
                     const profileData = userDoc.data();
                     setUser(firebaseUser);
-                    setUserProfile(profileData); // THE FIX: Set the profile data in state
+                    setUserProfile(profileData);
 
                     const coachCheck = COACH_UIDS.includes(firebaseUser.uid);
                     setIsCoach(coachCheck);
@@ -60,7 +60,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 setUser(null);
                 setUserProfile(null);
                 setIsCoach(false);
-                if (pathname && pathname !== '/login') {
+                const publicPaths = ['/login', '/', '/signup', '/tos', '/privacy', '/support'];
+                if (pathname && !publicPaths.includes(pathname)) {
                     router.push('/login');
                 }
             }
@@ -71,7 +72,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }, [router, pathname]);
 
     return (
-        // THE FIX: Provide the userProfile data to the entire app
         <AuthContext.Provider value={{ user, userProfile, loading, isCoach }}>
             {children}
         </AuthContext.Provider>

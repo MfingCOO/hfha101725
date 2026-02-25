@@ -15,7 +15,7 @@ export default function SignupPage() {
     const handleSignup = async (data: OnboardingValues) => {
         try {
             // Call the single, unified signup action for all tiers.
-            const result = await unifiedSignupAction(data, data.billingCycle);
+            const result = await unifiedSignupAction(data, 'monthly');
 
             if (result.success) {
                 // If a checkout URL is returned, it's a paid plan. Redirect to Stripe.

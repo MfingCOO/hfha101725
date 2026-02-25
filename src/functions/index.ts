@@ -15,15 +15,19 @@ const messaging = getMessaging();
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
     try {
-        const doc = await db.collection('clients').doc(userId).get();
-        if (doc.exists && doc.data()?.fullName) {
-            console.log(`getUserName: Found name for ${userId} in 'clients'.`);
-            return doc.data()?.fullName as string;
+        // Check both collections for the user's name
+        const clientDoc = await db.collection('clients').doc(userId).get();
+        if (clientDoc.exists && clientDoc.data()?.fullName) {
+            return clientDoc.data()?.fullName as string;
+        }
+        const coachDoc = await db.collection('coaches').doc(userId).get();
+        if (coachDoc.exists && coachDoc.data()?.fullName) {
+            return coachDoc.data()?.fullName as string;
         }
     } catch (error) {
-         console.error(`Error searching for user ${userId} in 'clients':`, error);
+         console.error(`Error searching for user ${userId}:`, error);
     }
-    console.log(`getUserName: Could not find a name for userId: ${userId} in the 'clients' collection.`);
+    console.log(`getUserName: Could not find a name for userId: ${userId}.`);
     return null;
 };
 
@@ -68,11 +72,16 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     console.log(`onNewMessage: Notification details - Title: '${title}', Body: '${body}', EntityID: '${chatId}'`);
 
     const promises = recipients.map((recipientId: string) => {
+        // FIX: Determine the correct dashboard URL for the recipient
+        const isRecipientCoach = recipientId === chatData.coachUid;
+        const dashboardUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
+        const ctaUrl = `${dashboardUrl}?notificationType=chat&entityId=${chatId}`;
+
         const notificationData = {
             userId: recipientId,
             title: title,
             message: body,
-            ctaUrl: `/client/dashboard?notificationType=chat&entityId=${chatId}`,
+            ctaUrl: ctaUrl,
             notificationType: 'chat',
             entityId: chatId, 
             sendTime: Timestamp.now(),
@@ -171,19 +180,22 @@ export const appointmentReminderEngine = onSchedule('every 1 minutes', async (ev
         const coachId = appointment.coachId;
 
         const clientName = await getUserName(clientId);
+        const coachName = await getUserName(coachId);
 
         const notificationPromises = [clientId, coachId].map(userId => {
             if (!userId) return Promise.resolve();
 
             const isCoach = userId === coachId;
             const title = 'Upcoming Appointment';
-            const message = `Your appointment with ${isCoach ? clientName : 'your coach'} is in 10 minutes.`;
+            const message = `Your appointment with ${isCoach ? (clientName || 'your client') : (coachName || 'your coach')} is in 10 minutes.`;
+            const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
+            const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&entityId=${appointmentId}`;
 
             const notificationData = {
                 userId: userId,
                 title: title,
                 message: message,
-                ctaUrl: `/client/dashboard?notificationType=appointment_reminder&entityId=${appointmentId}`,
+                ctaUrl: ctaUrl,
                 notificationType: 'appointment_reminder',
                 entityId: appointmentId,
                 sendTime: Timestamp.now(),
@@ -251,9 +263,15 @@ export const workoutReminderEngine = onSchedule('every 1 minutes', async (event)
 // -----------------------------------------------------------------------------
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string, sentTime?: Timestamp) {
-    const userDoc = await db.collection('clients').doc(userId).get();
+    // --- FIX: Look for user in both 'clients' and 'coaches' collections ---
+    let userDoc = await db.collection('clients').doc(userId).get();
     if (!userDoc.exists) {
-        console.log(`sendPushNotification: User profile ${userId} not found in 'clients'.`);
+        console.log(`sendPushNotification: User ${userId} not found in 'clients', trying 'coaches'.`);
+        userDoc = await db.collection('coaches').doc(userId).get();
+    }
+
+    if (!userDoc.exists) {
+        console.log(`sendPushNotification: User profile ${userId} not found in 'clients' or 'coaches'.`);
         return;
     }
 
@@ -274,9 +292,8 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
     }
 
-    // --- THE FIX: START ---
-    // Create a base payload and ensure every value is a string.
-    const basePayload: { [key: string]: string } = {
+    // --- FIX: Construct a clean data payload with all values as strings ---
+    const dataPayload: { [key: string]: string } = {
         title: String(title),
         body: String(message),
         ctaUrl: String(ctaUrl || '/'),
@@ -289,27 +306,26 @@ async function sendPushNotification(userId: string, title: string, message: stri
 
     switch (type) {
         case 'chat':
-            basePayload['chatId'] = String(id);
+            dataPayload['chatId'] = String(id);
             break;
         case 'workout':
         case 'workout_reminder':
-            basePayload['workoutId'] = String(id);
+            dataPayload['workoutId'] = String(id);
             break;
         case 'appointment_reminder':
         case 'appointment_booked':
-            basePayload['appointmentId'] = String(id);
+            dataPayload['appointmentId'] = String(id);
             break;
         default:
-            basePayload['entityId'] = String(id);
+            dataPayload['entityId'] = String(id);
             break;
     }
-    // --- THE FIX: END ---
 
     const payload = {
         tokens: tokens,
-        data: basePayload,
+        data: dataPayload,
         notification: { title, body: message },
-        webpush: { fcmOptions: { link: ctaUrl || '/' }, notification: { icon: '/icon.png', data: basePayload } },
+        webpush: { fcmOptions: { link: ctaUrl || '/' }, notification: { icon: '/icon.png', data: dataPayload } },
         android: { 
             priority: 'high' as const, 
             notification: { 
@@ -317,15 +333,18 @@ async function sendPushNotification(userId: string, title: string, message: stri
                 body: message, 
                 channelId: 'chat_messages', 
                 icon: 'ic_stat_notification',
+                // --- FIX: Add priority for foreground display ---
+                priority: 'high' as const,
             }
         },
         apns: {
-            payload: { aps: { alert: { title, body: message }, 'content-available': 1, sound: 'default', badge: 1, category: 'HUNGREE_NOTIFICATION_ACTIONS' }, ...basePayload },
+            payload: { aps: { alert: { title, body: message }, 'content-available': 1, sound: 'default', badge: 1, category: 'HUNGREE_NOTIFICATION_ACTIONS' }, ...dataPayload },
             headers: { 'apns-push-type': 'alert', 'apns-priority': '10' },
         },
     };
 
     try {
+        console.log(`sendPushNotification: Sending payload to user ${userId}:`, JSON.stringify(payload, null, 2));
         await messaging.sendEachForMulticast(payload as any);
         console.log(`sendPushNotification: Successfully sent notification to user ${userId} for type '${notificationType}'.`);
     } catch (error) {
