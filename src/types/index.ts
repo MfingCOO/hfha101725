@@ -1,4 +1,3 @@
-
 import { z } from "zod";
 
 // Defines the subscription tiers available in the application.
@@ -61,6 +60,7 @@ export interface DailySummary {
     binges: number;
     stressEvents: number;
     avgUpf: number;
+    dob?: string | null;
     avgNutrients?: {
         Energy?: number;
         Protein?: number;
@@ -127,6 +127,7 @@ export interface ClientProfile {
     pushToken?: string;
     dob?: string | null;
     sex?: 'male' | 'female' | 'unspecified' | null;
+    remindersEnabled?: boolean;
 }
 
 // CORRECTED: Restoring CreateClientInput to its full, correct definition where all fields are required.

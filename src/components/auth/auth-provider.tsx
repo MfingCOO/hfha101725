@@ -6,12 +6,6 @@ import { doc, getDoc, DocumentData } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { usePathname, useRouter } from 'next/navigation';
 
-const COACH_UIDS = [
-    'yue7fVPBQZg45vmfXXUH5PdG7jE2',
-    'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2',
-    'rVBbOZ1l0xbc7dXjezVpU5BgmgC2'
-];
-
 interface AuthContextType {
     user: User | null;
     userProfile: DocumentData | null;
@@ -36,11 +30,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 const userDoc = await getDoc(userDocRef);
 
                 if (userDoc.exists()) {
-                    const profileData = userDoc.data();
+                    const profileData = userDoc.data() as DocumentData;
                     setUser(firebaseUser);
                     setUserProfile(profileData);
 
-                    const coachCheck = COACH_UIDS.includes(firebaseUser.uid);
+                    const coachCheck = profileData.role === 'coach';
                     setIsCoach(coachCheck);
 
                     if (pathname) {

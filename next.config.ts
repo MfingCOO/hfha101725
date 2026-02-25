@@ -3,16 +3,12 @@ import type { NextConfig } from 'next';
 
 const withPWA = require('next-pwa')({
   dest: 'public',
-  // THE FIX: We are disabling automatic registration to take manual control.
-  register: false,
+  register: true, // Re-enabling with a basic config
   skipWaiting: true,
-  disable: false,
-  importScripts: ['/firebase-messaging-sw.js'],
+  // disable: process.env.NODE_ENV === 'development', // Example of a more robust setup
 });
 
 const nextConfig: NextConfig = {
-  // We are keeping this for now to allow the build to succeed.
-  // TODO: Schedule a task to remove this and fix all TypeScript errors.
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -77,7 +73,6 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '4.5mb',
     },
   },
-  // THIS IS THE FIX for the 'Critical dependency' error.
   serverExternalPackages: ['@opentelemetry/instrumentation', '@genkit-ai/core', '@genkit-ai/flow'],
 };
 

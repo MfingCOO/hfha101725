@@ -51,8 +51,8 @@ export async function updateClientWthr(clientId: string, waist: number): Promise
         }
         const clientData = clientSnap.data() as ClientProfile;
         const height = clientData.height;
-        if (!height || !height.value || !height.unit) {
-            return { success: false, error: "Client height is not set." };
+        if (!height || typeof height.value !== 'number' || !height.unit) {
+            return { success: false, error: "Client height is not set correctly." };
         }
         let wthr;
         if (height.unit === 'in') {
@@ -80,41 +80,47 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
             emailVerified: false,
         });
         uid = userRecord.uid;
+
+        // --- START OF FIX ---
+        // The previous attempt failed because calculateIdealBodyWeight was called with an object instead of two arguments.
+        // Correct Call: Pass the height and units directly.
         const idealBodyWeight = calculateIdealBodyWeight(data.height, data.units);
+
+        // Now, construct the profile object needed for the calculateNutritionalGoals function.
         const tempProfileForCalc: Partial<ClientProfile> = {
             onboarding: { ...data, birthdate: new Date(data.birthdate) },
-            idealBodyWeight: idealBodyWeight,
+            idealBodyWeight: idealBodyWeight, // Pass the correctly calculated value.
+            height: { value: data.height, unit: data.units }
         };
+
+        // This function now receives an object with the correct idealBodyWeight.
         const { idealGoals, actualGoals } = calculateNutritionalGoals(tempProfileForCalc as ClientProfile);
-        const userProfileRef = adminDb.collection('userProfiles').doc(uid);
-        batch.set(userProfileRef, {
+        // --- END OF FIX ---
+        
+        const clientRef = adminDb.collection('clients').doc(uid);
+        const clientPayload: any = {
             uid: uid,
             email: data.email,
             fullName: data.fullName,
             tier: data.tier,
             role: 'client',
             stripeCustomerId: stripeCustomer.id,
-            chatIds: [],
-            challengeIds: [],
-            createdAt: FieldValue.serverTimestamp(),
-            hasLoggedInBefore: false,
-        });
-        const { password, ...onboardingData } = data;
-        const clientRef = adminDb.collection('clients').doc(uid);
-        batch.set(clientRef, {
-            uid: uid,
-            email: data.email,
-            fullName: data.fullName,
-            tier: data.tier,
-            coachId: data.coachId,
-            stripeCustomerId: stripeCustomer.id,
-            onboarding: onboardingData,
+            onboarding: data,
             createdAt: FieldValue.serverTimestamp(),
             height: { value: data.height, unit: data.units },
-            idealBodyWeight: idealBodyWeight,
+            idealBodyWeight: idealBodyWeight, // Store the correct value
             suggestedGoals: idealGoals, 
-            customGoals: actualGoals, 
-        });
+            customGoals: actualGoals,
+            chatIds: [],
+            challengeIds: [],
+            hasLoggedInBefore: false,
+        };
+
+        if (data.coachId) {
+            clientPayload.coachId = data.coachId;
+        }
+
+        batch.set(clientRef, clientPayload);
         await batch.commit();
         return { success: true, uid: uid };
     } catch (error: any) {

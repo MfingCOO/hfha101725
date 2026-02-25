@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
+import { MiaMessageDialog } from './MiaMessageDialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { differenceInHours } from 'date-fns';
@@ -35,6 +36,7 @@ import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 const COACH_UIDS = ['oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2', 'yue7fVPBQZg45vmfXXUH5PdG7jE2'];
 
 type SerializableChat = Omit<OriginalChat, 'createdAt' | 'lastMessage' | 'lastClientMessageTimestamp'> & {
+    id: string;
     createdAt?: string;
     lastMessage?: { text: string; timestamp: string; senderId: string };
     lastClientMessageTimestamp?: string;
@@ -63,11 +65,13 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         miaCoachingChats: SerializableChat[],
         groupChats: SerializableChat[]
     }>({ activeCoachingChats: [], miaCoachingChats: [], groupChats: [] });
+    const [miaChatIds, setMiaChatIds] = useState<string[]>([]);
 
     const [detailDialogState, setDetailDialogState] = useState<{ open: boolean, chatInfo: {id: string, name: string} | null }>({ open: false, chatInfo: null });
     const [deleteAlertState, setDeleteAlertState] = useState<{ open: boolean, chat: SerializableChat | null }>({ open: false, chat: null });
     const [isDeleting, setIsDeleting] = useState(false);
     const [isCreateChatOpen, setIsCreateChatOpen] = useState(false);
+    const [isMiaMessageOpen, setIsMiaMessageOpen] = useState(false);
 
     const fetchChats = useCallback(async () => {
         if (!user) return;
@@ -154,16 +158,14 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             const aNeedsReply = a.lastMessage && !COACH_UIDS.includes(a.lastMessage.senderId);
             const bNeedsReply = b.lastMessage && !COACH_UIDS.includes(b.lastMessage.senderId);
         
-            if (aNeedsReply && !bNeedsReply) return -1; // a comes first
-            if (!aNeedsReply && bNeedsReply) return 1;  // b comes first
+            if (aNeedsReply && !bNeedsReply) return -1;
+            if (!aNeedsReply && bNeedsReply) return 1;
         
-            // If both need a reply, or neither needs a reply, sort by the most recent message overall.
             const aTime = new Date(a.lastMessage?.timestamp || a.createdAt || 0).getTime();
             const bTime = new Date(b.lastMessage?.timestamp || b.createdAt || 0).getTime();
             return bTime - aTime;
         };
         
-
         const sortMiaFn = (a: SerializableChat, b: SerializableChat) =>
             new Date(a.lastMessage?.timestamp || a.createdAt || 0).getTime() -
             new Date(b.lastMessage?.timestamp || b.createdAt || 0).getTime();
@@ -172,11 +174,14 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             new Date(b.lastMessage?.timestamp || b.createdAt || 0).getTime() -
             new Date(a.lastMessage?.timestamp || a.createdAt || 0).getTime();
 
+        const filteredMia = mia.filter(filterChats).sort(sortMiaFn);
+        
         setSortedChats({ 
             activeCoachingChats: active.filter(filterChats).sort(sortActiveFn), 
-            miaCoachingChats: mia.filter(filterChats).sort(sortMiaFn), 
+            miaCoachingChats: filteredMia, 
             groupChats: group.filter(filterChats).sort(sortGroupFn) 
         });
+        setMiaChatIds(filteredMia.map(chat => chat.id));
 
     }, [allChats, allClients, isLoading, user, searchQuery, clientMap, chatMetadata]);
 
@@ -209,7 +214,6 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
 
     const handleOpenChat = async (chat: SerializableChat, chatName: string) => {
         if (!user) return;
-        // Mark as read when opening
         await markChatAsReadAction({ chatId: chat.id, userId: user.uid });
         setChatMetadata(prev => ({ ...prev, [chat.id]: { lastReadTimestamp: new Date().toISOString() } }));
         setDetailDialogState({ open: true, chatInfo: { id: chat.id, name: chatName } });
@@ -247,7 +251,6 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                     const isParticipant = chat.participants.includes(user.uid);
                     const isMuted = chat.mutedBy?.includes(user.uid) ?? false;
 
-                    // ** DEFINITIVE NOTIFICATION DOT FIX **
                     const needsReply = chat.lastMessage?.senderId && !COACH_UIDS.includes(chat.lastMessage.senderId) && !isMuted;
 
                     return (
@@ -309,7 +312,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             description="Review and manage all client and group conversations."
             footer={
                  <div className="flex w-full items-center justify-between">
-                    <div>
+                    <div className="flex items-center gap-2">
                         {videoCallLink && (
                             <Button
                                 variant="outline"
@@ -319,6 +322,9 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                                 Meeting Chat
                             </Button>
                         )}
+                         <Button variant="outline" size="sm" onClick={() => setIsMiaMessageOpen(true)}>
+                            MIA Message
+                        </Button>
                     </div>
                     <Button onClick={() => setIsCreateChatOpen(true)} size="sm">
                         Create New Chat
@@ -360,6 +366,12 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             onOpenChange={setIsCreateChatOpen}
             onChatCreated={fetchChats}
             clients={allClients}
+        />
+        
+        <MiaMessageDialog 
+            open={isMiaMessageOpen} 
+            onOpenChange={setIsMiaMessageOpen}
+            miaChatIds={miaChatIds}
         />
 
          {detailDialogState.chatInfo && (

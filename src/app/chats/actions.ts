@@ -1,7 +1,7 @@
 'use server';
 
 import { db as adminDb, messaging } from '@/lib/firebaseAdmin';
-import type { Chat, UserProfile, ClientProfile, ChatMessage } from '@/types';
+import type { Chat, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { COACH_UIDS } from '@/lib/coaches';
 import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
@@ -115,7 +115,10 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
                     id: lastMessageData.id,
                     text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
                     timestamp: lastMessageData.timestamp || new Timestamp(0, 0),
-                    senderId: lastMessageData.userId || 'system'
+                    senderId: lastMessageData.userId || 'system',
+                    userId: lastMessageData.userId || 'system',
+                    userName: lastMessageData.userName || 'System',
+                    isSystemMessage: lastMessageData.isSystemMessage || false,
                 };
 
                 const lastClientMessageData = recentMessages.find(msg => msg.userId && !COACH_UIDS.includes(msg.userId));
@@ -208,7 +211,10 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
                     id: lastMessageData.id,
                     text: lastMessageData.text || (lastMessageData.fileName ? 'Attachment' : '[System Message]'),
                     timestamp: lastMessageData.timestamp || new Timestamp(0, 0),
-                    senderId: lastMessageData.userId || 'system'
+                    senderId: lastMessageData.userId || 'system',
+                    userId: lastMessageData.userId || 'system',
+                    userName: lastMessageData.userName || 'System',
+                    isSystemMessage: lastMessageData.isSystemMessage || false,
                 };
                 
                 const lastReadTimestamp = chatMetadata[chat.id]?.lastReadTimestamp;
@@ -609,7 +615,7 @@ export async function leaveChat(chatId: string, userId: string): Promise<{ succe
     }
 }
 
-export async function getChatMessagesAction(chatId: string): Promise<{ success: boolean; data?: { messages: ChatMessage[], participants: Record<string, UserProfile> }; error?: any }> {
+export async function getChatMessagesAction(chatId: string): Promise<{ success: boolean; data?: { messages: ChatMessage[], participants: Record<string, ClientProfile> }; error?: any }> {
     if (!adminDb) {
         return SERVER_ERROR;
     }
@@ -630,13 +636,13 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
             return serializeTimestamps({ id: doc.id, ...data });
         });
 
-        const participants: Record<string, UserProfile> = {};
+        const participants: Record<string, ClientProfile> = {};
         if (chatData.participants && chatData.participants.length > 0) {
             const profilePromises = chatData.participants.map(uid => getUserProfile_Admin_Robust(uid));
             const profileSnapshots = await Promise.all(profilePromises);
             profileSnapshots.forEach(snap => {
                 if (snap) { 
-                    participants[snap.uid] = serializeTimestamps(snap) as UserProfile;
+                    participants[snap.uid] = serializeTimestamps(snap) as ClientProfile;
                 }
             });
         }
