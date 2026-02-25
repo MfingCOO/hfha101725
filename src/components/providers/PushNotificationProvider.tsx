@@ -81,7 +81,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         break;
       default:
         console.warn(`Provider: Unknown notificationType received: ${notificationType}`);
-        // No navigation here, the handler will decide what to do.
         break;
     }
   };
@@ -125,17 +124,24 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
       PushNotifications.addListener('registrationError', (err) => console.error('Native FCM registration error:', err));
 
-      PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+      PushNotifications.addListener('pushNotificationReceived', async (notification: PushNotificationSchema) => {
         console.log('Native FOREGROUND notification received:', notification);
-        LocalNotifications.schedule({
-            notifications: [{
-                title: notification.title || 'Hunger-Free & Happy',
-                body: notification.body || '',
-                id: Math.floor(Math.random() * 2147483647),
-                extra: notification.data,
-                smallIcon: 'ic_stat_notification',
-            }]
-        });
+        // This block will now attempt to show a local notification.
+        // If the native plugin isn't set up from Step 1, it will log a clear error instead of crashing.
+        try {
+            await LocalNotifications.schedule({
+                notifications: [{
+                    title: notification.title || 'Hunger-Free & Happy',
+                    body: notification.body || '',
+                    id: new Date().getTime(), // Use a unique ID
+                    extra: notification.data,
+                    // IMPORTANT: Make sure 'ic_stat_notification' exists in your 'android/app/src/main/res/drawable' folders.
+                    smallIcon: 'ic_stat_notification',
+                }]
+            });
+        } catch (e) {
+            console.error("Error scheduling local notification. Is the LocalNotifications plugin configured correctly in MainActivity.java?", e);
+        }
       });
 
       PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {

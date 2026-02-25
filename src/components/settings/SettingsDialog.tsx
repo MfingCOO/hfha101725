@@ -25,7 +25,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, User, Bell, SlidersHorizontal, Settings as SettingsIcon, CreditCard, LogOut, Trash2, Camera, Target, Undo2, BrainCircuit, RefreshCw, HelpCircle } from 'lucide-react';
+import { Loader2, User, Bell, SlidersHorizontal, Settings as SettingsIcon, CreditCard, LogOut, Trash2, Camera, Target, Undo2, BrainCircuit, RefreshCw, HelpCircle, FileText, ShieldCheck } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/components/auth/auth-provider';
 import { signOut } from 'firebase/auth';
@@ -419,7 +419,13 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
         <Separator className="my-3"/>
         <div className="flex flex-col gap-2">
             <Button variant="outline" className="w-full" asChild>
-                <Link href="/support"><HelpCircle className="mr-2"/> Help & Support</Link>
+                <Link href="/support" target="_blank"><HelpCircle className="mr-2"/> Help & Support</Link>
+            </Button>
+            <Button variant="outline" className="w-full" asChild>
+                <Link href="/tos" target="_blank"><FileText className="mr-2"/> Terms of Service</Link>
+            </Button>
+            <Button variant="outline" className="w-full" asChild>
+                <Link href="/privacy" target="_blank"><ShieldCheck className="mr-2"/> Privacy Policy</Link>
             </Button>
             <Button variant="outline" className="w-full" onClick={handleLogout}><LogOut className="mr-2"/> Log Out</Button>
         </div>
