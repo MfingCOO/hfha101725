@@ -1,73 +1,157 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import type { Chat } from '@/services/firestore';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import type { Chat } from '@/types';
 import { useAuth } from '@/components/auth/auth-provider';
-import { getChatsForClient, getChatMetadataForUser } from '@/app/chats/actions';
+import { getChatsForClient, getChatMetadataForUser, addFcmTokenAction } from '@/app/chats/actions';
+import { PushNotifications, Token, ActionPerformed } from '@capacitor/push-notifications';
+import { Capacitor } from '@capacitor/core';
 
-/**
- * Safely converts various timestamp formats to milliseconds since epoch.
- * Handles Firestore Timestamps, JS Date objects, ISO strings, and numbers.
- */
-function getMillis(timestamp: any): number {
-    if (!timestamp) return 0;
-    // Firestore Timestamp object
-    if (typeof timestamp.toMillis === 'function') {
-        return timestamp.toMillis();
-    }
-    // JavaScript Date object
-    if (typeof timestamp.getTime === 'function') {
-        return timestamp.getTime();
-    }
-    // ISO-8601 string
-    if (typeof timestamp === 'string') {
-        const date = new Date(timestamp);
-        return isNaN(date.getTime()) ? 0 : date.getTime();
-    }
-    // Number (already in milliseconds)
-    if (typeof timestamp === 'number') {
-        return timestamp;
-    }
-    return 0;
+interface ChatDialogContextType {
+  isChatOpen: boolean;
+  openChat: () => void;
+  closeChat: () => void;
+  isCoachChatOpen: boolean;
+  openCoachChat: () => void;
+  closeCoachChat: () => void;
+  selectedChatId: string | null;
+  setSelectedChatId: (chatId: string | null) => void;
 }
 
-// 1. Define the types for the state and actions
+const ChatDialogContext = createContext<ChatDialogContextType | undefined>(undefined);
+
+export const ChatDialogProvider = ({ children }: { children: React.ReactNode }) => {
+    const { isCoach, loading, user } = useAuth();
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [isCoachChatOpen, setIsCoachChatOpen] = useState(false);
+    const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+
+    // THE DEFINITIVE FIX: Use a ref to track the user's role.
+    // This ensures the notification listener always has the latest value and avoids race conditions.
+    const isCoachRef = useRef(isCoach);
+    useEffect(() => {
+        isCoachRef.current = isCoach;
+    }, [isCoach]);
+
+    const openChat = () => setIsChatOpen(true);
+    const closeChat = () => {
+        setIsChatOpen(false);
+        setSelectedChatId(null);
+    };
+
+    const openCoachChat = () => setIsCoachChatOpen(true);
+    const closeCoachChat = () => {
+        setIsCoachChatOpen(false);
+        setSelectedChatId(null);
+    };
+
+    useEffect(() => {
+        if (loading || !user) return;
+
+        const initPushNotifications = async () => {
+            if (Capacitor.getPlatform() === 'web') return;
+
+            await PushNotifications.removeAllListeners();
+
+            await PushNotifications.addListener('registration', async (token: Token) => {
+                try {
+                    await addFcmTokenAction({ userId: user.uid, token: token.value });
+                } catch (error) {
+                    console.error('Failed to save FCM token:', error);
+                }
+            });
+
+            await PushNotifications.addListener('registrationError', (error: any) => {
+                console.error('Error on push registration:', error);
+            });
+
+            await PushNotifications.addListener('pushNotificationActionPerformed', (event: ActionPerformed) => {
+                const chatId = event.notification.data?.chatId as string;
+                if (chatId) {
+                    // Use the ref to get the LATEST role, breaking the race condition.
+                    setSelectedChatId(chatId);
+                    if (isCoachRef.current) {
+                        openCoachChat();
+                    } else {
+                        openChat();
+                    }
+                }
+            });
+
+            let permStatus = await PushNotifications.checkPermissions();
+            if (permStatus.receive === 'prompt') {
+                permStatus = await PushNotifications.requestPermissions();
+            }
+            if (permStatus.receive !== 'granted') {
+                return;
+            }
+
+            await PushNotifications.register();
+        };
+
+        initPushNotifications();
+
+        return () => {
+            PushNotifications.removeAllListeners();
+        };
+
+    }, [loading, user]);
+
+    const value = useMemo(() => ({
+         isChatOpen, 
+         openChat, 
+         closeChat, 
+         isCoachChatOpen,
+         openCoachChat,
+         closeCoachChat,
+         selectedChatId, 
+         setSelectedChatId 
+    }), [isChatOpen, isCoachChatOpen, selectedChatId]);
+
+    return (
+        <ChatDialogContext.Provider value={value}>
+            {children}
+        </ChatDialogContext.Provider>
+    );
+};
+
+export const useChatDialog = () => {
+    const context = useContext(ChatDialogContext);
+    if (context === undefined) {
+        throw new Error('useChatDialog must be used within a ChatDialogProvider');
+    }
+    return context;
+};
+
 interface DashboardState {
   chats: Chat[];
-  hasUnreadChats: boolean;
+  unreadChatCount: number;
+  chatMetadata: Record<string, { lastReadTimestamp: any }>;
   fetchChats: () => void;
 }
 
 interface DashboardActions {
   onOpenChallenges: () => void;
-  onOpenChats: () => void;
   onOpenCalendar: () => void;
   onOpenSettings: () => void;
   isChallengesOpen: boolean;
-  isChatsOpen: boolean;
   isCalendarOpen: boolean;
   isSettingsOpen: boolean;
   onCloseChallenges: () => void;
-  onCloseChats: () => void;
   onCloseCalendar: () => void;
   onCloseSettings: () => void;
 }
 
-// 2. Create two separate contexts
 const DashboardStateContext = createContext<DashboardState | undefined>(undefined);
 const DashboardActionsContext = createContext<DashboardActions | undefined>(undefined);
 
-// 3. Create a single provider that manages everything
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   
-  // State for the data
   const [chats, setChats] = useState<Chat[]>([]);
   const [chatMetadata, setChatMetadata] = useState<Record<string, { lastReadTimestamp: any }>>({});
 
-  // State for the UI actions (dialogs)
   const [isChallengesOpen, setIsChallengesOpen] = useState(false);
-  const [isChatsOpen, setIsChatsOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -93,52 +177,39 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     fetchChats();
   }, [user, fetchChats]);
 
-  const hasUnreadChats = useMemo(() => {
-    if (!user || !chats) return false;
+  const unreadChatCount = useMemo(() => {
+    if (!chats || !chatMetadata) return 0;
 
-    return chats.some(chat => {
-        const lastMessage = chat.lastMessage as any;
-        if (!lastMessage || !lastMessage.senderId || !lastMessage.timestamp) {
-            return false;
+    return chats.reduce((count, chat) => {
+        const metadata = chatMetadata[chat.id];
+        const lastRead = metadata?.lastReadTimestamp ? new Date(metadata.lastReadTimestamp.seconds * 1000) : new Date(0);
+        const lastMessageTimestamp = chat.lastMessage?.timestamp ? new Date(chat.lastMessage.timestamp) : new Date(0);
+
+        if (lastMessageTimestamp > lastRead && chat.lastMessage?.userId !== user?.uid) {
+            return count + 1;
         }
-
-        if (lastMessage.senderId === user.uid) {
-            return false;
-        }
-
-        const lastReadTimestamp = chatMetadata[chat.id]?.lastReadTimestamp;
-        const lastMessageMillis = getMillis(lastMessage.timestamp);
-
-        if (!lastReadTimestamp) {
-            return lastMessageMillis > 0;
-        }
-        
-        const lastReadMillis = getMillis(lastReadTimestamp);
-
-        return lastMessageMillis > lastReadMillis;
-    });
-  }, [chats, user, chatMetadata]);
+        return count;
+    }, 0);
+  }, [chats, chatMetadata, user?.uid]);
 
   const stateValue = useMemo(() => ({
     chats,
-    hasUnreadChats,
+    unreadChatCount,
+    chatMetadata,
     fetchChats
-  }), [chats, hasUnreadChats, fetchChats]);
+  }), [chats, unreadChatCount, chatMetadata, fetchChats]);
 
   const actionsValue = useMemo(() => ({
     onOpenChallenges: () => setIsChallengesOpen(true),
-    onOpenChats: () => setIsChatsOpen(true),
     onOpenCalendar: () => setIsCalendarOpen(true),
     onOpenSettings: () => setIsSettingsOpen(true),
     isChallengesOpen,
-    isChatsOpen,
     isCalendarOpen,
     isSettingsOpen,
     onCloseChallenges: () => setIsChallengesOpen(false),
-    onCloseChats: () => setIsChatsOpen(false),
     onCloseCalendar: () => setIsCalendarOpen(false),
     onCloseSettings: () => setIsSettingsOpen(false),
-  }), [isChallengesOpen, isChatsOpen, isCalendarOpen, isSettingsOpen]);
+  }), [isChallengesOpen, isCalendarOpen, isSettingsOpen]);
 
   return (
     <DashboardStateContext.Provider value={stateValue}>
@@ -149,7 +220,6 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// 4. Create separate hooks for consuming the state and actions
 export function useDashboardState() {
   const context = useContext(DashboardStateContext);
   if (context === undefined) {

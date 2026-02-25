@@ -1,341 +1,257 @@
+
 'use server';
 
-import { db as adminDb, admin, auth } from '@/lib/firebaseAdmin';
-import type { Challenge, Chat } from '@/services/firestore';
-import { z } from 'zod';
-import { Buffer } from 'buffer';
-import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-import { v4 as uuidv4 } from 'uuid';
+import { admin, db as adminDb, auth } from "@/lib/firebaseAdmin";
+import { Chat, Challenge, ClientProfile } from "@/types";
+import { Timestamp, FieldValue } from "firebase-admin/firestore";
+import { revalidatePath } from "next/cache";
 
-function serializeTimestamps(docData: any) {
-    if (!docData) return docData;
-    const newObject: { [key: string]: any } = { ...docData };
-    for (const key in newObject) {
-        if (newObject[key] && typeof newObject[key].toDate === 'function') {
-            newObject[key] = newObject[key].toDate().toISOString();
-        } else if (key === 'dates' && newObject.dates) {
-            newObject.dates = {
-                from: newObject.dates.from.toDate().toISOString(),
-                to: newObject.dates.to.toDate().toISOString(),
+// Helper function to serialize Firestore Timestamps
+function serializeTimestamps(obj: any): any {
+    if (!obj) return obj;
+    if (obj instanceof Timestamp) return obj.toDate().toISOString();
+    if (Array.isArray(obj)) return obj.map(item => serializeTimestamps(item));
+    if (typeof obj === 'object') {
+        const newObj: { [key: string]: any } = {};
+        for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                newObj[key] = serializeTimestamps(obj[key]);
             }
-        } else if (typeof newObject[key] === 'object' && newObject[key] !== null && !Array.isArray(newObject[key])) {
-            newObject[key] = serializeTimestamps(newObject[key]);
         }
+        return newObj;
     }
-    return newObject;
+    return obj;
+}
+
+
+/**
+ * Creates a new coaching chat between a coach and a client.
+ * Updates both the client and coach profiles to include the new chat ID.
+ */
+export async function createCoachingChat(clientUid: string, coachUid: string, clientName: string, coachName: string): Promise<{ success: boolean; error?: string; chatId?: string }> {
+    if (!clientUid || !coachUid) {
+        return { success: false, error: "Client UID and Coach UID are required." };
+    }
+
+    const newChatRef = adminDb.collection('chats').doc();
+    const clientRef = adminDb.collection('clients').doc(clientUid);
+    const coachRef = adminDb.collection('clients').doc(coachUid);
+
+    const chatData: Omit<Chat, 'id'> = {
+        name: `Coaching: ${clientName}`,
+        description: `Private chat between ${clientName} and ${coachName}`,
+        type: 'coaching',
+        ownerId: coachUid,
+        participants: [clientUid, coachUid],
+        participantCount: 2,
+        createdAt: FieldValue.serverTimestamp(),
+        lastMessage: undefined, // No last message on creation
+        unreadCount: 0,
+    };
+
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            // 1. Set the new chat data
+            transaction.set(newChatRef, chatData);
+
+            // 2. Add chat ID to both client's and coach's profiles
+            transaction.update(clientRef, { chatIds: FieldValue.arrayUnion(newChatRef.id) });
+            transaction.update(coachRef, { chatIds: FieldValue.arrayUnion(newChatRef.id) });
+        });
+
+        return { success: true, chatId: newChatRef.id };
+
+    } catch (error: any) {
+        console.error("Error creating coaching chat:", error);
+        return { success: false, error: error.message || "An unknown error occurred." };
+    }
+}
+
+
+/**
+ * Creates a new open chat available for all premium users to join.
+ */
+export async function createOpenChat(name: string, description: string, rules: string[], coachId: string): Promise<{ success: boolean; error?: string; chatId?: string }> {
+    if (!name || !description) {
+        return { success: false, error: "Chat name and description are required." };
+    }
+
+    const newChatRef = adminDb.collection('chats').doc();
+    
+    const chatData = {
+        name,
+        description,
+        type: 'open',
+        ownerId: coachId, 
+        participants: [coachId], 
+        participantCount: 1, 
+        createdAt: FieldValue.serverTimestamp(),
+        rules: rules || ['Be respectful and supportive.'],
+    };
+
+    try {
+        await newChatRef.set(chatData);
+        
+        // The coach who creates it should also have it in their chat list
+        const coachRef = adminDb.collection('clients').doc(coachId);
+        await coachRef.update({ chatIds: FieldValue.arrayUnion(newChatRef.id) });
+
+        revalidatePath('/chats'); // Revalidate for all users to see the new open chat
+
+        return { success: true, chatId: newChatRef.id };
+    } catch (error: any) {
+        console.error("Error creating open chat:", error);
+        return { success: false, error: error.message };
+    }
 }
 
 /**
- * Fetches all challenges for a coach using the Admin SDK to bypass security rules.
+ * Fetches all challenges, including participant data.
+ * This is a coach-specific action.
+ * BUG FIX: Now serializes timestamps before returning data.
  */
 export async function getChallengesForCoach(): Promise<{ success: boolean; data?: Challenge[]; error?: any; }> {
     try {
-        const challengesQuery = adminDb.collection('challenges').orderBy("dates.from", "desc");
-        const challengesSnapshot = await challengesQuery.get();
+        const q = adminDb.collection("challenges").orderBy("dates.from", "desc");
+        const querySnapshot = await q.get();
+        const challenges = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Challenge));
         
-        const challenges = challengesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Challenge);
-        const serializableData = challenges.map(serializeTimestamps);
+        const serializedChallenges = serializeTimestamps(challenges);
 
-        return { success: true, data: serializableData as Challenge[] };
-
-    } catch (error: any) {
-        console.error("Error fetching challenges for coach (admin): ", error);
-        return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
+        return { success: true, data: serializedChallenges };
+    } catch (error) {
+        console.error("Error fetching challenges for coach:", error);
+        return { success: false, error };
     }
 }
 
 /**
- * Fetches details for a single challenge using the Admin SDK.
+ * Creates a new challenge and an associated chat room.
+ * Only accessible to coaches.
  */
-export async function getChallengeDetailsForCoach(challengeId: string): Promise<{ success: boolean; data?: Challenge; error?: any; }> {
+export async function createChallengeAction(challengeData: Omit<Challenge, 'id' | 'participantCount' | 'participants'>, coachId: string): Promise<{ success: boolean; error?: string }> {
     try {
-        const docRef = adminDb.collection('challenges').doc(challengeId);
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            const data = { id: docSnap.id, ...docSnap.data() };
-            const serializableData = serializeTimestamps(data);
-            return { success: true, data: serializableData as Challenge };
+        if (!coachId) {
+            return { success: false, error: "Authentication failed. Only coaches can create challenges." };
         }
-        return { success: false, error: 'Challenge not found' };
-    } catch (error: any) {
-        console.error('Error getting challenge details (admin):', error);
-        return { success: false, error: { message: error.message || 'An unknown admin error occurred' } };
-    }
-}
 
+        const challengeRef = adminDb.collection('challenges').doc();
+        const chatRef = adminDb.collection('chats').doc(challengeRef.id); // Chat will have the same ID as the challenge
+        const coachProfileRef = adminDb.collection('clients').doc(coachId);
 
-const scheduledPillarSchema = z.object({
-    pillarId: z.string().min(1, 'Please select a pillar.'),
-    days: z.array(z.string()).min(1, 'You must select at least one day.'),
-    recurrenceType: z.enum(['weekly', 'custom']),
-    recurrenceInterval: z.coerce.number().optional(),
-    notes: z.string().optional(),
-}).superRefine((data, ctx) => {
-    if (data.recurrenceType === 'custom' && (!data.recurrenceInterval || data.recurrenceInterval <= 0)) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Interval must be at least 1.",
-            path: ["recurrenceInterval"],
-        });
-    }
-});
+        const batch = adminDb.batch();
 
-
-const customTaskSchema = z.object({
-    description: z.string().min(1, 'Task description cannot be empty.'),
-    startDay: z.coerce.number().min(1, "Start day must be at least 1."),
-    unit: z.enum(['reps', 'seconds', 'minutes']),
-    goalType: z.enum(['static', 'progressive', 'user-records']),
-    goal: z.coerce.number().optional(),
-    startingGoal: z.coerce.number().optional(),
-    increaseBy: z.coerce.number().optional(),
-    increaseEvery: z.enum(['week', '2-weeks', 'month']).optional(),
-    notes: z.string().optional(),
-}).superRefine((data, ctx) => {
-    if (data.goalType === 'static') {
-        if (!data.goal || data.goal <= 0) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: "Goal must be at least 1.",
-                path: ["goal"],
-            });
-        }
-    } else if (data.goalType === 'progressive') {
-        if (!data.startingGoal || data.startingGoal <= 0) {
-             ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: "Starting goal must be at least 1.",
-                path: ["startingGoal"],
-            });
-        }
-        if (!data.increaseBy || data.increaseBy <= 0) {
-             ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: "Increase must be at least 1.",
-                path: ["increaseBy"],
-            });
-        }
-        if (!data.increaseEvery) {
-             ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: "Please select a frequency.",
-                path: ["increaseEvery"],
-            });
-        }
-    }
-});
-
-const scheduledHabitSchema = z.object({
-    habitId: z.string().min(1, 'Please select a habit.'),
-    days: z.array(z.string()).min(1, 'You must select at least one day.'),
-    recurrenceType: z.enum(['weekly', 'custom']),
-    recurrenceInterval: z.coerce.number().optional(),
-}).superRefine((data, ctx) => {
-    if (data.recurrenceType === 'custom' && (!data.recurrenceInterval || data.recurrenceInterval <= 0)) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Interval must be at least 1.",
-            path: ["recurrenceInterval"],
-        });
-    }
-});
-
-
-const challengeSchema = z.object({
-    id: z.string().optional(), // For editing
-    name: z.string().min(5, 'Challenge name must be at least 5 characters.'),
-    description: z.string().min(10, 'Description must be at least 10 characters.'),
-    startDate: z.date({ required_error: "A start date is required." }),
-    durationDays: z.coerce.number().min(1, 'Duration must be at least 1 day.'),
-    maxParticipants: z.coerce.number().min(1, 'Must have at least one participant.'),
-    thumbnailUrl: z.string().optional(), // Can be data URI initially, will be converted to URL
-    notes: z.string().optional(),
-    scheduledPillars: z.array(scheduledPillarSchema).optional(),
-    customTasks: z.array(customTaskSchema).optional(),
-    scheduledHabits: z.array(scheduledHabitSchema).optional(),
-}).refine(data => (data.scheduledPillars && data.scheduledPillars.length > 0) || (data.customTasks && data.customTasks.length > 0) || (data.scheduledHabits && data.scheduledHabits.length > 0), {
-    message: "A challenge must have at least one pillar, custom task, or scheduled habit.",
-    path: ["scheduledPillars"],
-});
-
-/**
- * Server action to create or update a challenge.
- * This function is designed to be called from client components and uses admin privileges.
- */
-export async function upsertChallengeAction(challengeData: z.infer<typeof challengeSchema>) {
-    try {
-        const { id, startDate, durationDays, ...restOfData } = challengeData;
-        const fromDate = startDate;
-        const toDate = new Date(fromDate);
-        toDate.setDate(toDate.getDate() + durationDays);
-        
-        let finalThumbnailUrl = restOfData.thumbnailUrl || '';
-
-        // Check if a new image was uploaded. Data URLs start with 'data:image'.
-        if (finalThumbnailUrl && finalThumbnailUrl.startsWith('data:image')) {
-            const uploadResult = await uploadImageAction(finalThumbnailUrl, 'challenge-thumbnails');
-            if (uploadResult.success && uploadResult.url) {
-                finalThumbnailUrl = uploadResult.url;
-            } else {
-                // Handle upload failure, maybe set a default or throw an error
-                throw new Error(uploadResult.error || 'Failed to upload thumbnail');
-            }
-        }
-        
-        const challengeToSave = {
-            ...restOfData,
-            thumbnailUrl: finalThumbnailUrl, // Use the potentially new URL
-            dates: {
-                from: Timestamp.fromDate(fromDate),
-                to: Timestamp.fromDate(toDate),
-            },
+        // 1. Create the Challenge document
+        const newChallenge: Omit<Challenge, 'id'> = {
+            ...challengeData,
+            participants: [coachId], // The coach is the first participant
+            participantCount: 1,
+            createdAt: FieldValue.serverTimestamp(),
         };
+        batch.set(challengeRef, newChallenge);
 
-        if (id) {
-            // Updating an existing challenge
-            const challengeRef = adminDb.collection("challenges").doc(id);
-            await challengeRef.update(challengeToSave);
-            return { success: true, id: id };
-        } else {
-            // Creating a new challenge
-            const challengeWithMeta = {
-                ...challengeToSave,
-                type: 'challenge',
-                createdAt: FieldValue.serverTimestamp(),
-                participantCount: 0,
-                participants: [],
-            };
-            
-            const newDoc = await adminDb.collection("challenges").add(challengeWithMeta);
-            return { success: true, id: newDoc.id };
-        }
-    } catch (error: any) {
-        console.error("Error saving challenge via server action: ", error);
-        return { success: false, error: { message: error.message || "An unknown error occurred" } };
-    }
-}
+        // 2. Create the associated Chat document
+        const newChat: Omit<Chat, 'id'> = {
+            name: challengeData.name,
+            description: challengeData.description,
+            type: 'challenge',
+            ownerId: coachId,
+            participants: [coachId],
+            participantCount: 1,
+            createdAt: FieldValue.serverTimestamp(),
+            thumbnailUrl: challengeData.thumbnailUrl,
+            rules: ['Be respectful, supportive, and stick to the challenge goals!']
+        };
+        batch.set(chatRef, newChat);
 
+        // 3. Add the challenge and chat IDs to the coach's profile
+        batch.update(coachProfileRef, {
+            challengeIds: FieldValue.arrayUnion(challengeRef.id),
+            chatIds: FieldValue.arrayUnion(chatRef.id),
+        });
 
-/**
- * Deletes a challenge and its associated chat.
- */
-export async function deleteChallengeAction(challengeId: string): Promise<{ success: boolean; error?: string }> {
-    try {
-        if (!challengeId) {
-            throw new Error("No challenge ID provided for deletion.");
-        }
-        // This action is now simplified. It only deletes the challenge itself.
-        // Associated chats are managed independently.
-        await adminDb.collection('challenges').doc(challengeId).delete();
-        
+        await batch.commit();
+        revalidatePath('/challenges'); // Revalidate the page for all users
+
         return { success: true };
 
     } catch (error: any) {
-        console.error("Error deleting challenge:", error);
+        console.error('Error creating new challenge:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Fetches all clients for a specific coach.
+ * BUG FIX: Now serializes timestamps before returning data.
+ */
+export async function getClientsForCoach(coachId: string): Promise<{ success: boolean; data?: ClientProfile[]; error?: any; }> {
+    try {
+        const q = adminDb.collection('clients').where('coachId', '==', coachId);
+        const querySnapshot = await q.get();
+        const clients = querySnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as ClientProfile));
+        
+        const serializedClients = serializeTimestamps(clients);
+
+        return { success: true, data: serializedClients };
+    } catch (error) {
+        console.error("Error fetching clients:", error);
+        return { success: false, error };
+    }
+}
+
+export async function uploadImageAction(formData: FormData): Promise<{ success: boolean; error?: string; url?: string }> {
+    try {
+        const file = formData.get('file') as File;
+        if (!file) {
+            return { success: false, error: 'No file provided.' };
+        }
+
+        const bucket = admin.storage().bucket();
+        const filePath = `user-uploads/${Date.now()}-${file.name}`;
+        const bucketFile = bucket.file(filePath);
+
+        const fileBuffer = Buffer.from(await file.arrayBuffer());
+
+        await bucketFile.save(fileBuffer, {
+            metadata: {
+                contentType: file.type,
+            },
+        });
+        
+        const [url] = await bucketFile.getSignedUrl({ action: 'read', expires: '03-09-2491' });
+
+        return { success: true, url };
+
+    } catch (error: any) {
+        console.error("Error uploading image:", error);
         return { success: false, error: error.message };
     }
 }
 
 
-/**
- * Server action to generate a signed URL for a client-side file upload.
- * This acts as a proxy to bypass client-side CORS issues and uses the Admin SDK.
- */
-export async function uploadImageAction(base64DataUrl: string, path: string): Promise<{ success: boolean, url?: string, error?: string }> {
-    if (!base64DataUrl || !base64DataUrl.startsWith('data:image')) {
-        return { success: false, error: 'Invalid image data URL.' };
-    }
-
-    try {
-        const bucketName = 'hunger-free-and-happy-app.firebasestorage.app';
-        const bucket = admin.storage().bucket(`gs://${bucketName}`);
-        
-        const fileName = `${path}/${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
-        const file = bucket.file(fileName);
-
-        const base64String = base64DataUrl.split(',')[1];
-        const buffer = Buffer.from(base64String, 'base64');
-
-        const downloadToken = uuidv4();
-
-        await file.save(buffer, {
-            metadata: { 
-                contentType: 'image/png',
-                metadata: {
-                    firebaseStorageDownloadTokens: downloadToken
-                }
-            },
-        });
-
-        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(fileName)}?alt=media&token=${downloadToken}`;
-
-        return { success: true, url: publicUrl };
-
-    } catch (error: any) {
-        console.error("Error uploading image via server action: ", error);
-        return { success: false, error: error.message || 'Failed to upload image.' };
-    }
+export async function upsertChallengeAction(challengeData: Omit<Challenge, 'id' | 'participantCount' | 'participants'>, coachId: string): Promise<{ success: boolean; error?: string }> {
+    return createChallengeAction(challengeData, coachId);
 }
 
-/**
- * Server action for a user to update their own profile picture.
- */
-export async function updateUserProfilePictureAction(uid: string, dataUrl: string): Promise<{ success: boolean; error?: string }> {
+export async function deleteChallengeAction(challengeId: string): Promise<{ success: boolean; error?: string }> {
     try {
-        if (!uid || !dataUrl) {
-            throw new Error("User ID and image data are required.");
-        }
+        const challengeRef = adminDb.collection('challenges').doc(challengeId);
+        const chatRef = adminDb.collection('chats').doc(challengeId);
 
-        const uploadResult = await uploadImageAction(dataUrl, `profile-pictures/${uid}`);
+        // You might want to remove the challenge/chat from user profiles as well, which requires a more complex transaction or batch write.
 
-        if (uploadResult.success && uploadResult.url) {
-            await auth.updateUser(uid, {
-                photoURL: uploadResult.url
-            });
-            // Also update the userProfiles doc for consistency, though less critical
-            await adminDb.collection('userProfiles').doc(uid).set({
-                photoURL: uploadResult.url
-            }, { merge: true });
-            return { success: true };
-        } else {
-            throw new Error(uploadResult.error || 'Failed to upload new profile picture.');
-        }
+        const batch = adminDb.batch();
+        batch.delete(challengeRef);
+        batch.delete(chatRef);
+        await batch.commit();
 
-    } catch (error: any) {
-        console.error(`Error updating profile picture for UID ${uid}:`, error);
-        return { success: false, error: error.message || 'An unknown error occurred.' };
-    }
-}
+        revalidatePath('/challenges');
+        revalidatePath('/chats');
 
-/**
- * Updates a coach's email in Firebase Auth and Firestore.
- */
-export async function updateCoachEmailAction(uid: string, newEmail: string): Promise<{ success: boolean; error?: string }> {
-    try {
-        await auth.updateUser(uid, { email: newEmail });
-        // Also update the userProfiles and coaches collection if they exist, for consistency
-        await adminDb.collection('userProfiles').doc(uid).update({ email: newEmail });
         return { success: true };
     } catch (error: any) {
-        console.error(`Error updating email for coach ${uid}:`, error);
-        if (error.code === 'auth/email-already-exists') {
-            return { success: false, error: 'This email is already in use by another account.' };
-        }
-        return { success: false, error: error.message || 'An unknown error occurred.' };
-    }
-}
-
-/**
- * Updates a coach's password in Firebase Auth.
- * This action requires the user to be recently authenticated on the client.
- * The client should handle reauthentication if necessary before calling this.
- */
-export async function updateCoachPasswordAction(uid: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
-    try {
-        await auth.updateUser(uid, { password: newPassword });
-        return { success: true };
-    } catch (error: any) {
-        console.error(`Error updating password for coach ${uid}:`, error);
-        return { success: false, error: error.message || 'An unknown error occurred.' };
+        console.error("Error deleting challenge:", error);
+        return { success: false, error: error.message };
     }
 }

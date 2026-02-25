@@ -14,8 +14,8 @@ import {
   UpfPercentageSchema,
   GlutenAnalysisSchema,
   PortionSizesSchema,
-  HybridFoodSearchResult
-} from '@/types';
+} from '@/types/nutrition';
+import { HybridFoodSearchResult } from '@/types/index';
 import { z } from 'zod';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { algoliaAdmin } from '@/lib/algoliaAdmin';

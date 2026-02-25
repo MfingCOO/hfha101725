@@ -15,6 +15,12 @@ const eventColors: Record<string, string> = {
     default: 'bg-gray-500/80 border-gray-700',
 };
 
+// ** NEW: Color mapping for coaches **
+const COACH_COLORS: Record<string, string> = {
+  'yue7fVPBQZg45vmfXXUH5PdG7jE2': 'bg-blue-600/80 border-blue-800', // Alan Roberts - Blue
+  'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2': 'bg-purple-600/80 border-purple-800', // Crystal Roberts - Purple
+};
+
 interface PositionedEntry {
     id: string;
     top: number;
@@ -90,8 +96,6 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date): Positioned
                 positionedEntries.push({
                     id: entry.id,
                     top: (entry.startMinutes / totalMinutesInDay) * 100,
-                    // SURGICAL FIX: The minimum height was incorrectly hardcoded to a 30-minute value (2.0833).
-                    // It is now corrected to the proper 15-minute value (1.04167), ensuring appointments are not artificially inflated.
                     height: Math.max(height, 1.04167), 
                     left: i * clusterWidth,
                     width: clusterWidth - 0.5, // Subtract a little for a gap,
@@ -126,8 +130,16 @@ const TimelineEntry = ({ entry, onSelect }: { entry: PositionedEntry, onSelect: 
         Icon = ZoomIn;
         colorClass = eventColors.zoom;
     } else {
+        // ** MODIFICATION: Apply color based on coach ID **
         Icon = User;
-        colorClass = eventColors.manual;
+        const coachId = originalData.coachId; // Events should have a coachId
+        const coachColor = coachId ? COACH_COLORS[coachId] : undefined;
+
+        if (coachColor) {
+            colorClass = coachColor;
+        } else {
+            colorClass = eventColors.manual; // Fallback to original green for other coaches
+        }
     }
 
     return (

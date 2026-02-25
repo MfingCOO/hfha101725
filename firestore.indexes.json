@@ -1,6 +1,19 @@
-
 {
   "indexes": [
+    {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "processed",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "sendTime",
+          "order": "ASCENDING"
+        }
+      ]
+    },
     {
       "collectionGroup": "users",
       "queryScope": "COLLECTION",

@@ -1,17 +1,23 @@
+
 import type { NextConfig } from 'next';
 
 const withPWA = require('next-pwa')({
   dest: 'public',
-  register: true,
+  register: true, // Re-enabling with a basic config
   skipWaiting: true,
-  disable: process.env.NODE_ENV === 'development'
+  // disable: process.env.NODE_ENV === 'development', // Example of a more robust setup
 });
 
 const nextConfig: NextConfig = {
-  // We are keeping this for now to allow the build to succeed.
-  // TODO: Schedule a task to remove this and fix all TypeScript errors.
   typescript: {
     ignoreBuildErrors: true,
+  },
+
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.externals.push('firebase-admin');
+    }
+    return config;
   },
 
   images: {
@@ -53,16 +59,21 @@ const nextConfig: NextConfig = {
           },
       ];
   },
+  async redirects() {
+    return [
+      {
+        source: '/coach',
+        destination: '/coach/dashboard',
+        permanent: true,
+      },
+    ]
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: '4.5mb',
     },
   },
-  serverExternalPackages: ['@opentelemetry/instrumentation', '@genkit-ai/core'],
-  allowedDevOrigins: [
-      'https://*.cloudworkstations.dev',
-      'https://3000-firebase-103125-1761919991969.cluster-zsqzu5kebnaemxbyqrvoim2lxo.cloudworkstations.dev'
-  ],
+  serverExternalPackages: ['@opentelemetry/instrumentation', '@genkit-ai/core', '@genkit-ai/flow'],
 };
 
 export default withPWA(nextConfig);

@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import { configuredGenkit } from '@/ai/genkit.config';
 import { defineFlow, runFlow } from '@genkit-ai/flow';
-import { NovaGroup } from '@/types';
+import { NovaGroup } from '@/types/index';
 
 // NOTE: The schemas are unchanged.
 const EnrichedFoodDetailsSchema = z.object({

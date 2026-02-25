@@ -2,7 +2,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useMemo, useCallback } from "react";
-import type { ClientProfile, UserProfile } from "@/types";
+import type { ClientProfile } from "@/types";
 import { Loader2, PlusCircle, MessageSquare, Trophy, Megaphone, Library, Calendar, Database, AlertTriangle, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getAllAppUsers } from "@/app/coach/dashboard/actions";
@@ -15,7 +15,6 @@ import { ManageChallengesDialog } from "@/components/coach/challenges/manage-cha
 import { ManagePopupsDialog } from "@/components/coach/popups/manage-popups-dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ManageLibraryDialog } from "@/components/coach/library/manage-library-dialog";
 import { ManageChatsDialog } from "@/components/coach/chats/manage-chats-dialog";
 import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
 import { getCoachingChatIdForClient } from "@/app/coach/clients/actions";
@@ -27,7 +26,7 @@ import { getPendingReportsCountAction } from '@/app/actions/moderation-actions';
 import { getUnreadChatCountForCoach } from "@/app/chats/actions";
 
 interface CoachDashboardClientProps {
-  initialClients: UserProfile[]; // This will now be an empty array initially
+  initialClients: ClientProfile[];
   pendingFoodCount: number;
   pendingReportCount: number;
 }
@@ -35,18 +34,16 @@ interface CoachDashboardClientProps {
 export function CoachDashboardClient({ initialClients, pendingFoodCount: initialPendingFoodCount, pendingReportCount: initialPendingReportCount }: CoachDashboardClientProps) {
     const { toast } = useToast();
     const { user } = useAuth();
-    const [allClients, setAllClients] = useState<UserProfile[]>(initialClients || []);
+    const [allClients, setAllClients] = useState<ClientProfile[]>(initialClients || []);
     const [isLoading, setIsLoading] = useState(false);
-    const [selectedClient, setSelectedClient] = useState<UserProfile | null>(null);
+    const [selectedClient, setSelectedClient] = useState<ClientProfile | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [tierFilter, setTierFilter] = useState('all');
     const [hasSearched, setHasSearched] = useState(false);
-
     const [isCreateClientOpen, setIsCreateClientOpen] = useState(false);
     const [isChallengesOpen, setIsChallengesOpen] = useState(false);
     const [isPopupsOpen, setIsPopupsOpen] = useState(false);
     const [isChatsOpen, setIsChatsOpen] = useState(false);
-    const [isLibraryOpen, setIsLibraryOpen] = useState(false);
     const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [isFoodCacheOpen, setIsFoodCacheOpen] = useState(false);
     const [isModerationOpen, setIsModerationOpen] = useState(false);
@@ -58,26 +55,28 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [unreadChatCount, setUnreadChatCount] = useState(0);
 
     const fetchClients = useCallback(async () => {
+        if (!user) {
+            toast({ variant: 'destructive', title: 'Authentication Error', description: 'User not found, please try again.' });
+            return;
+        }
         setIsLoading(true);
         setHasSearched(true);
         try {
-            const result = await getAllAppUsers(searchTerm, tierFilter);
+            const result = await getAllAppUsers(user.uid, searchTerm, tierFilter);
             if (result.success && result.users) {
                 setAllClients(Array.isArray(result.users) ? result.users : []);
             } else {
-                toast({ variant: 'destructive', title: 'Error', description: result.error || 'Could not fetch user list.' });
+                // THE FIX: This line logs the full error to the developer console.
+                console.error("Firebase Index Creation URL:", result.error);
+                toast({ variant: 'destructive', title: 'Action Required', description: 'A database index is required. See the F12 developer console for the link to create it.' });
             }
         } catch (e: any) {
+            console.error("Client-side fetch error:", e);
             toast({ variant: 'destructive', title: 'Error', description: e.message });
         } finally {
             setIsLoading(false);
         }
-    }, [toast, searchTerm, tierFilter]);
-
-    // This useEffect is no longer needed to fetch clients on mount.
-    // useEffect(() => {
-    //     fetchClients();
-    // }, [fetchClients]);
+    }, [user, toast, searchTerm, tierFilter]);
 
     const refreshPendingFoodCount = useCallback(async () => {
         const count = await getUnreviewedUserFoodCount();
@@ -116,7 +115,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
         return () => clearInterval(intervalId);
     }, [user]);
 
-    const handleQuickChatClick = async (client: UserProfile) => {
+    const handleQuickChatClick = async (client: ClientProfile) => {
         if (client.tier !== 'coaching') {
             toast({ variant: 'destructive', title: 'Not a Coaching Client', description: 'Only coaching clients have private chats.' });
             return;
@@ -133,12 +132,10 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     };
 
     const filteredAndSortedClients = useMemo(() => {
-        // The filtering logic is now handled by the backend.
-        // We just display the results returned from the API.
         return allClients;
     }, [allClients]);
 
-    const ClientListItem = ({ client }: { client: UserProfile }) => (
+    const ClientListItem = ({ client }: { client: ClientProfile }) => (
         <div className="w-full text-left p-1.5 pr-3 rounded-md border bg-card hover:bg-muted transition-colors flex items-center gap-2 text-sm">
             <div className="flex-1 flex items-center gap-2 min-w-0 cursor-pointer" onClick={() => setSelectedClient(client)}>
                 <Avatar className="h-6 w-6 border">
@@ -157,7 +154,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
         { label: 'Chats', icon: MessageSquare, action: () => setIsChatsOpen(true), count: unreadChatCount },
         { label: 'Challenges', icon: Trophy, action: () => setIsChallengesOpen(true) },
         { label: 'Pop-ups', icon: Megaphone, action: () => setIsPopupsOpen(true) },
-        { label: 'Library', icon: Library, action: () => setIsLibraryOpen(true) },
+        { label: 'Future', icon: Library, action: () => {} }, // **THE FIX**: Changed label and action
         { label: 'Calendar', icon: Calendar, action: () => setIsCalendarOpen(true) },
         { label: 'Food Cache', icon: Database, action: () => setIsFoodCacheOpen(true), count: pendingFoodCount },
     ];
@@ -223,13 +220,12 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             </div>
 
             {/* Dialogs Section */}
-            {selectedClient && <ClientDetailModal client={selectedClient as ClientProfile} isOpen={!!selectedClient} onClose={() => { setSelectedClient(null); fetchClients(); }} />}
+            {selectedClient && <ClientDetailModal client={selectedClient} isOpen={!!selectedClient} onClose={() => { setSelectedClient(null); fetchClients(); }} />}
             {selectedChatInfo && <EmbeddedChatDialog isOpen={isChatDialogOpen} onClose={() => setIsChatDialogOpen(false)} chatId={selectedChatInfo.id} chatName={selectedChatInfo.name} />}
             <CreateClientDialog open={isCreateClientOpen} onOpenChange={setIsCreateClientOpen} onClientCreated={() => { setIsCreateClientOpen(false); fetchClients(); }} />
             <ManageChatsDialog open={isChatsOpen} onOpenChange={setIsChatsOpen} />
             <ManageChallengesDialog open={isChallengesOpen} onOpenChange={setIsChallengesOpen} />
             <ManagePopupsDialog open={isPopupsOpen} onOpenChange={setIsPopupsOpen} />
-            <ManageLibraryDialog open={isLibraryOpen} onOpenChange={setIsLibraryOpen} />
             <CoachCalendarDialog open={isCalendarOpen} onOpenChange={setIsCalendarOpen} />
             <ManageFoodCacheDialog open={isFoodCacheOpen} onOpenChange={setIsFoodCacheOpen} />
             <ModerationDialog isOpen={isModerationOpen} onClose={() => setIsModerationOpen(false)} />

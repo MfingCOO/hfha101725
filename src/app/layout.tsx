@@ -1,25 +1,20 @@
-'use client'; 
 
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { AppCheckProvider } from "@/components/auth/app-check-provider";
 import { Toaster } from "@/components/ui/toaster";
-import Script from 'next/script';
 import { inter } from './fonts';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
-import { NotificationProvider } from '@/contexts/NotificationContext';
-import { NotificationPresenter } from '@/components/notifications/NotificationPresenter';
+import QueryProvider from "@/components/providers/QueryProvider"; // Import the new QueryProvider
+import { Suspense } from 'react';
 import { DataEntryModalProvider } from '@/contexts/DataEntryModalContext';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
+import AdBannerProvider from "@/components/providers/AdBannerProvider";
 
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const [queryClient] = useState(() => new QueryClient());
-
   return (
     <html lang="en" suppressHydrationWarning className="dark h-full">
       <head>
@@ -27,20 +22,20 @@ export default function RootLayout({
         <meta name="description" content="A wellness application." />
       </head>
       <body className={`${inter.className} h-full`}>
-        <QueryClientProvider client={queryClient}>
+        <QueryProvider>
           <AuthProvider>
             <AppCheckProvider>
-              <PushNotificationProvider>
-                <NotificationProvider>
-                  <DataEntryModalProvider>
-                    {children}
-                    <NotificationPresenter />
-                  </DataEntryModalProvider>
-                </NotificationProvider>
-              </PushNotificationProvider>
+                <DataEntryModalProvider>
+                  <Suspense>
+                    <PushNotificationProvider>
+                      {children}
+                    </PushNotificationProvider>
+                  </Suspense>
+                </DataEntryModalProvider>
             </AppCheckProvider>
           </AuthProvider>
-        </QueryClientProvider>
+        </QueryProvider>
+        <AdBannerProvider />
         <Toaster />
       </body>
     </html>

@@ -1,77 +1,92 @@
+    rules_version = '2';
 
-rules_version = '2';
-
-service cloud.firestore {
-  match /databases/{database}/documents {
-  
-    // Helper function to check if a user is a coach
-    function isCoach(userId) {
-      // Alan and Crystal's UIDs
-      return userId in ['yue7fVPBQZg45vmfXXUH5PdG7jE2', 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2'];
-    }
-
-    // Lock down asset library to coaches only
-    match /asset-library/{docId} {
-        allow read: if request.auth != null;
-        allow write: if isCoach(request.auth.uid);
-    }
-
-    // Coaches can manage challenges
-    match /challenges/{challengeId} {
-        allow read: if request.auth != null;
-        allow write: if isCoach(request.auth.uid);
-    }
-    
-    // Coaches can manage popups
-    match /popups/{popupId} {
-      allow read, write: if isCoach(request.auth.uid);
-    }
-
-    match /user_scheduled_reminders/{reminderId} {
-      allow read, update: if request.auth.uid == resource.data.userId;
-    }
-
-    match /sticky-popups/{popupId} {
-      allow read, write: if request.auth.uid == resource.data.userId;
-    }
-    
-    // User profiles can be read by any authenticated user.
-    // They can only be created/updated by their owner.
-    match /userProfiles/{userId} {
-      allow read: if request.auth != null;
-      allow create, update: if request.auth.uid == userId;
-    }
-    
-    // Reports can only be read and written by coaches (via admin SDK)
-    // This denies all client-side access for security.
-    match /reports/{reportId} {
-      allow read, write: if false;
-    }
-
-    // Clients collection can be read/written by coaches
-    // Individual client docs can be read by their owner.
-    match /clients/{clientId} {
-      allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
-      allow list, write: if isCoach(request.auth.uid);
+    service cloud.firestore {
+      match /databases/{database}/documents {
       
-      match /{collection}/{docId} {
-        allow read: if request.auth.uid == clientId || isCoach(request.auth.uid);
-        allow create, update, delete: if request.auth.uid == clientId;
-      }
-    }
-    
-    // Chats can be accessed by participants or any coach.
-    match /chats/{chatId} {
-      allow read: if isCoach(request.auth.uid) || request.auth.uid in resource.data.participants;
-      allow write: if request.auth.uid in resource.data.participants;
+        // Helper function to check if the user is a designated coach
+        function isCoach(userId) {
+          // IMPORTANT: Ensure this list is accurate for your coach UIDs.
+          return userId in ['yue7fVPBQZg45vmfXXUH5PdG7jE2', 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2', 'rVBbOZ1l0xbc7dXjezVpU5BgmgC2'];
+        }
 
-      // Messages can be read by participants or any coach.
-      // Messages can ONLY be created by participants who are NOT BANNED.
-      match /messages/{messageId} {
-        allow read: if isCoach(request.auth.uid) || request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-        allow create: if request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-                      && get(/databases/$(database)/documents/userProfiles/$(request.auth.uid)).data.isBannedFromChat != true;
+        // Helper function to check if the authenticated user is the owner of the document being accessed
+        function isOwner(userId) {
+          return request.auth.uid == userId;
+        }
+
+        // Rules for the 'userProfiles' collection
+        match /userProfiles/{userId} {
+          // Allow read access if an authenticated user is the owner of the profile OR is a coach
+          allow read: if request.auth != null && (isOwner(userId) || isCoach(request.auth.uid));
+          // Allow write (create/update) access if an authenticated user is the owner of their own profile
+          allow write: if request.auth != null && isOwner(userId);
+        }
+
+        // Rules for the 'user_chat_metadata' collection
+       match /user_chat_metadata/{metadataId} {
+  // A user can read/write their own metadata. A coach can read/write any.
+  // We check ownership by splitting the document ID, which is backward-compatible.
+  allow read, write: if request.auth != null && (request.auth.uid == metadataId.split('_')[0] || isCoach(request.auth.uid));
+  
+  // ONLY a coach can list the entire collection.
+  allow list: if request.auth != null && isCoach(request.auth.uid);
+}
+
+
+        // Rules for the 'clients' collection and its subcollections
+        match /clients/{clientId} {
+          // Allow list/read access if an authenticated user is the owner or a coach.
+          // This is necessary for snapshot listeners to function correctly.
+          allow list, read: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
+
+          // Allow create/update if an authenticated user is the owner of their client document
+          // This covers initial client document creation and updates (like FCM tokens)
+          allow create, update: if request.auth != null && isOwner(clientId);
+
+          // Allow delete only if an authenticated user is a coach
+          allow delete: if request.auth != null && isCoach(request.auth.uid);
+
+          // Generic rules for all subcollections under a client's document
+          // This grants owners read/write to their own subcollection data, and coaches read/write to any client's subcollection data
+          match /{document=**} {
+            allow read: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
+            allow write: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
+          }
+        }
+        
+        // Rules for the 'challenges' collection
+        // Allowing any authenticated user to read challenges for display
+        match /challenges/{challengeId} {
+          allow read: if request.auth != null;
+          allow write: if false; // Deny write by default
+        }
+
+        // Rules for the 'indulgencePlans' collection
+        // Allowing users to read/write only their own indulgence plans
+        match /indulgencePlans/{indulgencePlanId} {
+          allow read, write: if request.auth != null && isOwner(resource.data.userId);
+        }
+
+        // Rules for the 'chats' collection and its subcollections
+        match /chats/{chatId} {
+          // Allow get/write access if an authenticated user is a participant in the chat
+          allow get, write: if request.auth != null && request.auth.uid in resource.data.participants;
+          // Allow list access if an authenticated user is a participant in the chat (for queries)
+          allow list: if request.auth != null && request.query.where.participants.hasAny([request.auth.uid]);
+
+          match /messages/{messageId} {
+            // Allow read/create messages if an authenticated user is a participant in the parent chat
+            // This includes messages that might contain image URLs.
+            allow read, create: if request.auth != null && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+          }
+        }
+         // Rules for the 'notifications' collection
+    match /notifications/{notificationId} {
+      // Allow read access if the user is a coach OR is the owner of the notification
+      allow read: if request.auth != null && (isCoach(request.auth.uid) || isOwner(resource.data.userId));
+      
+      // Allow write access only to the owner of the notification
+      allow write: if request.auth != null && isOwner(resource.data.userId);
+    } 
       }
     }
-  }
-}

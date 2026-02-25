@@ -2,19 +2,11 @@
 'use client';
 
 import {
-  HeartPulse,
   LayoutDashboard,
   Settings,
-  Trophy,
-  BarChart3,
-  Dumbbell,
   Calendar,
   MessageSquare,
-  Users,
-  Lightbulb,
-  Megaphone,
-  Image as ImageIcon,
-  Library,
+  Trophy
 } from 'lucide-react';
 import {
   Sidebar,
@@ -23,46 +15,42 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  useSidebar,
   SidebarFooter
 } from '@/components/ui/sidebar';
-import { SheetHeader, SheetTitle } from '../ui/sheet';
 import { Logo } from '@/components/icons/logo';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { UserNav } from '../auth/user-nav';
-import { cn } from '@/lib/utils';
-import { useIsMobile } from '@/hooks/use-is-mobile';
 import { useAuth } from '../auth/auth-provider';
-import { useDashboardActions } from '@/contexts/DashboardActionsContext';
-
+import { useDashboardActions, useDashboardState } from '@/contexts/DashboardActionsContext';
+import { useChatModalStore } from '@/store/ui-store';
 
 const clientMenuItems = [
-  { href: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true },
+  { href: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true, id: 'dashboard' },
   { href: '#', label: 'Calendar', icon: Calendar, isLink: false, id: 'calendar' },
   { href: '#', label: 'Chats', icon: MessageSquare, isLink: false, id: 'chats' },
   { href: '#', label: 'Challenges', icon: Trophy, isLink: false, id: 'challenges' },
 ];
 
 const coachMenuItems = [
-    { href: '/coach/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true },
+    { href: '/coach/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true, id: 'dashboard' },
 ]
 
 export function AppSidebar() {
   const pathname = usePathname();
   const { isCoach } = useAuth();
-  const { onOpenChallenges, onOpenChats, onOpenCalendar } = useDashboardActions();
-
+  const { onOpenChallenges, onOpenCalendar, onOpenSettings } = useDashboardActions();
+  const { openModal: openChatModal } = useChatModalStore();
+  const { unreadChatCount } = useDashboardState();
 
   const menuItems = isCoach ? coachMenuItems : clientMenuItems;
-  const settingsHref = isCoach ? '/settings' : '/client/settings';
 
   const handleItemClick = (item: any) => {
     if (!item.isLink) {
         if (item.id === 'challenges') {
             onOpenChallenges();
         } else if (item.id === 'chats') {
-            onOpenChats();
+            openChatModal(null); // ** FIX: Pass null to open the general chat list **
         } else if (item.id === 'calendar') {
             onOpenCalendar();
         }
@@ -84,7 +72,7 @@ export function AppSidebar() {
               {item.isLink ? (
                   <Link href={item.href!}>
                     <SidebarMenuButton
-                      isActive={pathname.startsWith(item.href!)}
+                      isActive={!!pathname && pathname.startsWith(item.href!)}
                       tooltip={item.label}
                     >
                       <item.icon />
@@ -93,12 +81,21 @@ export function AppSidebar() {
                   </Link>
               ) : (
                  <SidebarMenuButton
-                    isActive={false} // Non-links are actions, not active pages
+                    isActive={false}
                     tooltip={item.label}
                     onClick={() => handleItemClick(item)}
                   >
-                    <item.icon />
-                    <span>{item.label}</span>
+                    <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center">
+                            <item.icon />
+                            <span className='ml-4'>{item.label}</span>
+                        </div>
+                        {item.id === 'chats' && unreadChatCount > 0 && (
+                            <span className="ml-auto text-xs font-semibold text-white bg-red-500 rounded-full h-5 w-5 flex items-center justify-center">
+                                {unreadChatCount}
+                            </span>
+                        )}
+                    </div>
                  </SidebarMenuButton>
               )}
             </SidebarMenuItem>
@@ -109,15 +106,13 @@ export function AppSidebar() {
        <SidebarFooter>
          <SidebarMenu>
             <SidebarMenuItem>
-                <Link href={settingsHref}>
-                    <SidebarMenuButton
-                        isActive={pathname.startsWith(settingsHref)}
-                        tooltip={"Settings"}
-                    >
-                        <Settings />
-                        <span>Settings</span>
-                    </SidebarMenuButton>
-                </Link>
+                <SidebarMenuButton
+                    tooltip={"Settings"}
+                    onClick={onOpenSettings} 
+                >
+                    <Settings />
+                    <span>Settings</span>
+                </SidebarMenuButton>
             </SidebarMenuItem>
             <div className="p-2 border-t mt-auto">
               <UserNav />

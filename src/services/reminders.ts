@@ -1,26 +1,8 @@
 
 import { admin, db } from '@/lib/firebaseAdmin';
-import { UserProfile, UserTier } from '@/types';
-import { startOfDay, format, subDays, addDays, addHours, isAfter } from 'date-fns';
+import { UserTier } from '@/types';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-
-export interface Challenge {
-    id: string;
-    name: string;
-    description: string;
-    dates: {
-        from: Timestamp;
-        to: Timestamp;
-    };
-    scheduledHabits?: any[];
-    progress?: {
-        [userId: string]: {
-            [date: string]: {
-                [habitName: string]: boolean;
-            }
-        }
-    };
-}
+import { MulticastMessage } from 'firebase-admin/messaging';
 
 export interface Reminder {
     id: string;
@@ -28,67 +10,78 @@ export interface Reminder {
     title: string;
     message: string;
     pillarId: string;
+    entityId?: string;
     requiredTier?: UserTier;
     data?: any;
-    deliverAt: Timestamp; 
+    deliverAt: Timestamp;
 }
 
-function serializeTimestamps(obj: any): any {
-    if (!obj) return obj;
-    if (obj instanceof Timestamp) {
-        return obj.toDate().toISOString();
-    }
-    if (Array.isArray(obj)) {
-        return obj.map(item => serializeTimestamps(item));
-    }
-    if (typeof obj === 'object') {
-        const newObj: { [key: string]: any } = {};
-        for (const key in obj) {
-            if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                newObj[key] = serializeTimestamps(obj[key]);
-            }
-        }
-        return newObj;
-    }
-    return obj;
-}
+const IMMEDIATE_PUSH_TYPES: Reminder['type'][] = [
+    'appointment_booked', 
+    'mia_alert', 
+    'challenge_checkin',
+    'streak-congrats',
+    'custom-popup'
+];
 
 export async function createUserNotification(userId: string, reminder: Omit<Reminder, 'id'>) {
     if (!userId) return;
 
     try {
-        const userProfileRef = db.collection('userProfiles').doc(userId);
-        const userProfileDoc = await userProfileRef.get();
-
-        if (userProfileDoc.exists) {
-            const userProfile = userProfileDoc.data() as UserProfile;
-            const token = userProfile.pushToken;
-
-            if (token) {
-                const payload = {
-                    notification: {
-                        title: reminder.title,
-                        body: reminder.message,
-                    },
-                    data: {
-                         type: reminder.type,
-                         pillarId: reminder.pillarId,
-                    }
-                };
-                await admin.messaging().sendToDevice(token, payload);
-                console.log(`Push notification sent to user ${userId} for reminder type ${reminder.type}`);
-            } else {
-                console.log(`User ${userId} does not have a push token. Skipping push notification.`);
-            }
-        }
-
         const notificationRef = db.collection(`clients/${userId}/notifications`).doc();
         await notificationRef.set({
             ...reminder,
             createdAt: FieldValue.serverTimestamp(),
             seen: false,
         });
-        
+
+        if (IMMEDIATE_PUSH_TYPES.includes(reminder.type)) {
+            const clientRef = db.collection('clients').doc(userId);
+            const clientDoc = await clientRef.get();
+
+            if (clientDoc.exists) {
+                const clientData = clientDoc.data();
+                const tokens = clientData?.fcmTokens?.filter((t: string) => t) || [];
+
+                if (tokens.length > 0) {
+                    const dataPayload: { [key: string]: string } = {
+                        title: reminder.title,
+                        body: reminder.message,
+                        notificationType: reminder.type,
+                        pillarId: reminder.pillarId,
+                        ...(reminder.entityId && { entityId: reminder.entityId }),
+                        ...Object.fromEntries(Object.entries(reminder.data || {}).map(([key, value]) => [key, String(value)]))
+                    };
+                    
+                    const payload: MulticastMessage = {
+                        tokens: tokens,
+                        data: dataPayload,
+                        apns: {
+                            headers: { 'apns-priority': '10' },
+                            payload: {
+                                aps: {
+                                    sound: 'default'
+                                }
+                            }
+                        },
+                        android: {
+                            priority: "high",
+                            // BUG FIX: Added channelId for Android notifications
+                            notification: {
+                                channelId: "default",
+                                sound: "default"
+                            }
+                        },
+                    };
+
+                    await admin.messaging().sendEachForMulticast(payload);
+                    console.log(`IMMEDIATE push notification sent to user ${userId} for type ${reminder.type}`);
+                }
+            }
+        } else {
+            console.log(`Notification for user ${userId} (type: ${reminder.type}) is scheduled. Stored in DB, push will be sent later.`);
+        }
+
         return { id: notificationRef.id, ...reminder };
 
     } catch (error) {
@@ -112,16 +105,16 @@ export async function dismissReminderAction(userId: string, notificationId: stri
 
 export async function sendScheduledPopupNotification(popupData: any) {
   try {
-    // FIX: Correctly map campaignName and campaignId to title and id.
     const { targetType, targetValue, campaignName: title, message, campaignId: id, scheduledAt: deliveryTime, ...restData } = popupData;
     let targetUserIds: string[] = [];
-    const userProfilesRef = db.collection('userProfiles');
+    
+    const clientsRef = db.collection('clients');
 
     if (targetType === 'all') {
-      const snapshot = await userProfilesRef.get();
+      const snapshot = await clientsRef.get();
       snapshot.forEach(doc => targetUserIds.push(doc.id));
     } else if (targetType === 'tier' && targetValue) {
-      const snapshot = await userProfilesRef.where('tier', '==', targetValue).get();
+      const snapshot = await clientsRef.where('tier', '==', targetValue).get();
       snapshot.forEach(doc => targetUserIds.push(doc.id));
     } else if (targetType === 'user' && targetValue) {
       targetUserIds.push(targetValue);
@@ -154,56 +147,4 @@ export async function sendScheduledPopupNotification(popupData: any) {
     console.error(`Error in sendScheduledPopupNotification for popup ${popupData.id}:`, error);
     return { success: false, error: error.message };
   }
-}
-
-export async function getNextDueNotificationAction(userId: string): Promise<{ success: boolean; reminder?: Reminder | null; error?: string }> {
-    try {
-        const now = Timestamp.now();
-        const notificationsRef = db.collection(`clients/${userId}/notifications`)
-            .where('seen', '==', false)
-            .where('deliverAt', '<=', now)
-            .orderBy('deliverAt', 'asc')
-            .limit(1);
-
-        const snapshot = await notificationsRef.get();
-
-        if (snapshot.empty) {
-            return { success: true, reminder: null };
-        }
-
-        const notificationDoc = snapshot.docs[0];
-        const reminder = { id: notificationDoc.id, ...notificationDoc.data() } as Reminder;
-        
-        return { success: true, reminder: serializeTimestamps(reminder) };
-
-    } catch (error: any) {
-        console.error("Error in getNextDueNotificationAction: ", error);
-        return { success: false, error: error.message };
-    }
-}
-
-export async function getNextNotificationTimeAction(userId: string): Promise<{ success: boolean; nextNotificationTime?: string | null; error?: string }> {
-    try {
-        const now = Timestamp.now();
-        const notificationsRef = db.collection(`clients/${userId}/notifications`)
-            .where('seen', '==', false)
-            .where('deliverAt', '>', now)
-            .orderBy('deliverAt', 'asc')
-            .limit(1);
-
-        const snapshot = await notificationsRef.get();
-
-        if (snapshot.empty) {
-            return { success: true, nextNotificationTime: null };
-        }
-
-        const notificationDoc = snapshot.docs[0];
-        const reminder = notificationDoc.data() as Reminder;
-
-        return { success: true, nextNotificationTime: serializeTimestamps(reminder.deliverAt) };
-
-    } catch (error: any) {
-        console.error("Error in getNextNotificationTimeAction: ", error);
-        return { success: false, error: error.message };
-    }
 }

@@ -4,11 +4,10 @@ import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "../ui/button";
 import { Loader2, MoreVertical, LogOut, CalendarPlus } from "lucide-react";
-import type { Chat, Challenge } from "@/services/firestore";
+import type { Chat } from "@/types";
 import { Badge } from "../ui/badge";
-import { EmbeddedChatDialog } from "../coach/chats/embedded-chat-dialog";
-import { getChallengesForCoach } from "@/app/coach/actions";
-import { getChatMetadataForUser, joinChat as joinChatAction, leaveChat as leaveChatAction } from "@/app/chats/actions";
+import { EmbeddedChatDialog } from "./embedded-chat-dialog";
+import { joinChat, leaveChat, markChatAsReadAction } from "@/app/chats/actions";
 import { useToast } from "@/hooks/use-toast";
 import { TIER_ACCESS, UserTier } from "@/types";
 import { UpgradeModal } from "../modals/upgrade-modal";
@@ -29,7 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { BookingDialog } from "../client/booking/BookingDialog";
-import { useDashboardActions, useDashboardState } from "@/contexts/DashboardActionsContext";
+import { useDashboardState } from "@/contexts/DashboardActionsContext";
 
 // Helper to convert Firestore Timestamps to ISO strings for client-side use
 function serializeTimestamps(data: any): any {
@@ -55,28 +54,22 @@ function serializeTimestamps(data: any): any {
 }
 
 // Corrected type for client-side chat objects after serialization
-type SerializableChat = Omit<Chat, 'createdAt' | 'lastMessage'> & {
+type SerializableChat = Omit<Chat, 'createdAt' | 'lastMessage' | 'unreadCount'> & {
     createdAt?: string;
     lastMessage?: {
         text: string;
         senderId: string;
         timestamp: string;
-    }
+    };
+    unreadCount?: number; // Added unreadCount to the type
 };
 
-type SerializableChallenge = Omit<Challenge, 'dates' | 'createdAt' | 'progress'> & {
-    dates: { from: string, to: string };
-    createdAt?: string;
-    progress?: { [key: string]: any };
-};
 
 export function ClientChatList() {
     const { user, userProfile, loading: authLoading } = useAuth();
-    const { chats, fetchChats } = useDashboardState();
+    const { chats, fetchChats } = useDashboardState(); // Removed chatMetadata as it's no longer needed here
     const { toast } = useToast();
     const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-    const [allChallenges, setAllChallenges] = useState<SerializableChallenge[]>([]);
-    const [chatMetadata, setChatMetadata] = useState<Record<string, { lastReadTimestamp: string }>>({});
     
     const [selectedChat, setSelectedChat] = useState<{ id: string; name: string } | null>(null);
     const [upgradeModal, setUpgradeModal] = useState<{ isOpen: boolean; requiredTier: UserTier } | null>(null);
@@ -86,36 +79,26 @@ export function ClientChatList() {
     const [isLeaving, setIsLeaving] = useState(false);
     const [isBookingOpen, setIsBookingOpen] = useState(false);
     
-    // Memoize serialized chats to prevent re-renders
     const serializedChats: SerializableChat[] = useMemo(() => serializeTimestamps(chats || []), [chats]);
-
-    useEffect(() => {
-        if (user) {
-            getChallengesForCoach().then(res => {
-                if (res.success && res.data) {
-                    setAllChallenges(serializeTimestamps(res.data));
-                }
-            });
-            // Fetch the user's read status for all chats
-            getChatMetadataForUser(user.uid).then(res => {
-                if (res.success && res.data) {
-                    setChatMetadata(serializeTimestamps(res.data));
-                }
-            })
-        }
-    }, [user]);
 
     const { myChats, availableChats } = useMemo(() => {
         const myChats = serializedChats.filter((chat) => chat.participants.includes(user?.uid || ''));
         const availableChats = serializedChats.filter((chat) => !chat.participants.includes(user?.uid || '') && chat.type === 'open');
         return { myChats, availableChats };
     }, [serializedChats, user]);
-    
 
+    const handleOpenChat = (chat: SerializableChat) => {
+        if (user && chat.unreadCount && chat.unreadCount > 0) {
+            markChatAsReadAction({ chatId: chat.id, userId: user.uid });
+        }
+        setSelectedChat({ id: chat.id, name: chat.name });
+    };
+    
     const handleJoinClick = (chat: SerializableChat) => {
         const requiredTier = 'premium';
-        const currentTierIndex = userProfile ? TIER_ACCESS.indexOf(userProfile.tier) : 0;
-        const requiredTierIndex = TIER_ACCESS.indexOf(requiredTier as UserTier);
+        const tierNames = Object.keys(TIER_ACCESS);
+        const currentTierIndex = userProfile ? tierNames.indexOf(userProfile.tier) : 0;
+        const requiredTierIndex = tierNames.indexOf(requiredTier as UserTier);
 
         if (currentTierIndex < requiredTierIndex) {
             setUpgradeModal({ isOpen: true, requiredTier: requiredTier as UserTier });
@@ -128,7 +111,7 @@ export function ClientChatList() {
         if (!joinAlert.chat || !user) return;
         
         setIsJoining(true);
-        const result = await joinChatAction(joinAlert.chat.id, user.uid);
+        const result = await joinChat(joinAlert.chat.id, user.uid);
         
         if (result.success) {
             toast({ title: "Welcome!", description: `You have successfully joined the "${joinAlert.chat.name}" chat.` });
@@ -145,7 +128,7 @@ export function ClientChatList() {
         if (!leaveAlert.chat || !user) return;
 
         setIsLeaving(true);
-        const result = await leaveChatAction(leaveAlert.chat.id, user.uid);
+        const result = await leaveChat(leaveAlert.chat.id, user.uid);
 
         if (result.success) {
             toast({ title: "Chat Left", description: `You have left "${leaveAlert.chat.name}".` });
@@ -166,29 +149,31 @@ export function ClientChatList() {
         );
     }
     
-    const ChatListItem = ({ chat, isUnread }: { chat: SerializableChat, isUnread: boolean }) => (
+    const ChatListItem = ({ chat }: { chat: SerializableChat }) => (
         <div 
-            onClick={() => setSelectedChat({ id: chat.id, name: chat.name })}
-            className="w-full text-left p-3 rounded-lg border bg-card hover:bg-muted transition-colors flex items-center gap-2 cursor-pointer"
+            onClick={() => handleOpenChat(chat)}
+            className="w-full text-left p-3 rounded-lg border bg-card hover:bg-muted transition-colors flex items-center gap-3 cursor-pointer"
         >
-             {isUnread && <div className="h-2.5 w-2.5 rounded-full bg-blue-500 flex-shrink-0" />}
             <div className="flex-1 min-w-0">
                 <p className="font-semibold">{chat.name}</p>
                 <p className="text-sm text-muted-foreground line-clamp-2">{chat.description || 'No description.'}</p>
             </div>
-            <div className="flex items-center">
+            <div className="flex items-center gap-2">
+                {chat.unreadCount != null && chat.unreadCount > 0 && (
+                    <Badge variant="destructive">{chat.unreadCount}</Badge>
+                )}
                 <Button 
                     variant="secondary"
                     size="sm"
                     className="h-8"
-                    onClick={(e) => { e.stopPropagation(); setSelectedChat({ id: chat.id, name: chat.name }); }}
+                    onClick={(e) => { e.stopPropagation(); handleOpenChat(chat); }}
                 >
                     {isLoadingDetails ? <Loader2 className="h-4 w-4 animate-spin"/> : 'Open'}
                 </Button>
                 {chat.type !== 'coaching' && (
                      <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 ml-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
                                 <MoreVertical className="h-4 w-4" />
                             </Button>
                         </DropdownMenuTrigger>
@@ -217,28 +202,12 @@ export function ClientChatList() {
             </div>
             {myChats.length > 0 ? (
                 <div className="space-y-3">
-                    {myChats.map(chat => {
-                        // ** START: DEFINITIVE BLUE DOT FIX **
-                        const lastRead = chatMetadata[chat.id]?.lastReadTimestamp;
-                        const lastMessageTime = chat.lastMessage?.timestamp;
-                        let isUnread = false;
-                        
-                        // A chat is unread ONLY if the last message is from another user AND it's newer than the last time this user read the chat.
-                        if (chat.lastMessage && chat.lastMessage.senderId !== user?.uid) {
-                            if (!lastRead || (lastMessageTime && new Date(lastMessageTime) > new Date(lastRead))) {
-                                isUnread = true;
-                            }
-                        }
-                        // ** END: DEFINITIVE BLUE DOT FIX **
-
-                        return (
-                            <ChatListItem 
-                                key={chat.id} 
-                                chat={chat}
-                                isUnread={isUnread}
-                            />
-                        )
-                    })}
+                    {myChats.map(chat => (
+                        <ChatListItem 
+                            key={chat.id} 
+                            chat={chat}
+                        />
+                    ))}
                 </div>
             ) : (
                 <p className="text-sm text-muted-foreground">Your conversations will appear here once you join a chat or get coaching.</p>
@@ -253,7 +222,6 @@ export function ClientChatList() {
                                 <div className="flex-1 min-w-0 w-full">
                                     <div className="flex justify-between items-center">
                                         <p className="font-semibold">{chat.name}</p>
-                                        {chat.type === 'challenge' && <Badge variant="secondary">Challenge</Badge>}
                                     </div>
                                     <p className="text-sm text-muted-foreground line-clamp-2">{chat.description || 'No description.'}</p>
                                 </div>

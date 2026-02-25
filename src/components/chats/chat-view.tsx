@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Send, Paperclip, XCircle, FileText, Trash2 } from 'lucide-react';
 import { ChatMessage, UserProfile } from '@/types';
-import { postMessageAction, deleteMessageAction, getChatMessagesAction, markChatAsReadAction } from '@/app/chats/actions';
+import { postMessageAction, deleteMessageAction, uploadChatImageAction, markChatAsReadAction, getChatMessagesAction } from '@/app/chats/actions';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -23,9 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { onSnapshot, collection, query, orderBy } from 'firebase/firestore';
-import { db, storage } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { v4 as uuidv4 } from 'uuid';
+import { db } from '@/lib/firebase';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 function LinkifiedText({ text }: { text: string }) {
@@ -44,6 +42,15 @@ function LinkifiedText({ text }: { text: string }) {
         </>
     );
 }
+
+const fileToDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+};
 
 interface ChatViewProps {
     chatId: string | null;
@@ -74,7 +81,6 @@ export function ChatView({ chatId }: ChatViewProps) {
             return;
         }
 
-        // Mark the chat as read whenever it is viewed
         markChatAsReadAction({ chatId, userId: user.uid });
     
         setIsLoading(true);
@@ -89,7 +95,7 @@ export function ChatView({ chatId }: ChatViewProps) {
             
             setMessages(fetchedMessages);
             
-            if (Object.keys(participants).length === 0) {
+            if (Object.keys(participants).length === 0 && chatId) {
                  const result = await getChatMessagesAction(chatId);
                  if (result.success && result.data?.participants) {
                     setParticipants(result.data.participants);
@@ -108,7 +114,7 @@ export function ChatView({ chatId }: ChatViewProps) {
         });
     
         return () => unsubscribe();
-    }, [chatId, user, toast]);
+    }, [chatId, user, toast, participants]);
     
     
     const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
@@ -162,14 +168,28 @@ export function ChatView({ chatId }: ChatViewProps) {
             let uploadedFileName: string | undefined = undefined;
 
             if (selectedFile) {
-                 const fileId = uuidv4();
-                 const storageRef = ref(storage, `chats/${chatId}/${fileId}-${selectedFile.name}`);
-                 await uploadBytes(storageRef, selectedFile);
-                 uploadedFileUrl = await getDownloadURL(storageRef);
-                 uploadedFileName = selectedFile.name;
+                const fileDataUrl = await fileToDataUrl(selectedFile);
+                const result = await uploadChatImageAction({
+                    chatId,
+                    fileDataUrl,
+                    fileName: selectedFile.name,
+                    fileType: selectedFile.type,
+                    requesterId: user.uid,
+                });
+
+                if (!result.success || !result.fileUrl) {
+                    throw new Error(result.error?.message || 'File upload failed.');
+                }
+                uploadedFileUrl = result.fileUrl;
+                uploadedFileName = result.fileName;
             }
             
-            await postMessageAction({ chatId, text: newMessage, userId: user.uid, userName: user.displayName || 'Anonymous', fileUrl: uploadedFileUrl, fileName: uploadedFileName });
+            const postResult = await postMessageAction({ chatId, text: newMessage, userId: user.uid, userName: user.displayName || 'Anonymous', fileUrl: uploadedFileUrl, fileName: uploadedFileName });
+
+            if (!postResult.success) {
+                throw new Error(postResult.error?.message || 'Failed to send message.');
+            }
+
             setNewMessage('');
             clearFileSelection();
         } catch (error: any) {
@@ -228,7 +248,7 @@ export function ChatView({ chatId }: ChatViewProps) {
                                     <div className="text-xs break-words"><LinkifiedText text={msg.text || ''} /></div>
                                     {msg.fileUrl && (
                                         <div className="mt-1">
-                                            {msg.fileName?.endsWith('.pdf') ? (
+                                            {msg.fileName?.match(/\.pdf$/i) ? (
                                                 <Link href={msg.fileUrl} target="_blank" className="flex items-center gap-2 p-1 rounded-md bg-background/20 hover:bg-background/40">
                                                     <FileText className="h-3 w-3" />
                                                     <span className="text-xs font-medium truncate max-w-[120px]">{msg.fileName || 'Shared File'}</span>

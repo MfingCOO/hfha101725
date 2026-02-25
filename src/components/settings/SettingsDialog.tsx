@@ -25,17 +25,18 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, User, Bell, SlidersHorizontal, Settings as SettingsIcon, CreditCard, LogOut, Trash2, Camera, Target, Undo2, BrainCircuit, RefreshCw, HelpCircle } from 'lucide-react';
+import { Loader2, User, Bell, SlidersHorizontal, Settings as SettingsIcon, CreditCard, LogOut, Trash2, Camera, Target, Undo2, BrainCircuit, RefreshCw, HelpCircle, FileText, ShieldCheck } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/components/auth/auth-provider';
 import { signOut } from 'firebase/auth';
 import { auth as clientAuth } from '@/lib/firebase';
 import {
-  updateUserProfileAction,
-  updateUserPasswordAction,
-  updateClientProfileAndGoalsAction,
-  updateClientSettingsAction,
-} from '@/app/client/settings/actions';
+    updateUserProfileAction,
+    updateUserPasswordAction,
+    updateClientProfileAndGoalsAction,
+    updateClientSettingsAction,
+    createStripePortalSession,
+  } from '@/app/client/settings/actions';
 import { getSiteSettingsAction, updateSiteSettingsAction } from '@/app/coach/site-settings/actions';
 import type { TrackingSettings, ClientProfile, NutritionalGoals } from '@/types';
 import { Switch } from '../ui/switch';
@@ -346,14 +347,11 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
     if (!user) return;
     setIsSaving(true);
     try {
-        const response = await fetch('/api/stripe/create-portal-session', {
-            method: 'POST',
-        });
-        const { url, error } = await response.json();
-        if (response.ok && url) {
-            window.location.href = url;
+        const result = await createStripePortalSession(user.uid);
+        if (result.url) {
+            window.location.href = result.url;
         } else {
-            toast({ variant: 'destructive', title: 'Error', description: error || "Could not open billing portal." });
+            toast({ variant: 'destructive', title: 'Error', description: result.error || "Could not open billing portal." });
         }
     } catch (err: any) {
         toast({ variant: 'destructive', title: 'Error', description: err.message || "An unexpected error occurred." });
@@ -361,8 +359,8 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
         setIsSaving(false);
     }
   }
-  
 
+  
   const calculationMode = watchedGoals.calculationMode;
   
   const goalsToShow = 
@@ -421,7 +419,13 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
         <Separator className="my-3"/>
         <div className="flex flex-col gap-2">
             <Button variant="outline" className="w-full" asChild>
-                <Link href="/support"><HelpCircle className="mr-2"/> Help & Support</Link>
+                <Link href="/support" target="_blank"><HelpCircle className="mr-2"/> Help & Support</Link>
+            </Button>
+            <Button variant="outline" className="w-full" asChild>
+                <Link href="/tos" target="_blank"><FileText className="mr-2"/> Terms of Service</Link>
+            </Button>
+            <Button variant="outline" className="w-full" asChild>
+                <Link href="/privacy" target="_blank"><ShieldCheck className="mr-2"/> Privacy Policy</Link>
             </Button>
             <Button variant="outline" className="w-full" onClick={handleLogout}><LogOut className="mr-2"/> Log Out</Button>
         </div>

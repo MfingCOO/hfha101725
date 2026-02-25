@@ -7,8 +7,8 @@ import Image from 'next/image';
 import { DataEntryDialog } from '@/components/dashboard/data-entry-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '../auth/auth-provider';
-import { ClientProfile, TIER_ACCESS, UserTier } from '@/types';
-import { Challenge, getUpcomingIndulgences, resetBingeStreakAction } from '@/services/firestore';
+import { ClientProfile, UserTier, Challenge } from '@/types';
+import { getUpcomingIndulgences, resetBingeStreakAction } from '@/services/firestore';
 import { getLatestChallengeForClient, joinChallengeAction } from '@/app/challenges/actions';
 import { Skeleton } from '../ui/skeleton';
 import { Badge } from '../ui/badge';
@@ -30,16 +30,15 @@ import {
 import { Loader2 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { FirstUseEducationalModal } from '../modals/FirstUseEducationalModal';
+// import { FirstUseEducationalModal } from '../modals/FirstUseEducationalModal';
 import { educationalContentLibrary, EducationalContent } from '@/lib/educational-content';
 import { UpgradeModal } from '../modals/upgrade-modal';
+import { SettingsDialog } from '../settings/SettingsDialog';
 import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
 import { ProgramWidget } from '@/components/client/ProgramWidget'; 
 import { ProgramListDialog } from '@/components/programs/program-list-dialog';
 import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
 import quotes from '@/lib/quotes.json';
-import { useAdMob } from '@/hooks/useAdMob';
-import { BannerAdPosition, BannerAdSize } from '@capacitor-community/admob';
 
 import { LucideIcon } from 'lucide-react';
 import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
@@ -66,6 +65,7 @@ const pillarsAndTools: Pillar[] = [
   { id: 'insights', label: 'Insights', icon: Lightbulb, color: 'text-foreground', bgColor: 'bg-yellow-400', borderColor: 'border-yellow-600', requiredTier: UserTier.Basic },
   { id: 'measurements', label: 'Measurements', icon: Scale, color: 'text-foreground', bgColor: 'bg-gray-400', borderColor: 'border-gray-600', requiredTier: UserTier.Free },
 ];
+const tierRank: UserTier[] = [UserTier.Free, UserTier.AdFree, UserTier.Basic, UserTier.Premium, UserTier.Coaching];
 
 
 const topRowButtons = pillarsAndTools.slice(0, 5);
@@ -80,9 +80,8 @@ const safeNewDate = (dateSource: any): Date | null => {
 }
 
 export function DashboardClient() {
-  const { showBannerAd } = useAdMob();
-  const { onOpenChallenges } = useDashboardActions();
-  const { user, userProfile } = useAuth();
+  const { onOpenChallenges, onOpenCalendar, isSettingsOpen, onCloseSettings } = useDashboardActions();
+  const { user, isCoach, loading } = useAuth(); // THE FIX: Get loading state
   const { toast } = useToast();
   const { modalType, closeModal } = useDataEntryModal();
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
@@ -112,23 +111,9 @@ export function DashboardClient() {
   const [isProgramHubOpen, setIsProgramHubOpen] = useState(false);
   const [isJoiningChallenge, setIsJoiningChallenge] = useState(false);
 
-  const { onOpenCalendar } = useDashboardActions();
-  
   useEffect(() => {
     setIsMounted(true);
   }, []);
-
-  useEffect(() => {
-    if (userProfile && process.env.NEXT_PUBLIC_ADMOB_BANNER_ID) {
-        showBannerAd({
-            adId: process.env.NEXT_PUBLIC_ADMOB_BANNER_ID,
-            adSize: BannerAdSize.BANNER,
-            position: BannerAdPosition.BOTTOM_CENTER,
-            margin: 0,
-            isTesting: process.env.NODE_ENV !== 'production',
-        });
-    }
-  }, [userProfile, showBannerAd]);
 
   const hasSeenFeature = useCallback((featureId: string) => {
     if (typeof window === 'undefined') return false;
@@ -152,29 +137,18 @@ export function DashboardClient() {
 
 
   const handlePillarClick = (pillar: Pillar) => {
-    if (!userProfile || !isMounted) return;
+    if (!clientProfile || !isMounted) return;
 
-    const currentTierIndex = TIER_ACCESS.indexOf(userProfile.tier);
-    const requiredTierIndex = TIER_ACCESS.indexOf(pillar.requiredTier as UserTier);
+    const currentTierIndex = tierRank.indexOf(clientProfile.tier || UserTier.Free);
+    const requiredTierIndex = tierRank.indexOf(pillar.requiredTier);
 
-    // First, check if the user's tier is high enough.
     if (currentTierIndex < requiredTierIndex) {
-        // If it's not, set the active pillar and open the real upgrade modal.
         setActivePillar(pillar);
         setIsUpgradeModalOpen(true);
-        return; // Stop here.
+        return;
     }
 
-    // If they have access, continue with the original logic.
-    const content = educationalContentLibrary[pillar.id];
-    const hasSeen = hasSeenFeature(pillar.id);
-
-    if (content && !hasSeen) {
-        setEducationalModalContent(content);
-        setIsEducationalModalOpen(true);
-    } else {
-        executePillarAction(pillar);
-    }
+    executePillarAction(pillar);
   };
 
 
@@ -222,13 +196,13 @@ export function DashboardClient() {
   }, [user, toast]);
 
   useEffect(() => {
+    if (loading) return;
+
     if (user) {
       fetchDashboardData();
     }
-  }, [user, fetchDashboardData]);
 
-  useEffect(() => {
-    if (user?.uid) {
+    if (user?.uid && !isCoach) {
       const docRef = doc(db, 'clients', user.uid);
       const unsubscribe = onSnapshot(docRef, (docSnap) => {
         if (docSnap.exists()) {
@@ -241,7 +215,7 @@ export function DashboardClient() {
       });
       return () => unsubscribe();
     }
-  }, [user?.uid]);
+  }, [user, isCoach, loading, fetchDashboardData]);
 
 
  const handleOpenCalendarForIndulgence = (plan: any) => {
@@ -312,9 +286,9 @@ export function DashboardClient() {
   };
 
   const bingeFreeSinceDate = useMemo(() => {
-      const source = liveBingeFreeSince || (userProfile as ClientProfile)?.bingeFreeSince;
+      const source = liveBingeFreeSince || clientProfile?.bingeFreeSince;
       return safeNewDate(source);
-  }, [liveBingeFreeSince, userProfile]);
+  }, [liveBingeFreeSince, clientProfile]);
 
   const bingeFreeDays = useMemo(() => {
     if (!bingeFreeSinceDate) return 0;
@@ -348,8 +322,8 @@ export function DashboardClient() {
 
   const renderPillarButton = (pillar: Pillar) => {
     const Icon = pillar.icon;
-    const currentTierIndex = userProfile ? TIER_ACCESS.indexOf(userProfile.tier) : 0;
-    const requiredTierIndex = TIER_ACCESS.indexOf(pillar.requiredTier as UserTier);
+    const currentTierIndex = clientProfile ? tierRank.indexOf(clientProfile.tier || UserTier.Free) : 0;
+    const requiredTierIndex = tierRank.indexOf(pillar.requiredTier);
     const isLocked = currentTierIndex < requiredTierIndex;
 
     return (
@@ -401,8 +375,8 @@ export function DashboardClient() {
     const challengeStartDate = safeNewDate(latestChallenge.dates.from);
     if(!challengeStartDate) return null;
     const isUpcoming = challengeStartDate > now;
-    const canJoin = !isParticipant && TIER_ACCESS.indexOf(userProfile?.tier || UserTier.Free) >= TIER_ACCESS.indexOf(UserTier.Premium);
-    const needsUpgrade = !isParticipant && TIER_ACCESS.indexOf(userProfile?.tier || UserTier.Free) < TIER_ACCESS.indexOf(UserTier.Premium);
+    const canJoin = !isParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) >= tierRank.indexOf(UserTier.Premium);
+    const needsUpgrade = !isParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) < tierRank.indexOf(UserTier.Premium);
 
     let badgeText = "";
     let badgeVariant: "secondary" | "default" | "destructive" | "outline" | null | undefined = "secondary";
@@ -450,14 +424,14 @@ export function DashboardClient() {
     );
   };
 
-  const isEducationalModalLocked = userProfile && educationalModalContent ? TIER_ACCESS.indexOf(userProfile.tier) < TIER_ACCESS.indexOf(educationalModalContent.requiredTier as UserTier) : false;
+  const isEducationalModalLocked = clientProfile && educationalModalContent ? tierRank.indexOf(clientProfile.tier || UserTier.Free) < tierRank.indexOf(educationalModalContent.requiredTier) : false;
 
   return (
     <div className="space-y-6 pb-10">
         <div>
-            <h2 className="text-2xl font-bold tracking-tight">Welcome, {userProfile?.fullName.split(' ')[0]}!</h2>
+            <h2 className="text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2>
             <p className="text-lg text-muted-foreground">
-            &ldquo;{quoteOfTheDay}&rdquo; ~Alan Roberts
+            &ldquo;{quoteOfTheDay}&rdquo; 
             </p>
         </div>
 
@@ -472,16 +446,16 @@ export function DashboardClient() {
       {renderChallengeSection()}
 
       <ProgramWidget 
-        userProfile={userProfile}
+        userProfile={clientProfile}
         clientProfile={clientProfile}
         onOpenProgramList={handleOpenProgramList}
         onOpenCurrentProgram={handleOpenCurrentProgram}
       />
 
       <UpcomingEventWidget 
-          userProfile={userProfile}
-          clientProfile={clientProfile}
-          onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
+        userProfile={clientProfile}
+        clientProfile={clientProfile}
+        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
       />
       
       {isLoadingIndulgences ? (
@@ -514,7 +488,7 @@ export function DashboardClient() {
         </Card>
       )}
 
-      {userProfile && bingeFreeSinceDate && (
+      {clientProfile && bingeFreeSinceDate && (
         <Card className="p-3">
             <CardContent className="p-0 flex items-center justify-between gap-4">
                 <div className="flex-1">
@@ -539,7 +513,7 @@ export function DashboardClient() {
       <ProgramListDialog
         isOpen={isProgramListOpen}
         onClose={() => setIsProgramListOpen(false)}
-        userProfile={userProfile}
+        userProfile={clientProfile}
         onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
       />
 
@@ -553,6 +527,7 @@ export function DashboardClient() {
           open={dataEntryDialogOpen}
           onOpenChange={handleDataEntryDialogClose}
           pillar={activePillar}
+          clientProfile={clientProfile}
           onSwitchPillar={handleSwitchPillar}
         />
       )}
@@ -560,6 +535,11 @@ export function DashboardClient() {
       <InsightsDialog 
         isOpen={insightsDialogOpen}
         onClose={() => setInsightsDialogOpen(false)}
+      />
+
+      <SettingsDialog
+        open={isSettingsOpen}
+        onOpenChange={onCloseSettings}
       />
 
       <UpgradeModal
@@ -574,7 +554,7 @@ export function DashboardClient() {
       />
 
       
-      {isMounted && educationalModalContent && (
+      {/* {isMounted && educationalModalContent && (
         <FirstUseEducationalModal 
             isOpen={isEducationalModalOpen}
             onClose={handleEducationalModalClose}
@@ -582,13 +562,13 @@ export function DashboardClient() {
             content={educationalModalContent}
             isLocked={isEducationalModalLocked}
         />
-      )}
+      )} */}
       
-       {userProfile && (
+       {clientProfile && (
         <CalendarDialog
             isOpen={isCalendarOpen}
             onClose={() => setIsCalendarOpen(false)}
-            client={userProfile as ClientProfile}
+            client={clientProfile as ClientProfile}
             initialDate={initialCalendarDate}
             highlightedEntryId={highlightedEntryId}
         />

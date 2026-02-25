@@ -4,10 +4,12 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { endOfDay, format } from 'date-fns';
-import type { AvailabilitySettings, SiteSettings } from '@/types';
+import { endOfDay, subMinutes } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
+import type { AvailabilitySettings, SiteSettings } from '@/types/index';
 import { createUserNotification } from '@/services/reminders';
 
+// ADDED clientTimezone to the schema
 const eventSchema = z.object({
     id: z.string().optional(),
     title: z.string().min(1, "Title is required."),
@@ -20,11 +22,11 @@ const eventSchema = z.object({
     attachVideoLink: z.boolean().default(false),
     coachId: z.string().optional().nullable(),
     coachName: z.string().optional().nullable(),
+    clientTimezone: z.string().optional(), // IANA timezone string, e.g., 'America/New_York'
 });
 
 type CalendarEventInput = z.infer<typeof eventSchema>;
 
-// Helper to convert Firestore Timestamps to ISO strings for client-side consumption
 function serializeTimestamps(docData: any): any {
     if (!docData) return docData;
     const newObject: { [key: string]: any } = { ...docData };
@@ -81,6 +83,9 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
             end: Timestamp.fromDate(dataToSave.end),
             videoCallLink: null, 
         };
+        // We don't want to save the timezone to the main event document
+        delete finalEventData.clientTimezone;
+
 
         if (dataToSave.attachVideoLink) {
             const settingsDocRef = adminDb.collection('siteSettings').doc('v1');
@@ -97,14 +102,62 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         
         await eventRef.set(finalEventData, { merge: true });
 
-        if (dataToSave.coachId && dataToSave.clientName) {
-            await createUserNotification(dataToSave.coachId, {
-                type: 'appointment_booked',
-                title: 'New Appointment Booked',
-                message: `${dataToSave.clientName} has booked a call with you for ${format(dataToSave.start, 'PPP p')}`,
-                pillarId: 'calendar',
-                deliverAt: Timestamp.now()
-            });
+        const isAppointment = dataToSave.coachId && dataToSave.clientId;
+
+        if (isAppointment) {
+            // TIMEZONE FIX: Determine the correct timezone for the notification.
+            let notificationTimezone = dataToSave.clientTimezone; // 1. Prioritize timezone from the browser.
+
+            // 2. As a fallback, check the coach's saved profile in the database.
+            if (!notificationTimezone && dataToSave.coachId) {
+                const coachProfileSnap = await adminDb.collection('clients').doc(dataToSave.coachId).get();
+                const coachProfile = coachProfileSnap.data();
+                if (coachProfile?.timezone) {
+                    notificationTimezone = coachProfile.timezone;
+                }
+            }
+            
+            // 3. Last resort is UTC, which was causing the bug.
+            const finalTimezone = notificationTimezone || 'UTC';
+
+            const formattedStartTime = formatInTimeZone(dataToSave.start, finalTimezone, 'PPP p');
+
+            if (dataToSave.clientName) {
+                await createUserNotification(dataToSave.coachId!, {
+                    type: 'appointment_booked',
+                    title: 'New Appointment Booked',
+                    message: `${dataToSave.clientName} has booked a call with you for ${formattedStartTime}`,
+                    pillarId: 'calendar',
+                    deliverAt: Timestamp.now(),
+                    entityId: eventRef.id
+                });
+            }
+
+            const reminderTime = subMinutes(dataToSave.start, 10);
+            if (reminderTime > new Date()) {
+
+                if (dataToSave.clientName) {
+                    await createUserNotification(dataToSave.coachId!, {
+                        type: 'appointment_reminder',
+                        title: 'Upcoming Appointment',
+                        message: `Your appointment with ${dataToSave.clientName} is in 10 minutes.`,
+                        pillarId: 'calendar',
+                        entityId: eventRef.id,
+                        deliverAt: Timestamp.fromDate(reminderTime)
+                    });
+                }
+
+                if (dataToSave.coachName) {
+                     await createUserNotification(dataToSave.clientId!, {
+                        type: 'appointment_reminder',
+                        title: 'Upcoming Appointment',
+                        message: `Your appointment with ${dataToSave.coachName} is in 10 minutes.`,
+                        pillarId: 'calendar',
+                        entityId: eventRef.id,
+                        deliverAt: Timestamp.fromDate(reminderTime)
+                    });
+                }
+            }
         }
 
         return { success: true, id: eventRef.id };
@@ -113,6 +166,7 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         return { success: false, error: error.message };
     }
 }
+
 
 export async function deleteCalendarEvent(eventId: string) {
     try {
@@ -130,7 +184,6 @@ export async function deleteCalendarEvent(eventId: string) {
 export async function saveCoachAvailability(settings: AvailabilitySettings): Promise<{ success: boolean; error?: string }> {
     try {
         const docRef = adminDb.collection('siteSettings').doc('v1');
-        // No data manipulation is needed. The client will provide dates in 'yyyy-MM-dd' string format.
         await docRef.set({ availability: settings }, { merge: true });
         return { success: true };
     } catch (error: any) {
@@ -145,8 +198,6 @@ export async function getCoachAvailabilityAndEvents(startDate: Date, endDate: Da
         const settingsSnap = await settingsDocRef.get();
         const siteSettings = settingsSnap.data() as SiteSettings | undefined;
 
-        // The availability object is fetched and passed through without modification.
-        // Vacation blocks are stored as 'yyyy-MM-dd' strings.
         const availability = siteSettings?.availability || null;
 
         const eventsResult = await getCoachEvents(startDate, endDate);

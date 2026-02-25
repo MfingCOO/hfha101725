@@ -14,7 +14,6 @@ interface ClientStatsDashboardProps {
   isRefreshing: boolean;
 }
 
-// FIX: Renamed from StaticInfo for clarity.
 const SummaryStat = ({ title, value }: { title: string; value: string | number }) => (
     <div className="text-center">
         <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{title}</p>
@@ -22,7 +21,6 @@ const SummaryStat = ({ title, value }: { title: string; value: string | number }
     </div>
 );
 
-// FIX: Renamed from DataCard for clarity.
 const MetricCard = ({ icon: Icon, title, value, unit, context }: { icon: LucideIcon, title: string, value: string, unit: string, context: string }) => (
     <div className="bg-neutral-800/80 border border-neutral-700/60 rounded-lg p-2.5 flex flex-col aspect-square justify-between shadow-md">
         <div className="flex justify-between items-start">
@@ -39,31 +37,57 @@ const MetricCard = ({ icon: Icon, title, value, unit, context }: { icon: LucideI
     </div>
 );
 
+// Helper to get the most recent summary, not just today's.
+const getLatestSummary = (summaries: { [date: string]: DailySummary } | undefined): DailySummary | undefined => {
+    if (!summaries || Object.keys(summaries).length === 0) {
+        return undefined;
+    }
+    const sortedDates = Object.keys(summaries).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    return summaries[sortedDates[0]];
+};
+
 export function ClientStatsDashboard({
   client,
   onDeleteClient,
   isRefreshing,
 }: ClientStatsDashboardProps) {
 
-    // FIX: This component no longer calculates. It just displays the summary from the client prop.
-    const today = format(new Date(), 'yyyy-MM-dd');
-    const summary: DailySummary | undefined = client.dailySummaries?.[today];
+    const latestSummary = useMemo(() => getLatestSummary(client.dailySummaries), [client.dailySummaries]);
+
+    // **THE FIX**: Fallback logic for Weight and WtHR
+    const displayWeight = useMemo(() => {
+        const weight = latestSummary?.currentWeight ?? client.onboarding?.weight;
+        const unit = latestSummary?.unit ?? (client.onboarding?.units === 'imperial' ? 'lbs' : 'kg');
+        return weight ? `${weight} ${unit}` : 'N/A';
+    }, [latestSummary, client.onboarding]);
+
+    const displayWthr = useMemo(() => {
+        let wthr = latestSummary?.currentWthr;
+        if (!wthr) {
+            const waist = client.onboarding?.waist;
+            const height = client.onboarding?.height;
+            if (waist && height && height > 0) {
+                wthr = waist / height;
+            }
+        }
+        return wthr ? wthr.toFixed(2) : 'N/A';
+    }, [latestSummary, client.onboarding]);
 
     const metricCards = useMemo(() => {
-        if (!summary) return [];
-        const insightPeriod = 7; // This could be made dynamic if needed
+        if (!latestSummary) return []; 
+        const insightPeriod = 7; 
 
         return [
-            { icon: Utensils, title: "Calories", value: (summary.avgNutrients?.Energy || 0).toFixed(0), unit: "kcal", context: `avg/${insightPeriod}d`},
-            { icon: Percent, title: "AVG. UPF", value: (summary.avgUpf || 0).toFixed(0), unit: "%", context: `avg/${insightPeriod}d`},
-            { icon: Droplet, title: "Hydration", value: (summary.avgHydration || 0).toFixed(0), unit: "oz", context: `avg/${insightPeriod}d`},
-            { icon: Bed, title: "Sleep", value: (summary.avgSleep || 0).toFixed(1), unit: "hrs", context: `avg/${insightPeriod}d`},
-            { icon: Activity, title: "Activity", value: (summary.avgActivity || 0).toFixed(0), unit: "min", context: `avg/${insightPeriod}d`},
-            { icon: ShieldCheck, title: "Stress Events", value: (summary.stressEvents || 0).toString(), unit: "", context: `last ${insightPeriod}d` },
-            { icon: AlertTriangle, title: "Cravings", value: (summary.cravings || 0).toString(), unit: "", context: `last ${insightPeriod}d` },
-            { icon: CakeSlice, title: "Binges", value: (summary.binges || 0).toString(), unit: "", context: `last ${insightPeriod}d` }, 
+            { icon: Utensils, title: "Calories", value: (latestSummary.avgNutrients?.Energy || 0).toFixed(0), unit: "kcal", context: `avg/${insightPeriod}d`},
+            { icon: Percent, title: "AVG. UPF", value: (latestSummary.avgUpf || 0).toFixed(0), unit: "%", context: `avg/${insightPeriod}d`},
+            { icon: Droplet, title: "Hydration", value: (latestSummary.avgHydration || 0).toFixed(0), unit: "oz", context: `avg/${insightPeriod}d`},
+            { icon: Bed, title: "Sleep", value: (latestSummary.avgSleep || 0).toFixed(1), unit: "hrs", context: `avg/${insightPeriod}d`},
+            { icon: Activity, title: "Activity", value: (latestSummary.avgActivity || 0).toFixed(0), unit: "min", context: `avg/${insightPeriod}d`},
+            { icon: ShieldCheck, title: "Stress Events", value: (latestSummary.stressEvents || 0).toString(), unit: "", context: `last ${insightPeriod}d` },
+            { icon: AlertTriangle, title: "Cravings", value: (latestSummary.cravings || 0).toString(), unit: "", context: `last ${insightPeriod}d` },
+            { icon: CakeSlice, title: "Binges", value: (latestSummary.binges || 0).toString(), unit: "", context: `last ${insightPeriod}d` }, 
         ];
-    }, [summary]);
+    }, [latestSummary]);
     
     const durationInDays = client.createdAt ? differenceInDays(new Date(), parseISO(client.createdAt as string)) : 0;
 
@@ -83,11 +107,11 @@ export function ClientStatsDashboard({
         <Separator />
         
         <div className="flex flex-wrap justify-around items-center gap-4">
-            <SummaryStat title="Weight" value={`${summary?.currentWeight || 'N/A'} ${summary?.unit || 'lbs'}`} />
-            {/* FIX: Displays the corrected WtHR from the backend */}
-            <SummaryStat title="WtHR" value={summary?.currentWthr?.toFixed(2) || 'N/A'} />
-            <SummaryStat title="DOB" value={summary?.dob || 'N/A'} />
-            <SummaryStat title="Sex" value={summary?.sex ? summary.sex.charAt(0).toUpperCase() : 'N/A'} />
+            {/* **THE FIX**: Using the new display variables with fallback logic */}
+            <SummaryStat title="Weight" value={displayWeight} />
+            <SummaryStat title="WtHR" value={displayWthr} />
+            <SummaryStat title="DOB" value={client.onboarding?.birthdate ? format(parseISO(client.onboarding.birthdate), 'MM/dd/yyyy') : 'N/A'} />
+            <SummaryStat title="Sex" value={client.onboarding?.sex ? client.onboarding.sex.charAt(0).toUpperCase() : 'N/A'} />
             <SummaryStat title="Duration" value={`${durationInDays}d`} />
         </div>
         
@@ -97,7 +121,7 @@ export function ClientStatsDashboard({
             <div className="flex items-center justify-center p-12">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
-        ) : summary ? (
+        ) : latestSummary ? (
             <div className="grid gap-2.5 grid-cols-[repeat(auto-fit,minmax(100px,1fr))]">
                 {metricCards.map(card => <MetricCard key={card.title} {...card} />)}
             </div>

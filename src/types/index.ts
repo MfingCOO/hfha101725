@@ -1,4 +1,3 @@
-
 import { z } from "zod";
 
 // Defines the subscription tiers available in the application.
@@ -41,14 +40,12 @@ export interface NutritionalGoals {
     fiber?: number;
     calorieGoal?: number;
     calorieGoalRange?: { min: number; max: number; };
-    tdee?: number; // ADDED
+    tdee?: number; 
 }
 
-// FIX: Define a dedicated type for the daily summary object for clarity and type safety.
+// Correctly defines the DailySummary object.
 export interface DailySummary {
     lastUpdated: any;
-    dob: string | null;
-    sex: 'male' | 'female' | 'unspecified' | null;
     unit: 'kg' | 'lbs';
     startWeight: number | null;
     currentWeight: number | null;
@@ -63,6 +60,7 @@ export interface DailySummary {
     binges: number;
     stressEvents: number;
     avgUpf: number;
+    dob?: string | null;
     avgNutrients?: {
         Energy?: number;
         Protein?: number;
@@ -71,8 +69,9 @@ export interface DailySummary {
     };
 }
 
-// This is the single source of truth for all user data.
-export interface UserProfile {
+// **THE FIX**: UserProfile has been removed and all properties are consolidated into ClientProfile.
+// This is now the single source of truth for all user/client data.
+export interface ClientProfile {
     uid: string;
     fullName: string;
     email: string;
@@ -81,7 +80,7 @@ export interface UserProfile {
     chatIds?: string[];
     coachId?: string;
     challengeIds?: string[];
-    activeProgramId?: string; // Added field for the active program
+    activeProgramId?: string; 
     stripeCustomerId?: string | null;
     createdAt?: any;
     suggestedGoals?: NutritionalGoals;
@@ -98,7 +97,6 @@ export interface UserProfile {
     lastInteraction?: any; 
     lastStreakNotification?: any;
     achievedStreakMilestones?: number[];
-    // FIX: Use the new DailySummary type for the dailySummaries map.
     dailySummaries?: { [date: string]: DailySummary };
     hydrationSettings?: {
         target: number;
@@ -120,16 +118,17 @@ export interface UserProfile {
     bedtime?: string;
     fcmTokens?: string[];
     dismissedPopupIds?: string[];
-    idealBodyWeight?: number; // ADDED
-    hasLoggedInBefore?: boolean; // STEP 1: ADDED 'FIRST-LOGIN' FLAG
+    idealBodyWeight?: number; 
+    hasLoggedInBefore?: boolean; 
     hasHadCoachingChat?: boolean;
-    timezone?: string; // ADDED TO FIX REGRESSION
-    timezoneOffset?: number; // ADDED TO FIX REGRESSION
-    unitSystem?: 'metric' | 'imperial'; // ADDED
+    timezone?: string; 
+    timezoneOffset?: number; 
+    unitSystem?: 'metric' | 'imperial'; 
     pushToken?: string;
+    dob?: string | null;
+    sex?: 'male' | 'female' | 'unspecified' | null;
+    remindersEnabled?: boolean;
 }
-
-export type ClientProfile = UserProfile;
 
 // CORRECTED: Restoring CreateClientInput to its full, correct definition where all fields are required.
 export type CreateClientInput = {
@@ -141,7 +140,7 @@ export type CreateClientInput = {
     sex: 'male' | 'female' | 'unspecified';
     units: 'imperial' | 'metric';
     height: number;
-    weight: number
+    weight: number;
     waist: number;
     zipCode: string;
     activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
@@ -154,7 +153,7 @@ export interface CoachNote {
     id: string;
     clientId: string;
     coachId: string;
-    coachName: string; // THE FIX: Added coachName to the interface
+    coachName: string; 
     text: string;
     createdAt: any; 
     updatedAt?: any;
@@ -170,7 +169,7 @@ export interface Chat {
     ownerId: string;
     createdAt: any; 
     rules?: string[];
-    lastMessage?: any; 
+    lastMessage?: ChatMessage;
     lastMessageSenderId?: string;
     lastAutomatedMessage?: any;
     lastCoachMessage?: any; 
@@ -188,6 +187,7 @@ export interface ChatMessage {
     text?: string;
     fileUrl?: string;
     fileName?: string;
+    senderId?: string; 
 }
 
 export interface SearchResult {
@@ -332,7 +332,6 @@ export interface LiveEvent {
     createdAt: any;
 }
 
-// SURGICAL INSERTION: Add a single source of truth for the hybrid search result type.
 export interface HybridFoodSearchResult {
   fdcId: number;
   description: string;
@@ -340,7 +339,6 @@ export interface HybridFoodSearchResult {
   isCached: boolean;
 }
 
-// SURGICAL INSERTION: Add a Zod schema for runtime validation.
 export const HybridFoodSearchResultSchema = z.array(z.object({
     fdcId: z.number(),
     description: z.string(),

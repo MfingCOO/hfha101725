@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '../ui/button';
 import { PlusCircle } from 'lucide-react';
-import { type EnrichedFood, NovaGroup } from '@/types';
+import { type EnrichedFood, NovaGroup } from '@/types/nutrition';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { cn } from '@/lib/utils';

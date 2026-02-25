@@ -6,9 +6,6 @@ import { db as firestore } from '@/lib/firebaseAdmin';
 import type { Program, ProgramWeek } from '@/types/workout-program';
 import type { ActionResponse } from '@/types/action-response';
 
-// NOTE: We are using Firestore, following the pattern in workout-actions.ts.
-// The previous implementation was attempting to use Drizzle, which was incorrect for this project.
-
 const programDataSchema = z.object({
   name: z.string().min(1, "Program name is required"),
   description: z.string().optional(),
@@ -22,21 +19,17 @@ const weekDataSchema = z.object({
     workoutId: z.string().min(1, "Workout ID is required"),
 });
 
-export async function upsertProgramAction({
-  programData,
-  weeksData,
-  programId
-}: {
+export async function upsertProgramAction(params: {
   programData: Omit<Program, 'id' | 'weeks'>;
   weeksData: ProgramWeek[];
   programId: string | null;
 }): Promise<ActionResponse<Program>> {
+  const { programData, weeksData, programId } = params;
+
   const validatedProgram = programDataSchema.safeParse(programData);
   if (!validatedProgram.success) {
     return { success: false, error: validatedProgram.error.errors.map(e => e.message).join(', ') };
   }
-
-  // A proper implementation would have coachId validation, but we omit it to match workout-actions.ts simplicity
 
   try {
     const docRef = programId 
@@ -48,12 +41,11 @@ export async function upsertProgramAction({
       name: validatedProgram.data.name,
       description: validatedProgram.data.description || '',
       duration: validatedProgram.data.duration,
-      weeks: weeksData, // Embedding weeks array directly in the document
+      weeks: weeksData,
     };
 
-    await docRef.set(finalProgram, { merge: true }); // Use set with merge to handle both create and update
+    await docRef.set(finalProgram, { merge: true });
 
-    revalidatePath('/coach/library');
     return { success: true, data: finalProgram };
 
   } catch (error: any) {
@@ -76,7 +68,6 @@ export async function getProgramsAction(): Promise<ActionResponse<Program[]>> {
 export async function deleteProgramAction(programId: string): Promise<ActionResponse<{}>> {
     try {
         await firestore.collection('programs').doc(programId).delete();
-        revalidatePath('/coach/library');
         return { success: true, data: {} };
     } catch (error: any) {
         console.error("Error deleting program:", error);

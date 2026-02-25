@@ -24,6 +24,80 @@ interface ContentProps {
     isSaving?: boolean;
 }
 
+// --- Time Picker Helpers ---
+const parseTime = (time: string) => {
+    if (!time) return { hour: '09', minute: '00', ampm: 'AM' };
+    const [h, m] = time.split(':');
+    let hour = parseInt(h, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12;
+    if (hour === 0) hour = 12;
+    return {
+        hour: String(hour).padStart(2, '0'),
+        minute: m,
+        ampm: ampm
+    };
+};
+
+const constructTime = (hour: string, minute: string, ampm: string) => {
+    let h = parseInt(hour, 10);
+    if (ampm === 'PM' && h < 12) {
+        h += 12;
+    }
+    if (ampm === 'AM' && h === 12) {
+        h = 0;
+    }
+    return `${String(h).padStart(2, '0')}:${minute}`;
+};
+
+const TimePicker = ({ time, onTimeChange }: { time: string, onTimeChange: (newTime: string) => void }) => {
+    const { hour, minute, ampm } = parseTime(time);
+
+    const handleHourChange = (newHour: string) => {
+        onTimeChange(constructTime(newHour, minute, ampm));
+    };
+
+    const handleMinuteChange = (newMinute: string) => {
+        onTimeChange(constructTime(hour, newMinute, ampm));
+    };
+
+    const handleAmPmChange = (newAmPm: string) => {
+        onTimeChange(constructTime(hour, minute, newAmPm));
+    };
+
+    const hours = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+    const minutes = ['00', '15', '30', '45'];
+
+    return (
+        <div className="flex items-center gap-2">
+            <Select value={hour} onValueChange={handleHourChange}>
+                <SelectTrigger className="w-[80px]">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {hours.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
+                </SelectContent>
+            </Select>
+            <Select value={minute} onValueChange={handleMinuteChange}>
+                <SelectTrigger className="w-[80px]">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {minutes.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                </SelectContent>
+            </Select>
+            <Select value={ampm} onValueChange={handleAmPmChange}>
+                <SelectTrigger className="w-[80px]">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="AM">AM</SelectItem>
+                    <SelectItem value="PM">PM</SelectItem>
+                </SelectContent>
+            </Select>
+        </div>
+    );
+};
 
 const hungerLevels = [
     { value: 0, label: '0 - Stuffed' },
@@ -173,11 +247,9 @@ export function HydrationContent({ clientProfile, formState, onFormStateChange, 
                             <div className="space-y-3 pt-2 border-t border-border">
                                 {(formState.reminderTimes || []).map((time: string, index: number) => (
                                     <div key={index} className="flex items-center gap-2">
-                                        <Input 
-                                            type="time" 
-                                            value={time} 
-                                            onChange={e => updateReminderTime(index, e.target.value)} 
-                                            className="flex-1"
+                                        <TimePicker 
+                                            time={time} 
+                                            onTimeChange={value => updateReminderTime(index, value)} 
                                         />
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeReminderTime(index)}>
                                             <X className="h-4 w-4"/>

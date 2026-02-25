@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '@/components/auth/auth-provider';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { type EnrichedFood, NovaGroup } from '@/types';
+import { type EnrichedFood, NovaGroup } from '@/types/nutrition';
 import { saveManualEnrichedFood, generateNewFdcId } from '@/app/coach/food-cache/actions';
 
 import { BaseModal } from '@/components/ui/base-modal';

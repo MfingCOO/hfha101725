@@ -1,35 +1,41 @@
-import { initializeApp, getApps, App } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
-import { getMessaging } from 'firebase-admin/messaging';
-import { getStorage } from 'firebase-admin/storage';
 
-// This is the new, correct way to initialize.
-let app: App;
-if (!getApps().length) {
-  console.log('[Firebase Admin] Initializing with Application Default Credentials...');
-  app = initializeApp({
-    projectId: 'hunger-free-and-happy-app',
-  });
-  console.log('[Firebase Admin] Initialization successful.');
+import admin from 'firebase-admin';
+
+// Check if the default app is already initialized
+let app;
+
+if (!admin.apps.length) {
+  const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+
+  if (!serviceAccountString) {
+    throw new Error('The FIREBASE_SERVICE_ACCOUNT_KEY environment variable is not set.');
+  }
+
+  try {
+    const serviceAccount = JSON.parse(serviceAccountString);
+
+    // Correctly format the private key
+    if (serviceAccount.private_key) {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+    }
+
+    app = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      storageBucket: 'hunger-free-and-happy-app.firebasestorage.app'
+    });
+  } catch (error) {
+    console.error("Failed to parse or initialize Firebase Admin SDK:", error);
+    console.error("Raw FIREBASE_SERVICE_ACCOUNT_KEY length:", serviceAccountString.length);
+    throw new Error("Could not initialize Firebase Admin SDK. The FIREBASE_SERVICE_ACCOUNT_KEY is likely malformed.");
+  }
+
 } else {
-  app = getApps()[0];
+  app = admin.app();
 }
 
-// Export only the specific services you need.
-const db = getFirestore(app);
-const auth = getAuth(app);
-const messaging = getMessaging(app);
-const storage = getStorage(app);
+const db = admin.firestore();
+const auth = admin.auth();
+const storage = admin.storage();
+const messaging = admin.messaging();
 
-// For compatibility, we can re-export the modular services
-// under the 'admin' namespace if other parts of your code expect it.
-const admin = {
-  firestore: () => db,
-  auth: () => auth,
-  messaging: () => messaging,
-  storage: () => storage,
-  // Add other admin services here if you use them
-};
-
-export { db, auth, admin };
+export { admin, db, auth, storage, app, messaging };

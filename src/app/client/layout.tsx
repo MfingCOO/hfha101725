@@ -5,7 +5,7 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 import { useEffect } from 'react';
-import { BottomNavBar } from '@/components/layout/bottom-nav-bar';
+import BottomNavBar from '@/components/layout/bottom-nav-bar'; // CORRECTED IMPORT
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { ChallengesDialog } from '@/components/challenges/challenges-dialog';
 import { ChatsDialog } from '@/components/chats/chats-dialog';
@@ -15,8 +15,8 @@ import type { ClientProfile } from '@/types';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
+import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
 
-// Error Boundary Component is untouched
 interface ErrorBoundaryProps {
   children: React.ReactNode;
   router: { push: (path: string) => void; };
@@ -63,14 +63,11 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
-// DialogManager is untouched
 function DialogManager() {
     const { userProfile } = useAuth();
     const {
         isChallengesOpen,
         onCloseChallenges,
-        isChatsOpen,
-        onCloseChats,
         isCalendarOpen,
         onCloseCalendar,
         isSettingsOpen,
@@ -79,22 +76,23 @@ function DialogManager() {
 
     return (
         <>
-            <ChallengesDialog 
+            <NotificationActionHandler />
+            <ChallengesDialog
+                key="challenges"
                 isOpen={isChallengesOpen}
                 onClose={onCloseChallenges}
             />
-            <ChatsDialog
-                isOpen={isChatsOpen}
-                onClose={onCloseChats}
-            />
+            <ChatsDialog key="chats" />
             {userProfile && (
                 <CalendarDialog
+                    key="calendar"
                     isOpen={isCalendarOpen}
                     onClose={onCloseCalendar}
                     client={userProfile as ClientProfile}
                 />
             )}
             <SettingsDialog
+                key="settings"
                 open={isSettingsOpen}
                 onOpenChange={onCloseSettings}
             />
@@ -142,7 +140,6 @@ export default function ClientLayout({
             </main>
             <BottomNavBar />
           </SidebarInset>
-
           <DialogManager />
       </SidebarProvider>
     </DashboardProvider>

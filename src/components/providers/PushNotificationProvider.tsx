@@ -1,18 +1,16 @@
 'use client';
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications, ActionPerformed, Token, PushNotificationSchema, PermissionStatus } from '@capacitor/push-notifications';
 import { LocalNotifications, LocalNotificationSchema, LocalNotificationActionPerformed } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
 import { messaging } from '@/lib/firebase';
-import { getToken, onMessage } from 'firebase/messaging';
+import { getToken } from 'firebase/messaging';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useChatModalStore, useWorkoutModalStore, useCalendarStore } from '@/store/ui-store';
-import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
+import { useNotificationStore } from '@/store/notification-store';
 
-const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdToken: () => Promise<string | null>) => {
-    const idToken = await getIdToken();
+const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, idToken: string | null) => {
     if (!idToken) {
         console.error("Auth token not available. Cannot save FCM token.");
         return;
@@ -38,156 +36,139 @@ const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdTok
     }
 };
 
-
 const PushNotificationProvider = ({ children }: { children: React.ReactNode }) => {
-  const { user, userProfile, isCoach, getIdToken, loading } = useAuth();
+  const { user, isCoach, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { 
+    setNotificationChatId, 
+    setNotificationAppointmentId, 
+    setNotificationWorkoutId, 
+    setTriggerHydrationModal 
+  } = useNotificationStore();
+  
+  const listenersAttachedForUser = useRef<string | null>(null);
 
-  const { openModal: openChatModal } = useChatModalStore();
-  const { openModal: openWorkoutModal } = useWorkoutModalStore();
-  const { openModal: openDataEntryModal } = useDataEntryModal();
-  const { onOpen: onOpenCalendar } = useCalendarStore();
-
-  const registrationCompletedForUser = useRef<string | null>(null);
-
-  const handleNotificationAction = useCallback((data: { [key: string]: any }) => {
+  const handleNotificationAction = (data: { [key: string]: any } | undefined) => {
     if (!data) {
         console.warn("handleNotificationAction called with no data.");
         return;
     }
-    console.log("Handling notification action with data:", data);
-    const { notificationType, entityId } = data;
+    console.log("Provider: Processing notification action with data:", data);
+    
+    const { notificationType } = data;
 
+    switch (String(notificationType)) {
+      case 'hydration':
+        console.log('Provider: Setting hydration trigger.');
+        setTriggerHydrationModal(true);
+        break;
+      case 'chat':
+        const chatId = data.chatId;
+        console.log(`Provider: Setting notification chat ID: ${chatId}`);
+        if (chatId) setNotificationChatId(String(chatId));
+        break;
+      case 'workout':
+        const workoutId = data.workoutId;
+        console.log(`Provider: Setting notification workout ID: ${workoutId}`);
+        if (workoutId) setNotificationWorkoutId(String(workoutId));
+        break;
+      case 'appointment_reminder':
+      case 'appointment_booked':
+        const appointmentId = data.appointmentId;
+        console.log(`Provider: Setting notification appointment ID: ${appointmentId}`);
+        if (appointmentId) setNotificationAppointmentId(String(appointmentId));
+        break;
+      default:
+        console.warn(`Provider: Unknown notificationType received: ${notificationType}`);
+        break;
+    }
+  };
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform() || !searchParams) return;
+    
+    const notificationType = searchParams.get('notificationType');
     if (notificationType) {
-      setTimeout(() => {
-        switch (String(notificationType)) {
-          case 'hydration':
-            console.log('Opening hydration modal');
-            openDataEntryModal('hydration');
-            break;
-          case 'chat':
-            console.log(`Handling 'chat' notification. ChatID: ${entityId}`);
-            openChatModal(entityId ? String(entityId) : undefined);
-            break;
-          case 'workout':
-            if (entityId) {
-              console.log(`Opening workout modal for entityId: ${entityId}`);
-              openWorkoutModal(String(entityId));
-            }
-            break;
-          case 'appointment_reminder':
-          case 'appointment_booked':
-            console.log(`Handling '${notificationType}' notification. EventID: ${entityId}`);
-            onOpenCalendar(entityId ? String(entityId) : null);
-            break;
-          default:
-            console.warn(`Unknown notificationType received: ${notificationType}`);
-        }
-      }, 100);
+        console.log("PWA: Detected notification parameters in URL, handling action.");
+        const payload = { ...Object.fromEntries(searchParams.entries()) };
+        handleNotificationAction(payload);
+        router.replace(isCoach ? '/coach/dashboard' : '/client/dashboard', { scroll: false });
     }
-  }, [openChatModal, openWorkoutModal, openDataEntryModal, onOpenCalendar]);
+  }, [searchParams, router, isCoach]);
 
   useEffect(() => {
-    if (searchParams) {
-        const notificationType = searchParams.get('notificationType');
-        const entityId = searchParams.get('entityId');
-        if (notificationType) {
-            console.log("Detected notification parameters in URL, handling action.");
-            handleNotificationAction({ notificationType, entityId });
-            router.replace('/client/dashboard', { scroll: false });
-        }
-    }
-  }, [searchParams, handleNotificationAction, router]);
-
-  useEffect(() => {
-    if (!user || loading || !userProfile || registrationCompletedForUser.current === user.uid) {
+    if (!Capacitor.isNativePlatform() || !user || loading || listenersAttachedForUser.current === user.uid) {
       return;
     }
 
-    const initializeNotifications = async () => {
-      try {
-        if (Capacitor.isNativePlatform()) {
-            let permStatus: PermissionStatus = await PushNotifications.checkPermissions();
-            if (permStatus.receive === 'prompt') permStatus = await PushNotifications.requestPermissions();
-            if (permStatus.receive !== 'granted') return;
+    const initializeNativeNotifications = async () => {
+      console.log("Initializing NATIVE push notification listeners...");
 
-            PushNotifications.addListener('registration', async (token: Token) => {
-                await callSaveFcmTokenHttp(token.value, isCoach, getIdToken);
-                registrationCompletedForUser.current = user.uid;
-            });
-            PushNotifications.addListener('registrationError', console.error);
-
-            PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-                console.log('Native FOREGROUND notification:', notification);
-                LocalNotifications.schedule({
-                    notifications: [{
-                        title: notification.title || 'Hunger-Free & Happy',
-                        body: notification.body || '',
-                        id: Math.floor(Math.random() * 4294967295),
-                        extra: notification.data,
-                        smallIcon: 'res://public/app/icon.png'
-                    } as LocalNotificationSchema]
-                });
-            });
-
-            PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-                console.log('Native ACTION event (tap)', action);
-                handleNotificationAction(action.notification.data);
-            });
-
-            LocalNotifications.addListener('localNotificationActionPerformed', (action: LocalNotificationActionPerformed) => {
-                console.log('Local notification ACTION event (tap)', action);
-                handleNotificationAction(action.notification.extra);
-            });
-
-            await PushNotifications.register();
-        } else {
-          if (!messaging) return;
-          const permission = await Notification.requestPermission();
-          if (permission !== 'granted') return;
-
-          const currentToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY });
-
-          if (currentToken) {
-              await callSaveFcmTokenHttp(currentToken, isCoach, getIdToken);
-              registrationCompletedForUser.current = user.uid;
-
-              onMessage(messaging, (message) => {
-                console.log('Web FOREGROUND notification:', message);
-                if (message.data) {
-                  const { title, body } = message.data;
-                  const notification = new Notification(title || 'Hunger-Free & Happy', {
-                    body: body || '',
-                    icon: '/apple-touch-icon.png',
-                    data: message.data
-                  });
-
-                  notification.onclick = (event) => {
-                    event.preventDefault();
-                    console.log('Foreground web notification CLICKED');
-                    handleNotificationAction((event.currentTarget as Notification).data);
-                  };
-                }
-              });
-            }
-        }
-      } catch (error) {
-        console.error("Critical error during push notification setup:", error);
-        registrationCompletedForUser.current = user.uid;
+      let permStatus: PermissionStatus = await PushNotifications.checkPermissions();
+      if (permStatus.receive === 'prompt') {
+        permStatus = await PushNotifications.requestPermissions();
       }
+      if (permStatus.receive !== 'granted') {
+        console.warn("User has not granted notification permissions.");
+        return;
+      }
+
+      await PushNotifications.register();
+
+      PushNotifications.addListener('registration', async (token: Token) => {
+        console.log('Native FCM token received:', token.value);
+        const idToken = await user.getIdToken();
+        await callSaveFcmTokenHttp(token.value, !!isCoach, idToken);
+      });
+
+      PushNotifications.addListener('registrationError', (err) => console.error('Native FCM registration error:', err));
+
+      PushNotifications.addListener('pushNotificationReceived', async (notification: PushNotificationSchema) => {
+        console.log('Native FOREGROUND notification received:', notification);
+        // This block will now attempt to show a local notification.
+        // If the native plugin isn't set up from Step 1, it will log a clear error instead of crashing.
+        try {
+            await LocalNotifications.schedule({
+                notifications: [{
+                    title: notification.title || 'Hunger-Free & Happy',
+                    body: notification.body || '',
+                    id: new Date().getTime(), // Use a unique ID
+                    extra: notification.data,
+                    // IMPORTANT: Make sure 'ic_stat_notification' exists in your 'android/app/src/main/res/drawable' folders.
+                    smallIcon: 'ic_stat_notification',
+                }]
+            });
+        } catch (e) {
+            console.error("Error scheduling local notification. Is the LocalNotifications plugin configured correctly in MainActivity.java?", e);
+        }
+      });
+
+      PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+        console.log('Native BACKGROUND/COLD-START notification action performed:', action);
+        handleNotificationAction(action.notification.data);
+      });
+
+      LocalNotifications.addListener('localNotificationActionPerformed', (action: LocalNotificationActionPerformed) => {
+        console.log('Native FOREGROUND notification action performed:', action);
+        handleNotificationAction(action.notification.extra);
+      });
+
+      listenersAttachedForUser.current = user.uid;
     };
 
-    initializeNotifications();
+    initializeNativeNotifications().catch(err => {
+      console.error("Critical error during NATIVE push notification setup:", err);
+    });
 
     return () => {
       if (Capacitor.isNativePlatform()) {
+        console.log("Cleaning up native notification listeners.");
         PushNotifications.removeAllListeners();
         LocalNotifications.removeAllListeners();
       }
     };
-
-  }, [user, userProfile, isCoach, getIdToken, loading, handleNotificationAction]);
+  }, [user, isCoach, loading]);
 
   return <>{children}</>;
 };
