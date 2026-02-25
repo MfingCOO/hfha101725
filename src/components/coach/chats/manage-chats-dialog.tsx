@@ -41,6 +41,7 @@ type SerializableChat = Omit<OriginalChat, 'createdAt' | 'lastMessage' | 'lastCl
     lastMessage?: { text: string; timestamp: string; senderId: string };
     lastClientMessageTimestamp?: string;
 };
+
 type SerializableClientProfile = Omit<OriginalClientProfile, 'createdAt'> & { createdAt?: string };
 type ChatMetadata = Record<string, { lastReadTimestamp: string }>;
 
@@ -172,7 +173,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
 
         const sortGroupFn = (a: SerializableChat, b: SerializableChat) =>
             new Date(b.lastMessage?.timestamp || b.createdAt || 0).getTime() -
-            new Date(a.lastMessage?.timestamp || a.createdAt || 0).getTime();
+            new Date(a.lastMessage?.timestamp || b.createdAt || 0).getTime();
 
         const filteredMia = mia.filter(filterChats).sort(sortMiaFn);
         
@@ -269,7 +270,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                                 )}
                             </div>
                              <div className="flex items-center gap-0">
-                                 <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleOpenChat(chat, chatName || chat.name)}>
+                                 <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleOpenChat(chat, chatName || 'Chat')}>
                                     <MessageSquare className="h-3.5 w-3.5" />
                                 </Button>
                                 <DropdownMenu>
@@ -327,7 +328,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                         </Button>
                     </div>
                     <Button onClick={() => setIsCreateChatOpen(true)} size="sm">
-                        Create New Chat
+                        New Chat
                     </Button>
                 </div>
             }
@@ -387,7 +388,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                 <AlertDialogHeader>
                 <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                 <AlertDialogDescription>
-                    This will permanently delete the chat "{deleteAlertState.chat?.name}". This action cannot be undone.
+                    This will permanently delete the chat "{deleteAlertState.chat?.name || 'Unnamed Chat'}". This action cannot be undone.
                 </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
