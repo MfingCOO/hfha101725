@@ -1,0 +1,180 @@
+'use client';
+
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { getWorkoutsAction, deleteWorkoutAction, duplicateWorkoutAction } from '@/app/coach/actions/workout-actions';
+import { CreateWorkoutDialog } from '@/components/coach/workout-library/create-workout-dialog';
+import { Workout } from '@/types/workout-program';
+import { Loader2, PlusCircle, MoreVertical, Edit, Trash2, Clock, Copy, Search } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { toast } from 'sonner';
+
+export function WorkoutLibrary() {
+    const [workouts, setWorkouts] = useState<Workout[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [editingWorkout, setEditingWorkout] = useState<Workout | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const fetchWorkouts = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const result = await getWorkoutsAction();
+            if (!result.success) {
+                if ('error' in result) {
+                    toast.error(result.error || 'Failed to fetch workouts.');
+                }
+                return;
+            }
+            setWorkouts(result.data);
+        } catch (error) {
+            toast.error('An unexpected error occurred while fetching workouts.');
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchWorkouts();
+    }, [fetchWorkouts]);
+
+    const filteredWorkouts = useMemo(() => {
+        if (!searchTerm) {
+            return workouts;
+        }
+        return workouts.filter(workout =>
+            workout.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [workouts, searchTerm]);
+
+    const handleOpenDialogForCreate = () => {
+        setEditingWorkout(null);
+        setIsDialogOpen(true);
+    };
+
+    const handleOpenDialogForEdit = (workout: Workout) => {
+        setEditingWorkout(workout);
+        setIsDialogOpen(true);
+    };
+
+    const handleDelete = async (workoutId: string) => {
+        const result = await deleteWorkoutAction(workoutId);
+        if (!result.success) {
+            if ('error' in result) {
+                toast.error(result.error || 'Failed to delete workout.');
+            }
+            return;
+        }
+        toast.success("Workout deleted successfully.");
+        fetchWorkouts();
+    };
+
+    const handleDuplicate = async (workoutId: string) => {
+        const result = await duplicateWorkoutAction(workoutId);
+        if (!result.success) {
+            if ('error' in result) {
+                toast.error(result.error || 'Failed to duplicate workout.');
+            }
+            return;
+        }
+        toast.success("Workout duplicated successfully.");
+        fetchWorkouts();
+    };
+
+    const handleDialogClose = () => {
+        setIsDialogOpen(false);
+        setEditingWorkout(null);
+    }
+
+    const handleWorkoutSaved = () => {
+        fetchWorkouts();
+        handleDialogClose();
+    };
+
+    return (
+        <div className="p-4 border rounded-lg mt-4">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Shared Workout Library</h3>
+                <Button size="sm" onClick={handleOpenDialogForCreate}>
+                    <PlusCircle className="h-4 w-4 mr-2" />
+                    New Workout
+                </Button>
+            </div>
+
+            <div className="relative mb-4">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                    type="search"
+                    placeholder="Search for a workout..."
+                    className="pl-8 w-full"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+
+            {isLoading ? (
+                <div className="flex justify-center items-center h-40">
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                </div>
+            ) : workouts.length === 0 ? (
+                <div className="text-center text-muted-foreground py-10">
+                    <p>No workouts found.</p>
+                    <p className="text-sm">Click "New Workout" to create the first one.</p>
+                </div>
+            ) : filteredWorkouts.length === 0 ? (
+                <div className="text-center text-muted-foreground py-10">
+                    <p>No workouts match your search.</p>
+                    <p className="text-sm">Try a different search term or create a new workout.</p>
+                </div>
+            ) : (
+                <div className="space-y-2 h-[400px] overflow-y-auto pr-2">
+                    {filteredWorkouts.map(workout => (
+                        <div key={workout.id} className="flex items-center justify-between p-3 border rounded-md bg-muted/50">
+                            <div className="flex-1 pr-4">
+                                <p className="font-semibold">{workout.name}</p>
+                                <p className="text-sm text-muted-foreground line-clamp-2">{workout.description}</p>
+                            </div>
+                            <div className="flex items-center gap-1 w-24 text-right pr-2">
+                                {workout.duration && (
+                                    <>
+                                        <Clock className="h-4 w-4 text-muted-foreground" />
+                                        <span className="text-sm text-muted-foreground">{workout.duration} min</span>
+                                    </>
+                                )}
+                            </div>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon">
+                                        <MoreVertical className="h-4 w-4" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => handleOpenDialogForEdit(workout)}>
+                                        <Edit className="h-4 w-4 mr-2" />
+                                        Edit
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleDuplicate(workout.id)}>
+                                        <Copy className="h-4 w-4 mr-2" />
+                                        Duplicate
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleDelete(workout.id)} className="text-red-500">
+                                        <Trash2 className="h-4 w-4 mr-2" />
+                                        Delete
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <CreateWorkoutDialog
+                isOpen={isDialogOpen}
+                onClose={handleDialogClose}
+                onWorkoutSaved={handleWorkoutSaved}
+                workoutToEdit={editingWorkout}
+            />
+        </div>
+    );
+}

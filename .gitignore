@@ -17,30 +17,30 @@
 npm-debug.log
 
 # Node
-/node_modules/
+node_modules/
 
 # Next.js
 **/.next/
-/out/
+out/
 
 # Nuxt
-/dist/
-/.nuxt/
-/.output/
-/pwa-assets/
+dist/
+.nuxt/
+.output/
 
-# Capacitor
-/android/
-/ios/
-certs/
-
-# Custom
-encode-key.js
-next-env.d.ts
 # Genkit local cache and traces
 .genkit/
 
-# Capacitor native folders
-/android/
-/ios/
-/pwa-assets/
+# Android build files
+/android/build/
+/android/.gradle/
+/android/app/build/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# Android config files that should not be in version control
+/android/local.properties
+# We will add google-services.json back here later

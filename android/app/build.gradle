@@ -14,6 +14,10 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
     buildTypes {
         debug {
             matchingFallbacks = ['release']
@@ -33,14 +37,14 @@ dependencies {
     implementation project(':capacitor-android')
 
     // This is the new line we are adding for Firebase Push Notifications
-    implementation 'com.google.firebase:firebase-messaging'
+    implementation "com.google.firebase:firebase-messaging:$firebaseMessagingVersion"
 
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
 }
 
-apply from: 'capacitor.build.gradle'
+// apply from: 'capacitor.build.gradle'
 
 try {
     def servicesJSON = file('google-services.json')

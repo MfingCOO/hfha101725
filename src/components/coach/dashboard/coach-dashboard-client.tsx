@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import type { ClientProfile, UserProfile } from "@/types";
-import { Loader2, PlusCircle, MessageSquare, Trophy, Megaphone, Library, Calendar, Database, AlertTriangle } from "lucide-react";
+import { Loader2, PlusCircle, MessageSquare, Trophy, Megaphone, Library, Calendar, Database, AlertTriangle, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getAllAppUsers } from "@/app/coach/dashboard/actions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -27,7 +27,7 @@ import { getPendingReportsCountAction } from '@/app/actions/moderation-actions';
 import { getUnreadChatCountForCoach } from "@/app/chats/actions";
 
 interface CoachDashboardClientProps {
-  initialClients: UserProfile[];
+  initialClients: UserProfile[]; // This will now be an empty array initially
   pendingFoodCount: number;
   pendingReportCount: number;
 }
@@ -40,6 +40,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [selectedClient, setSelectedClient] = useState<UserProfile | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [tierFilter, setTierFilter] = useState('all');
+    const [hasSearched, setHasSearched] = useState(false);
 
     const [isCreateClientOpen, setIsCreateClientOpen] = useState(false);
     const [isChallengesOpen, setIsChallengesOpen] = useState(false);
@@ -58,19 +59,25 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
 
     const fetchClients = useCallback(async () => {
         setIsLoading(true);
+        setHasSearched(true);
         try {
-            const result = await getAllAppUsers();
+            const result = await getAllAppUsers(searchTerm, tierFilter);
             if (result.success && result.users) {
                 setAllClients(Array.isArray(result.users) ? result.users : []);
             } else {
-                toast({ variant: 'destructive', title: 'Error', description: result.error || 'Could not refresh user list.' });
+                toast({ variant: 'destructive', title: 'Error', description: result.error || 'Could not fetch user list.' });
             }
         } catch (e: any) {
             toast({ variant: 'destructive', title: 'Error', description: e.message });
         } finally {
             setIsLoading(false);
         }
-    }, [toast]);
+    }, [toast, searchTerm, tierFilter]);
+
+    // This useEffect is no longer needed to fetch clients on mount.
+    // useEffect(() => {
+    //     fetchClients();
+    // }, [fetchClients]);
 
     const refreshPendingFoodCount = useCallback(async () => {
         const count = await getUnreviewedUserFoodCount();
@@ -86,16 +93,13 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     }, [user]);
 
     useEffect(() => {
-        fetchClients();
-    }, [fetchClients]);
-
-    useEffect(() => {
         if (!isFoodCacheOpen) { refreshPendingFoodCount(); }
     }, [isFoodCacheOpen, refreshPendingFoodCount]);
 
     useEffect(() => {
         if (!isModerationOpen) { refreshPendingReportCount(); }
     }, [isModerationOpen, refreshPendingReportCount]);
+
     useEffect(() => {
         if (!user) return;
     
@@ -106,13 +110,9 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             }
         };
     
-        // Fetch immediately on component mount
         fetchUnreadCount();
-    
-        // Then fetch every 30 seconds to keep the count live
         const intervalId = setInterval(fetchUnreadCount, 30000);
     
-        // Cleanup the interval on component unmount to prevent memory leaks
         return () => clearInterval(intervalId);
     }, [user]);
 
@@ -133,17 +133,10 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     };
 
     const filteredAndSortedClients = useMemo(() => {
-        if (!Array.isArray(allClients)) return [];
-        return allClients.filter(client => {
-            if (!client || !client.uid) return false;
-            const tierMatch = tierFilter === 'all' || client.tier === tierFilter;
-            const trimmedSearch = searchTerm.trim().toLowerCase();
-            if (!trimmedSearch) return tierMatch;
-            if (!client.fullName || typeof client.fullName !== 'string') return false;
-            const searchMatch = client.fullName.toLowerCase().includes(trimmedSearch);
-            return tierMatch && searchMatch;
-        });
-    }, [allClients, tierFilter, searchTerm]);
+        // The filtering logic is now handled by the backend.
+        // We just display the results returned from the API.
+        return allClients;
+    }, [allClients]);
 
     const ClientListItem = ({ client }: { client: UserProfile }) => (
         <div className="w-full text-left p-1.5 pr-3 rounded-md border bg-card hover:bg-muted transition-colors flex items-center gap-2 text-sm">
@@ -171,8 +164,8 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
 
     return (
         <>
-            <div className="w-full max-w-4xl mx-auto space-y-4">
-                <div className="grid grid-cols-3 gap-2">
+            <div className="w-full max-w-4xl mx-auto space-y-4 p-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {managementButtons.map(({ label, icon: Icon, action, count }) => (
                         <div key={label} className="relative">
                             <Button variant='outline' className="w-full" onClick={action}>
@@ -186,10 +179,10 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
 
                 <Card>
                     <CardContent className="p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                            <Input placeholder="Search clients..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="flex-1" />
+                        <div className="flex flex-wrap items-center gap-2 mb-4">
+                            <Input placeholder="Search by name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="flex-1 min-w-[150px]" />
                             <Select value={tierFilter} onValueChange={setTierFilter}>
-                                <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+                                <SelectTrigger className="w-full sm:w-[150px]"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="all">All Tiers</SelectItem>
                                     <SelectItem value="free">Free</SelectItem>
@@ -199,7 +192,8 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
                                     <SelectItem value="coaching">Coaching</SelectItem>
                                 </SelectContent>
                             </Select>
-                            <div className="relative">
+                            <Button onClick={fetchClients} className="w-full sm:w-auto"><Search className="mr-2 h-4 w-4"/>Search</Button>
+                            <div className="relative ml-auto">
                                 <Button variant='destructive' onClick={() => setIsModerationOpen(true)}>
                                     <AlertTriangle className="mr-2 h-4 w-4" /> Reports
                                 </Button>
@@ -209,6 +203,16 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
                         </div>
                         {isLoading ? (
                             <div className="flex justify-center p-24"><Loader2 className="h-12 w-12 animate-spin" /></div>
+                        ) : hasSearched && filteredAndSortedClients.length === 0 ? (
+                            <div className="text-center p-12 text-muted-foreground">
+                                <p>No clients found for your search.</p>
+                                <p className="text-sm">Try different filters or a new search term.</p>
+                            </div>
+                        ) : !hasSearched ? (
+                            <div className="text-center p-12 text-muted-foreground">
+                                <p>Use the search bar and filters to find clients.</p>
+                                <p className="text-sm">Click the Search button to begin.</p>
+                            </div>
                         ) : (
                             <div className="space-y-2">
                                 {filteredAndSortedClients.map(client => <ClientListItem key={client.uid} client={client} />)}
@@ -229,6 +233,6 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             <CoachCalendarDialog open={isCalendarOpen} onOpenChange={setIsCalendarOpen} />
             <ManageFoodCacheDialog open={isFoodCacheOpen} onOpenChange={setIsFoodCacheOpen} />
             <ModerationDialog isOpen={isModerationOpen} onClose={() => setIsModerationOpen(false)} />
-        </>  
+        </>
     );
 }

@@ -1,12 +1,11 @@
-
-// Import the functions you need from the SDKs you need
+// src/lib/firebase.ts
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
-import { getMessaging, Messaging } from "firebase/messaging";
+import { getFunctions } from "firebase/functions";
+import { Capacitor } from '@capacitor/core'; // Import Capacitor
 
-// Your web app's Firebase configuration
 const firebaseConfig = {
   "projectId": "hunger-free-and-happy-app",
   "appId": "1:1002580546718:web:a8574bfc3732c7c137978f",
@@ -36,16 +35,21 @@ enableIndexedDbPersistence(db)
 
 const auth = getAuth(app);
 const storage = getStorage(app);
+const functions = getFunctions(app); // Assuming default region
 
-let messaging: Messaging | null = null;
-// Conditionally initialize messaging only on the client side and handle unsupported environments.
-if (typeof window !== 'undefined') {
-    try {
-        messaging = getMessaging(app);
-    } catch (err) {
-        console.error("Firebase Messaging is not supported in this browser or environment:", err);
-        messaging = null;
-    }
+// Conditionally initialize Firebase Messaging for web only
+let messaging = null;
+if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
+  // Dynamically import getMessaging only on the client-side and if not a native platform
+  import('firebase/messaging')
+    .then(({ getMessaging }) => {
+      messaging = getMessaging(app);
+      // You might also want to add web-specific messaging listeners here
+      // e.g., onMessage(messaging, (payload) => { ... });
+    })
+    .catch(error => {
+      console.error("Error initializing Firebase Web Messaging:", error);
+    });
 }
 
-export { app, db, auth, storage, messaging };
+export { app, db, auth, storage, functions, messaging }; // Export messaging as well

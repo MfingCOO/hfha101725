@@ -1,4 +1,4 @@
- 'use client';
+'use client';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { hybridFoodSearch, bulkSaveFoodsToCache, getDetailsForCsvExport, getUnreviewedUserFoods } from '@/app/coach/food-cache/actions';
 import { FoodCacheModal } from '@/components/coach/food-cache/food-cache-modal';
@@ -213,12 +213,12 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
                 <Button variant="link" onClick={exitReviewMode} className="mb-2">← Back to Search</Button>
                 {reviewItems.length === 0 && !isLoading && <p className="text-center text-muted-foreground">No user-submitted foods to review.</p>}
                 {reviewItems.map((food) => (
-                    <div key={food.fdcId} className="p-3 border rounded-lg flex justify-between items-center">
+                    <div key={food.fdcId} className="p-3 border rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                         <div>
                             <p className="font-semibold">{food.description}</p>
                             <p className="text-sm text-muted-foreground">{food.brandOwner || 'No brand'} - Submitted by user {food.createdBy?.substring(0,5)}...</p>
                         </div>
-                        <Button variant='secondary' onClick={() => handleOpenEditorModal(food.fdcId)}>Review & Edit</Button>
+                        <Button variant='secondary' onClick={() => handleOpenEditorModal(food.fdcId)} className="self-end sm:self-center">Review & Edit</Button>
                     </div>
                 ))}
             </div>
@@ -228,12 +228,12 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
     return (
         <div className="space-y-2 max-h-[50vh] overflow-y-auto p-1">
             {searchResults.map((food) => (
-                <div key={food.fdcId} className="p-3 border rounded-lg flex justify-between items-center">
+                <div key={food.fdcId} className="p-3 border rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                     <div className='max-w-prose'>
                         <p className="font-semibold">{food.description}</p>
                         <p className="text-sm text-muted-foreground">{food.brandOwner}</p>
                     </div>
-                    <div className="flex items-center space-x-4 flex-shrink-0 ml-4">
+                    <div className="flex items-center space-x-4 flex-shrink-0 self-end sm:self-center">
                     {food.isCached && <span className="text-sm font-semibold text-green-500">In Cache</span>}
                     <Button 
                         variant={food.isCached ? 'secondary' : 'default'}
@@ -250,7 +250,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl w-11/12 sm:w-full">
           <DialogHeader>
             <DialogTitle>{isReviewMode ? 'Review Custom Foods' : 'Manage Food Cache'}</DialogTitle>
           </DialogHeader>
@@ -263,12 +263,12 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
           />
           {!isReviewMode && (
             <>
-                <div className="flex items-center space-x-6 py-2 border-b mb-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 py-2 border-b mb-4">
                     <Label className="font-semibold">Search Scope:</Label>
                     <RadioGroup
                         value={searchScope}
                         onValueChange={(value: 'all' | 'cached' | 'usda') => setSearchScope(value)}
-                        className="flex items-center space-x-4"
+                        className="flex flex-wrap items-center gap-x-4 gap-y-2"
                     >
                         <div className="flex items-center space-x-2">
                             <RadioGroupItem value="all" id="scope-all" />
@@ -306,8 +306,8 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
 
           <MainContent />
 
-          <DialogFooter className="sm:justify-between pt-4">
-            <div className="flex items-center space-x-2">
+          <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-between pt-4 gap-2">
+            <div className="flex flex-wrap justify-center sm:justify-start gap-2">
               <Button variant="secondary" onClick={handleOpenCreatorModal}>
                 Create New Food
               </Button>

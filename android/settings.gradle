@@ -2,5 +2,9 @@
 
 include ':app'
 
-// Apply the capacitor-specific settings from the other file.
-apply from: 'capacitor.settings.gradle'
+// Directly include capacitor-android and set its path
+include ':capacitor-android'
+project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
+
+// Removed the line that applied capacitor.settings.gradle to avoid including cordova-android-plugins
+// apply from: 'capacitor.settings.gradle'

@@ -44,6 +44,33 @@ export interface NutritionalGoals {
     tdee?: number; // ADDED
 }
 
+// FIX: Define a dedicated type for the daily summary object for clarity and type safety.
+export interface DailySummary {
+    lastUpdated: any;
+    dob: string | null;
+    sex: 'male' | 'female' | 'unspecified' | null;
+    unit: 'kg' | 'lbs';
+    startWeight: number | null;
+    currentWeight: number | null;
+    lastWeightDate: string | null;
+    startWthr: number | null;
+    currentWthr: number | null;
+    lastWaistDate: string | null;
+    avgSleep: number;
+    avgActivity: number;
+    avgHydration: number;
+    cravings: number;
+    binges: number;
+    stressEvents: number;
+    avgUpf: number;
+    avgNutrients?: {
+        Energy?: number;
+        Protein?: number;
+        'Total lipid (fat)'?: number;
+        'Carbohydrate, by difference'?: number;
+    };
+}
+
 // This is the single source of truth for all user data.
 export interface UserProfile {
     uid: string;
@@ -71,18 +98,8 @@ export interface UserProfile {
     lastInteraction?: any; 
     lastStreakNotification?: any;
     achievedStreakMilestones?: number[];
-    // CORRECTED: Restoring dailySummaries to its correct map structure
-    dailySummaries?: {
-        [date: string]: {
-            avgSleep: number;
-            avgActivity: number;
-            avgHydration: number;
-            binges?: number;
-            cravings?: number;
-            stressEvents?: number;
-            lastUpdated?: any;
-        };
-    };
+    // FIX: Use the new DailySummary type for the dailySummaries map.
+    dailySummaries?: { [date: string]: DailySummary };
     hydrationSettings?: {
         target: number;
         unit: 'oz' | 'ml';

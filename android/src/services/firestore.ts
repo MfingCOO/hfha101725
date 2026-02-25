@@ -1,0 +1,1267 @@
+'use server';
+
+import { db as adminDb } from '@/lib/firebaseAdmin';
+import { differenceInCalendarDays, startOfDay, endOfDay as fnsEndOfDay, subDays, subHours, format, setHours, setMinutes, setSeconds, addDays, set } from 'date-fns';
+import { toZonedTime, formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import type { UserTier, ClientProfile, UserProfile, SavedMeal, MealItem, RecentFood } from '@/types';
+import { calculateDailySummaryForUser } from './summary-calculator';
+import { FieldValue, Timestamp, FieldPath, Query } from 'firebase-admin/firestore';
+import { revalidatePath } from 'next/cache';
+/**
+ * A fire-and-forget function to trigger daily summary recalculation with a delay.
+ * Fetches the client's timezone info and introduces a delay to prevent race conditions.
+ */
+function triggerSummaryCalculation(userId: string, dateSource: Timestamp | Date) {
+    // This is a "fire-and-forget" task that runs in the background.
+    (async () => {
+        try {
+            // Introduce a delay to prevent a race condition.
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            const dateToRecalculate = dateSource instanceof Date ? dateSource : dateSource.toDate();
+            const dateString = format(dateToRecalculate, 'yyyy-MM-dd');
+            
+            console.log(`[DEBOUNCED] Triggering summary calculation for user ${userId}, date: ${dateString}`);
+            
+            // 1. Fetch the data for the specific day, as the new calculator requires it.
+            const dayDataResult = await getDataForDay(dateString, userId);
+
+            if (!dayDataResult.success || !dayDataResult.data) {
+                console.error(`[triggerSummaryCalculation] Could not fetch data for day ${dateString} for user ${userId}. Aborting summary calculation.`);
+                return; // Exit if data fetching fails
+            }
+
+            // 2. Call the new summary calculator with the fetched data.
+            await calculateDailySummaryForUser(userId, dateString, JSON.stringify(dayDataResult.data), 0);
+
+        } catch (error) {
+            console.error(`[triggerSummaryCalculation] CRITICAL background error for user ${userId}:`, error);
+        }
+    })();
+}
+
+
+
+/**
+ * Helper function to call a Genkit flow via its API endpoint.
+ */
+async function callGenkitFlow(flowName: string, input: any) {
+    // Use the full URL for server-side fetch
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const url = `${baseUrl}/api/flows/${flowName}`;
+  
+    try {
+      // IMPORTANT: This call is intentionally NOT awaited for 'calculateDailySummariesFlow'
+      // to avoid blocking the user's request. It runs in the background.
+      const promise = fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // Genkit's Next.js plugin expects the input under a 'data' key
+        body: JSON.stringify({ data: input }),
+      });
+  
+      // For insight flows, we need the result, so we await the response.
+      if (['proactiveCoachingFlow', 'generateHolisticInsightFlow'].includes(flowName)) {
+          const response = await promise;
+          if (!response.ok) {
+              const errorBody = await response.text();
+              console.error(`Error calling flow '${flowName}'. Status: ${response.status}. Body: ${errorBody}`);
+              throw new Error(`The AI engine failed to process the request.`);
+          }
+          const result = await response.json();
+          if (result && result.result) {
+              return result.result;
+          }
+          console.error(`Invalid response format from flow '${flowName}':`, result);
+          throw new Error('The AI engine returned an invalid response.');
+      }
+  
+    } catch (error: any) {
+      console.error(`Fetch error calling flow '${flowName}':`, error);
+      // Re-throw a generic error for the client
+      throw new Error('There was a problem communicating with the AI engine.');
+    }
+  }
+  
+/**
+ * Marks a coaching chat as "read" by the client by updating the lastClientMessage timestamp.
+ */
+export async function markChatAsRead(userId: string, chatId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        if (!userId || !chatId) {
+            throw new Error("User ID and Chat ID are required.");
+        }
+        const chatRef = adminDb.collection('chats').doc(chatId);
+        await chatRef.update({ lastClientMessage: FieldValue.serverTimestamp() });
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error marking chat as read:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+
+/**
+ * Recalculates and resets a user's binge-free streak.
+ * This function finds the last two binge events and sets the 'bingeFreeSince'
+ * date to the timestamp of the second-to-last binge. If only one or zero
+ * binges exist, it clears the streak.
+ */
+export async function resetBingeStreakAction(userId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        if (!userId) {
+            throw new Error("User ID is required.");
+        }
+
+        const clientRef = adminDb.collection('clients').doc(userId);
+        
+        // This query now correctly uses a field that is indexed by default with entryDate.
+        const bingeQuery = adminDb.collection(`clients/${userId}/cravings`)
+            .orderBy('entryDate', 'desc');
+
+        const bingeSnapshot = await bingeQuery.get();
+        
+        // We must filter for binges in the code, as a composite index is not available.
+        const bingeDocs = bingeSnapshot.docs.filter(doc => doc.data().type === 'binge');
+
+        if (bingeDocs.length <= 1) {
+            // If there's 1 or 0 binges, deleting it means the user has no binge history.
+            // We should REMOVE the field, not set it to the creation date.
+            // This signals to the UI that the streak card should not be displayed.
+            await clientRef.update({
+                bingeFreeSince: FieldValue.delete(),
+                lastBinge: FieldValue.delete(),
+            });
+        } else {
+            // The second document in our filtered list is the "new" last binge.
+            const newLastBinge = bingeDocs[1].data();
+            const newStreakStartDate = newLastBinge.entryDate;
+            await clientRef.update({
+                bingeFreeSince: newStreakStartDate,
+                lastBinge: newStreakStartDate,
+            });
+        }
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error resetting binge streak:", error);
+        return { success: false, error: error.message };
+    }
+}
+export async function saveHydrationSettingsAction(userId: string, settings: { remindersEnabled?: boolean; reminderTimes?: string[]; target?: number; unit?: string; }, clientTimezone?: string) {
+    if (!userId) {
+        return { success: false, error: 'User ID is required.' };
+    }
+
+    try {
+        const clientRef = adminDb.doc(`clients/${userId}`);
+        const batch = adminDb.batch();
+
+        // 1. Save the settings to the client's profile
+        if (settings && Object.keys(settings).length > 0) {
+             batch.set(clientRef, { hydrationSettings: settings }, { merge: true });
+        }
+
+        // 2. Manage reminders
+        const remindersCollection = adminDb.collection('user_scheduled_reminders');
+        const timezone = clientTimezone || (await clientRef.get()).data()?.timezone || 'UTC';
+
+        // Delete all previous hydration reminders
+        const existingRemindersQuery = remindersCollection.where('userId', '==', userId).where('type', '==', 'hydration_reminder').where('status', '==', 'scheduled');
+        const existingRemindersSnapshot = await existingRemindersQuery.get();
+        existingRemindersSnapshot.forEach(doc => batch.delete(doc.ref));
+
+        // Create new reminders if enabled
+        if (settings.remindersEnabled && settings.reminderTimes?.length > 0) {
+            settings.reminderTimes.forEach((time: string) => {
+                if (typeof time !== 'string' || !time.includes(':')) {
+                    console.error('[Hydration Settings] Found and skipped an invalid time value:', time);
+                    return; 
+                }
+                
+                const [hours, minutes] = time.split(':').map(Number);
+                                    // Get today's date in the user's timezone (e.g., '2023-10-27')
+                                    const todayInUserTz = format(toZonedTime(new Date(), timezone), 'yyyy-MM-dd');
+                    
+                                    // Create a string for the desired time today (e.g., '2023-10-27T17:10:00')
+                                    const reminderTimeTodayStr = `${todayInUserTz}T${time}:00`;
+                
+                                    // Convert that string into a true Date object, respecting the timezone.
+                                    let scheduledDate = fromZonedTime(reminderTimeTodayStr, timezone);
+                
+                                    // If that time has already passed today, schedule it for tomorrow instead.
+                                    if (scheduledDate < new Date()) {
+                                        scheduledDate = addDays(scheduledDate, 1);
+                                    }
+                
+
+                const newReminderRef = remindersCollection.doc();
+                batch.set(newReminderRef, {
+                    userId: userId,
+                    status: 'scheduled',
+                    type: 'hydration_reminder',
+                    title: '💧 Time to Hydrate!',
+                    message: "A quick reminder to drink some water and stay on top of your goals.",
+                    imageUrl: 'https://storage.googleapis.com/uci-public/app-assets/water-drop.png',
+                    ctaText: 'Log Water',
+                    ctaType: 'openPillar',
+                    pillarId: 'hydration',
+                    scheduledAt: Timestamp.fromDate(scheduledDate),
+                    isRecurring: true,
+                });
+            });
+        }
+
+        // Commit all changes
+        await batch.commit();
+
+        revalidatePath('/client/dashboard');
+        return { success: true };
+
+    } catch (e: any) {
+        console.error("Error in saveHydrationSettingsAction: ", e);
+        return { success: false, error: e.message || "An unknown server error occurred." };
+    }
+}
+
+
+/**
+ * Server Action to save data using the Admin SDK, bypassing client-side security rules.
+ */
+export async function saveDataAction(collectionName: string, data: any, userId: string, docId?: string) {
+    try {
+        if (!userId) {
+            throw new Error("User ID is required to save data.");
+        }
+
+        if (collectionName === 'hydration') {
+            // This function now ONLY handles logging a water entry. Settings are handled by saveHydrationSettingsAction.
+            const logData = data.log || data;
+
+            const entry = {
+                amount: logData.amount !== undefined ? Number(logData.amount) : 0,
+                hunger: logData.hunger !== undefined ? Number(logData.hunger) : 5,
+                notes: logData.notes || '',
+                entryDate: logData.entryDate ? Timestamp.fromDate(new Date(logData.entryDate)) : Timestamp.now(),
+                uid: userId,
+                pillar: 'hydration',
+                displayPillar: 'hydration',
+            };
+
+            const logCollectionPath = `clients/${userId}/hydration`;
+            let savedDocId = docId;
+
+            if (docId) {
+                await adminDb.doc(`${logCollectionPath}/${docId}`).set(entry, { merge: true });
+            } else {
+                const newDoc = await adminDb.collection(logCollectionPath).add(entry);
+                savedDocId = newDoc.id;
+            }
+
+            const clientRef = adminDb.doc(`clients/${userId}`);
+            await clientRef.update({ lastInteraction: FieldValue.serverTimestamp() });
+            
+            revalidatePath('/calendar');
+            revalidatePath('/');
+            return { success: true, id: savedDocId, insight: null };
+        }
+
+        // ========= Original logic for all OTHER pillars remains unchanged below =========
+        let finalData = data.log;
+        
+        if (finalData?.entryDate && typeof finalData.entryDate === 'string') {
+            finalData.entryDate = Timestamp.fromDate(new Date(finalData.entryDate));
+        } else if (finalData?.entryDate instanceof Date) {
+            finalData.entryDate = Timestamp.fromDate(finalData.entryDate);
+        }
+        if (finalData?.wakeUpDay && typeof finalData.wakeUpDay === 'string') {
+            finalData.wakeUpDay = Timestamp.fromDate(new Date(finalData.wakeUpDay));
+        } else if (finalData?.wakeUpDay instanceof Date) {
+            finalData.wakeUpDay = Timestamp.fromDate(finalData.wakeUpDay);
+        }
+    
+        let displayPillar: string;
+        switch (collectionName) {
+            case 'cravings': displayPillar = finalData.type; break;
+            case 'stress': displayPillar = finalData.type === 'event' ? 'stress' : 'relief'; break;
+            case 'sleep': displayPillar = finalData.isNap ? 'sleep-nap' : 'sleep'; break;
+            default: displayPillar = collectionName; break;
+        }
+        
+        if (collectionName === 'nutrition' && finalData?.items) {
+            finalData.items = finalData.items.map((item: any) => {
+                const { ...foodData } = item;
+                return foodData;
+            });
+        }
+        
+        const dataPath = `clients/${userId}/${collectionName}`;
+        let savedDocId = docId;
+    
+        if (finalData && Object.keys(finalData).length > 0) {
+            const fullDataToSave = { ...finalData, uid: userId, pillar: collectionName, displayPillar: displayPillar };
+            if (docId) {
+                const docRef = adminDb.doc(`${dataPath}/${docId}`);
+                await docRef.set({ ...fullDataToSave, updatedAt: FieldValue.serverTimestamp(), log: FieldValue.delete() }, { merge: true });
+            } else {
+                const docRef = await adminDb.collection(dataPath).add({ ...fullDataToSave, createdAt: FieldValue.serverTimestamp() });
+                savedDocId = docRef.id;
+            }
+        }
+    
+        const clientRef = adminDb.doc(`clients/${userId}`);
+        if (collectionName === 'cravings' && finalData?.type === 'binge') {
+            const bingeTimestamp = finalData.entryDate;
+            await clientRef.update({ lastBinge: bingeTimestamp, bingeFreeSince: bingeTimestamp });
+        }
+       
+        await clientRef.update({ lastInteraction: FieldValue.serverTimestamp() });
+        
+        revalidatePath('/calendar');
+        revalidatePath('/');
+        return { success: true, id: savedDocId, insight: null };
+
+    } catch (e: any) {
+        console.error("Error in saveDataAction: ", e);
+        return { success: false, error: e.message || "An unknown server error occurred." };
+    }
+}
+
+
+interface LogChallengeProgressInput {
+  userId: string;
+  challengeId: string;
+  date: string; // YYYY-MM-DD
+  progress: Record<string, boolean | number>;
+}
+
+export async function logChallengeProgressAction(input: LogChallengeProgressInput) {
+    const { userId, challengeId, date, progress } = input;
+    try {
+        const challengeRef = adminDb.collection('challenges').doc(challengeId);
+        
+        const updates: { [key: string]: any } = {};
+        for (const taskDescription in progress) {
+            const progressValue = progress[taskDescription];
+            const progressFieldPath = `progress.${userId}.${date}.${taskDescription}`;
+            updates[progressFieldPath] = progressValue;
+        }
+
+        await challengeRef.update(updates);
+        
+        // For simplicity, we won't generate an AI insight in this batch update model.
+        // We could add it back by picking one of the tasks to generate an insight for.
+        
+        return { success: true, insight: null };
+
+    } catch (error: any) {
+        console.error('Error logging challenge progress:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+
+export async function deleteData(collectionName: string, docId: string, userId: string) {
+    try {
+        if (!userId) throw new Error("User ID is required to delete data.");
+        
+        const dataPath = `clients/${userId}/${collectionName}`;
+        const docRef = adminDb.doc(`${dataPath}/${docId}`);
+        const docSnap = await docRef.get();
+
+        if (!docSnap.exists) {
+             console.warn(`Attempted to delete non-existent document: ${dataPath}/${docId}`);
+             // Return success even if not found, as the desired state is "deleted".
+             return { success: true }; 
+        }
+        
+        const data = docSnap.data();
+
+        await docRef.delete();
+        
+        // Handle post-deletion side-effects, like resetting a binge streak.
+        if (collectionName === 'cravings' && data?.type === 'binge') {
+            await resetBingeStreakAction(userId);
+        }
+        // After a deletion, also trigger a recalculation.
+        if (data) {
+            const dateSource = data.entryDate || data.wakeUpDay;
+            if (dateSource) {
+                triggerSummaryCalculation(userId, dateSource);
+            }
+        }
+
+        revalidatePath('/calendar');
+        revalidatePath('/');
+
+        return { success: true };
+
+    } catch (e: any) {
+        console.error("Error deleting document: ", e);
+        return { success: false, error: e.message };
+    }
+}
+
+const ALL_DATA_COLLECTIONS = [
+    'nutrition', 'hydration', 'activity', 'sleep', 
+    'stress', 'measurements', 'protocol', 'planner', 'cravings'
+];
+
+export async function getDataForDay(date: string, userId: string) {
+    if (!userId) {
+        console.log("No user ID provided for getDataForDay");
+        return { success: true, data: [] };
+    }
+
+    const clientDate = new Date(date);
+    const startOfDayResult = startOfDay(clientDate);
+    const endOfDay = fnsEndOfDay(clientDate);
+ 
+
+    const startTimestamp = Timestamp.fromDate(startOfDayResult);
+    const endTimestamp = Timestamp.fromDate(endOfDay);
+    
+    try {
+        const promises = ALL_DATA_COLLECTIONS.map(collectionName => {
+             const collectionPath = `clients/${userId}/${collectionName}`;
+             
+             if (collectionName === 'sleep') {
+                 const q = adminDb.collection(collectionPath)
+                    .where("wakeUpDay", ">=", startTimestamp)
+                    .where("wakeUpDay", "<=", endTimestamp);
+                 return q.get().then(snapshot => snapshot.docs.map(doc => ({ id: doc.id, pillar: collectionName, ...doc.data() })));
+             }
+             
+             const q = adminDb.collection(collectionPath)
+                .where("entryDate", ">=", startTimestamp)
+                .where("entryDate", "<=", endTimestamp);
+                
+            return q.get().then(snapshot => snapshot.docs.map(doc => ({
+                id: doc.id,
+                pillar: collectionName,
+                ...doc.data()
+            })));
+        });
+
+        const [results] = await Promise.all([Promise.all(promises)]);
+        const allEntries = results.flat();
+
+        if (allEntries.length === 0) {
+            return { success: true, data: [] };
+        }
+        
+        allEntries.sort((a: any, b: any) => {
+            const dateA = a.entryDate || a.wakeUpDay;
+            const dateB = b.entryDate || b.wakeUpDay;
+            if (!dateA || !dateB) return 0;
+            return (dateA as Timestamp).toMillis() - (dateB as Timestamp).toMillis();
+        });
+        
+
+        const serializableData = allEntries.map(entry => {
+            const newEntry = { ...entry };
+            for(const key in newEntry) {
+                if (newEntry[key] instanceof Timestamp) {
+                    newEntry[key] = newEntry[key].toDate().toISOString();
+                }
+            }
+            return newEntry;
+        });
+
+        return { success: true, data: serializableData };
+
+    } catch(e: any) {
+        console.error("Error getting documents: ", e);
+        return { success: false, error: e, data: [] };
+    }
+}
+
+
+export async function getAllDataForPeriod(days: number, userId: string, fromDate?: Date) {
+    if (!userId) return { success: true, data: [] };
+
+    const endDate = new Date();
+    const startDate = fromDate ? startOfDay(new Date(fromDate)) : startOfDay(subDays(new Date(), days > 0 ? days - 1 : 0));
+    
+    const startTimestamp = Timestamp.fromDate(startDate);
+    const endTimestamp = Timestamp.fromDate(endDate);
+
+    try {
+        const promises = ALL_DATA_COLLECTIONS.map(collectionName => {
+            const collectionPath = `clients/${userId}/${collectionName}`;
+            let q: Query;
+        
+            if (collectionName === 'sleep') {
+                q = adminDb.collection(collectionPath)
+                    .where("wakeUpDay", ">=", startTimestamp)
+                    .where("wakeUpDay", "<=", endTimestamp);
+            } else if (collectionName === 'planner') {
+                // This now correctly queries the NEW location for planner entries
+                q = adminDb.collection(collectionPath)
+                    .where("entryDate", ">=", startTimestamp)
+                    .where("entryDate", "<=", endTimestamp);
+            } else {
+                q = adminDb.collection(collectionPath)
+                    .where("entryDate", ">=", startTimestamp)
+                    .where("entryDate", "<=", endTimestamp);
+            }
+            // BUG FIX: Adds the 'pillar' property, which is required by getHabitHighlights
+            return q.get().then(snapshot => snapshot.docs.map(doc => ({
+                id: doc.id,
+                pillar: collectionName, 
+                ...doc.data()
+            })));
+        });
+        const startStr = format(startDate, 'yyyy-MM-dd');
+        const endStr = format(endDate, 'yyyy-MM-dd');
+
+        const dailySummariesPromise = adminDb.collection(`clients/${userId}/dailySummaries`)
+            .where(FieldPath.documentId(), '>=', startStr)
+            .where(FieldPath.documentId(), '<=', endStr)
+            .get()
+            .then(snapshot => snapshot.docs.map(doc => ({
+                id: doc.id,
+                pillar: 'dailySummaries',
+                entryDate: doc.id, // Use the document ID as the date for consistency
+                ...doc.data()
+            })));
+
+        promises.push(dailySummariesPromise);
+
+        
+        const [results] = await Promise.all([Promise.all(promises)]);
+        
+        // Combine the results from all collections, including the legacy planner data
+        const allEntries = results.flat();
+        
+        allEntries.sort((a: any, b: any) => {
+            const dateA = a.entryDate || a.wakeUpDay || a.indulgenceDate;
+            const dateB = b.entryDate || b.wakeUpDay || b.indulgenceDate;
+            if (!dateA || !dateB) return 0;
+            const timeA = dateA.toMillis ? dateA.toMillis() : new Date(dateA).getTime();
+            const timeB = dateB.toMillis ? dateB.toMillis() : new Date(dateB).getTime();
+            return timeB - timeA;
+        });
+        
+        const serializableData = allEntries.map(entry => {
+            const newEntry = { ...entry };
+            for(const key in newEntry) {
+                if (newEntry[key] && typeof newEntry[key].toDate === 'function') {
+                    newEntry[key] = newEntry[key].toDate().toISOString();
+                }
+            }
+            return newEntry;
+        });
+        
+        return { success: true, data: serializableData };
+        
+    } catch(e: any) {
+        console.error("Error getting documents for period: ", e);
+        return { success: false, error: e.message || 'Unknown error in getAllDataForPeriod', data: [] };
+    }
+}
+
+
+export interface WeightDataPoint {
+    entryDate: Date;
+    weight: number;
+    date: string;
+}
+
+export async function getWeightData(userId: string) {
+    if (!userId) return { success: true, data: [] };
+    
+    try {
+        const collectionPath = `clients/${userId}/measurements`;
+        const q = adminDb.collection(collectionPath).orderBy('entryDate', 'asc');
+        
+        const querySnapshot = await q.get();
+        const data = querySnapshot.docs
+            .map(doc => {
+                const docData = doc.data();
+                // This is the fix: only process docs that have a valid, non-zero weight.
+                if (docData.weight === undefined || docData.weight === null || Number(docData.weight) <= 0) {
+                    return null;
+                }
+                return {
+                    entryDate: docData.entryDate,
+                    weight: Number(docData.weight),
+                }
+            })
+            .filter((d): d is { entryDate: Timestamp; weight: number } => d !== null);
+
+         const serializableData = data.map(d => ({
+            ...d,
+            entryDate: d.entryDate.toDate()
+        }));
+        
+        return { success: true, data: serializableData };
+    } catch (e: any) {
+        console.error("Error getting weight data: ", e);
+        return { success: false, error: e, data: [] };
+    }
+}
+
+
+export interface WthrDataPoint {
+    entryDate: Date;
+    wthr: number;
+    date: string;
+}
+
+export async function getWthrData(userId: string) {
+    if (!userId) return { success: true, data: [] };
+    
+    try {
+        const collectionPath = `clients/${userId}/measurements`;
+        const q = adminDb.collection(collectionPath).orderBy('entryDate', 'asc');
+        
+        const querySnapshot = await q.get();
+        const data = querySnapshot.docs
+            .map(doc => {
+                const docData = doc.data();
+                if (docData.wthr === undefined || docData.wthr === null) return null;
+                return {
+                    entryDate: docData.entryDate,
+                    wthr: Number(docData.wthr),
+                }
+            })
+            .filter((d): d is { entryDate: Timestamp; wthr: number } => d !== null && !isNaN(d.wthr));
+
+         const serializableData = data.map(d => ({
+            ...d,
+            entryDate: d.entryDate.toDate()
+        }));
+        
+        return { success: true, data: serializableData };
+    } catch (e: any) {
+        console.error("Error getting WtHR data: ", e);
+        return { success: false, error: e, data: [] };
+    }
+}
+
+
+export interface Chat {
+    id: string;
+    name: string;
+    description: string;
+    type: 'coaching' | 'challenge' | 'open' | 'private_group';
+    participants: string[];
+    participantCount: number;
+    createdAt?: Timestamp;
+    lastClientMessage?: Timestamp;
+    lastCoachMessage?: Timestamp;
+    lastAutomatedMessage?: Timestamp;
+    thumbnailUrl?: string;
+    rules?: string[];
+    ownerId?: string;
+    lastMessage?: Timestamp;
+}
+
+export interface Challenge {
+    id: string;
+    name: string;
+    description: string;
+    dates: { from: Timestamp, to: Timestamp };
+    maxParticipants: number;
+    trackables: any[];
+    thumbnailUrl: string;
+    participants: string[];
+    participantCount: number;
+    points?: { [key: string]: number };
+    streaks?: { [key: string]: { lastLog: Timestamp, count: number } };
+    notes?: string;
+    type: 'challenge';
+    createdAt?: Timestamp;
+    scheduledPillars?: {
+        pillarId: string;
+        days: string[];
+        recurrenceType: 'weekly' | 'custom';
+        recurrenceInterval?: number;
+        notes?: string;
+    }[];
+    scheduledHabits?: {
+        habitId: string;
+        days: string[];
+        recurrenceType: 'weekly' | 'custom';
+        recurrenceInterval?: number;
+    }[];
+    customTasks?: {
+        description: string;
+        startDay: number;
+        unit: 'reps' | 'seconds' | 'minutes';
+        goalType: 'static' | 'progressive' | 'user-records';
+        goal?: number;
+        startingGoal?: number;
+        increaseBy?: number;
+        increaseEvery?: 'week' | '2-weeks' | 'month';
+        notes?: string;
+    }[];
+    progress?: {
+        [userId: string]: {
+            [date: string]: { // format: yyyy-MM-dd
+                [taskDescription: string]: boolean | number;
+            }
+        }
+    }
+}
+
+
+export async function getChallenges() {
+    try {
+        const q = adminDb.collection("challenges").orderBy("dates.from", "desc");
+        const querySnapshot = await q.get();
+        const challenges = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Challenge));
+        return { success: true, data: challenges };
+    } catch (error) {
+        console.error("Fetching challenges: ", error);
+        return { success: false, error, data: [] };
+    }
+}
+
+export async function joinChallenge(challengeId: string, userId: string) {
+    const challengeRef = adminDb.collection('challenges').doc(challengeId);
+    const chatRef = adminDb.collection('chats').doc(challengeId);
+    const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+    const clientRef = adminDb.collection('clients').doc(userId);
+
+    try {
+        await adminDb.runTransaction(async (transaction) => {
+            const challengeDoc = await transaction.get(challengeRef);
+            if (!challengeDoc.exists) throw "Challenge does not exist!";
+
+            const clientDoc = await transaction.get(clientRef);
+            const userName = clientDoc.exists ? clientDoc.data()?.fullName : 'A new user';
+            
+            const messagesCollectionRef = adminDb.collection(`chats/${challengeId}/messages`);
+
+            transaction.update(challengeRef, {
+                participants: FieldValue.arrayUnion(userId),
+                participantCount: FieldValue.increment(1),
+            });
+             transaction.update(chatRef, {
+                participants: FieldValue.arrayUnion(userId),
+                participantCount: FieldValue.increment(1),
+            });
+
+            transaction.update(userProfileRef, {
+                chatIds: FieldValue.arrayUnion(challengeId),
+            });
+
+            transaction.set(messagesCollectionRef.doc(), {
+                userId: 'system',
+                userName: 'System',
+                text: `${userName} has joined the challenge!`,
+                timestamp: FieldValue.serverTimestamp(),
+                isSystemMessage: true,
+            });
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error joining challenge: ", error);
+        return { success: false, error: error.message };
+    }
+}
+
+
+export async function joinChat(chatId: string, userId: string) {
+    const chatRef = adminDb.collection('chats').doc(chatId);
+    const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+
+    try {
+        const userProfileSnap = await userProfileRef.get();
+        if (!userProfileSnap.exists) {
+            throw new Error("User profile not found.");
+        }
+        const userName = userProfileSnap.data()?.fullName || 'A new user';
+        
+        await adminDb.runTransaction(async (transaction) => {
+            transaction.update(chatRef, {
+                participants: FieldValue.arrayUnion(userId),
+                participantCount: FieldValue.increment(1),
+            });
+            transaction.update(userProfileRef, {
+                chatIds: FieldValue.arrayUnion(chatId),
+            });
+             transaction.set(chatRef.collection('messages').doc(), {
+                userId: 'system',
+                userName: 'System',
+                text: `${userName} has joined the chat!`,
+                timestamp: FieldValue.serverTimestamp(),
+                isSystemMessage: true,
+            });
+        });
+        return { success: true };
+    } catch(error: any) {
+         console.error("Error joining chat: ", error);
+        return { success: false, error: error.message };
+    }
+}
+
+export async function leaveChatAction(chatId: string, userId: string): Promise<{ success: boolean, error?: string }> {
+    const chatRef = adminDb.collection('chats').doc(chatId);
+    const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+
+    try {
+        const userProfileSnap = await userProfileRef.get();
+        if (!userProfileSnap.exists) {
+            throw new Error("User profile not found.");
+        }
+        const userName = userProfileSnap.data()?.fullName || 'A user';
+
+        await adminDb.runTransaction(async (transaction) => {
+            transaction.update(chatRef, {
+                participants: FieldValue.arrayRemove(userId),
+                participantCount: FieldValue.increment(-1),
+            });
+            transaction.update(userProfileRef, {
+                chatIds: FieldValue.arrayRemove(chatId),
+            });
+            transaction.set(chatRef.collection('messages').doc(), {
+                userId: 'system',
+                userName: 'System',
+                text: `${userName} has left the chat.`,
+                timestamp: FieldValue.serverTimestamp(),
+                isSystemMessage: true,
+            });
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error leaving chat: ", error);
+        return { success: false, error: error.message || "An unknown error occurred while leaving the chat." };
+    }
+}
+
+
+export interface ChatMessage {
+    id: string;
+    text: string;
+    userId: string;
+    userName: string;
+    timestamp: Timestamp;
+    isSystemMessage?: boolean;
+    fileUrl?: string;
+    fileName?: string;
+}
+
+export async function getUserChats(userId: string): Promise<{ success: boolean; data?: Chat[]; error?: any; }> {
+    try {
+        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+        const userProfileSnap = await userProfileRef.get();
+
+        if (!userProfileSnap.exists) {
+             return { success: true, data: [] };
+        }
+       
+        const userProfileData = userProfileSnap.data() as UserProfile;
+        const chatIds = userProfileData.chatIds || [];
+
+        if (chatIds.length === 0) {
+            return { success: true, data: [] };
+        }
+        
+        const allData: Chat[] = [];
+        const MAX_IDS_PER_QUERY = 30;
+        
+        for (let i = 0; i < chatIds.length; i += MAX_IDS_PER_QUERY) {
+            const chunk = chatIds.slice(i, i + MAX_IDS_PER_QUERY);
+            if(chunk.length > 0) {
+                const q = adminDb.collection('chats').where(FieldPath.documentId(), 'in', chunk);
+                const snapshot = await q.get();
+                snapshot.forEach(docSnap => {
+                    allData.push({ id: docSnap.id, ...docSnap.data() } as Chat);
+                });
+            }
+        }
+        
+        allData.sort((a, b) => {
+            const dateA = a.lastClientMessage || a.createdAt;
+            const dateB = b.lastClientMessage || b.createdAt;
+            if (dateA && dateB) {
+                return (dateB as Timestamp).toMillis() - (dateA as Timestamp).toMillis();
+            }
+            return 0;
+        });
+
+        const serializableData = allData.map(chat => {
+            const newChat = {...chat};
+             for(const key in newChat) {
+                if (newChat[key] instanceof Timestamp) {
+                    newChat[key] = newChat[key].toDate().toISOString();
+                }
+            }
+            return newChat;
+        });
+
+        return { success: true, data: serializableData as any[] };
+    } catch (error: any) {
+        console.error("Error fetching user's chats: ", error);
+        return { success: false, error: new Error(error.message || "An unknown error occurred") };
+    }
+}
+
+export interface HabitHighlights {
+    averageCalories: number | null;
+    averageActivity: number | null;
+    averageSleep: number | null;
+    averageHydration: number | null;
+    averageUpfScore: number | null;
+    cravingsLogged: number;
+    bingesLogged: number;
+    stressEventsLogged: number;
+}
+
+
+export async function getHabitHighlights(userId: string, periodInDays: number): Promise<{ success: boolean; data?: HabitHighlights; error?: any; }> {
+    try {
+        const endDate = new Date();
+        const startDate = subDays(endDate, periodInDays - 1);
+        const startStr = format(startOfDay(startDate), 'yyyy-MM-dd');
+        const endStr = format(startOfDay(endDate), 'yyyy-MM-dd');
+
+        const summariesCollection = adminDb.collection(`clients/${userId}/dailySummaries`);
+        const summariesQuery = summariesCollection.where(FieldPath.documentId(), '>=', startStr).where(FieldPath.documentId(), '<=', endStr);
+        const summariesSnapshot = await summariesQuery.get();
+        const summaries = summariesSnapshot.docs.map(doc => doc.data());
+
+        const cravingsCollection = adminDb.collection(`clients/${userId}/cravings`);
+        const cravingsQuery = cravingsCollection.where('entryDate', '>=', Timestamp.fromDate(startDate)).where('entryDate', '<=', Timestamp.fromDate(endDate));
+        const cravingsSnapshot = await cravingsQuery.get();
+
+        const stressCollection = adminDb.collection(`clients/${userId}/stress`);
+        const stressQuery = stressCollection.where('entryDate', '>=', Timestamp.fromDate(startDate)).where('entryDate', '<=', Timestamp.fromDate(endDate));
+        const stressSnapshot = await stressQuery.get();
+
+        let totalCalories = 0, totalActivity = 0, totalSleep = 0, totalHydration = 0, totalUpfScore = 0;
+        let daysWithCalories = 0, daysWithActivity = 0, daysWithSleep = 0, daysWithHydration = 0, daysWithUpf = 0;
+
+        summaries.forEach(summary => {
+            if (summary.totalCalories > 0) {
+                totalCalories += summary.totalCalories;
+                daysWithCalories++;
+            }
+            if (summary.totalActivity > 0) {
+                totalActivity += summary.totalActivity;
+                daysWithActivity++;
+            }
+            if (summary.totalSleep > 0) {
+                totalSleep += summary.totalSleep;
+                daysWithSleep++;
+            }
+            if (summary.totalHydration > 0) {
+                totalHydration += summary.totalHydration;
+                daysWithHydration++;
+            }
+            if (summary.averageUpfScore > 0) {
+                totalUpfScore += summary.averageUpfScore;
+                daysWithUpf++;
+            }
+        });
+
+        const cravingsLogged = cravingsSnapshot.docs.filter(doc => doc.data().type === 'craving').length;
+        const bingesLogged = cravingsSnapshot.docs.filter(doc => doc.data().type === 'binge').length;
+        const stressEventsLogged = stressSnapshot.docs.filter(doc => doc.data().type === 'event').length;
+
+        const highlights: HabitHighlights = {
+            averageCalories: daysWithCalories > 0 ? totalCalories / daysWithCalories : null,
+            averageActivity: totalActivity / periodInDays,
+            averageSleep: daysWithSleep > 0 ? totalSleep / daysWithSleep : null,
+            averageHydration: daysWithHydration > 0 ? totalHydration / daysWithHydration : null,
+            averageUpfScore: daysWithUpf > 0 ? totalUpfScore / daysWithUpf : null,
+            cravingsLogged,
+            bingesLogged,
+            stressEventsLogged,
+        };
+
+        return { success: true, data: highlights };
+
+    } catch (error: any) {
+        console.error(`Error in getHabitHighlights for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Fetches all upcoming indulgence plans for a specific user.
+ */
+export async function getUpcomingIndulgences(userId: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    if (!userId) {
+        return { success: false, error: "User ID is required." };
+    }
+    try {
+        const now = Timestamp.now();
+        // This now correctly points to the new, nested planner collection
+        const q = adminDb.collection(`clients/${userId}/planner`)
+            // It correctly uses entryDate, not the old indulgenceDate
+            .where('entryDate', '>=', now)
+            .orderBy('entryDate', 'asc');
+
+        const snapshot = await q.get();
+        if (snapshot.empty) {
+            return { success: true, data: [] };
+        }
+
+        const plans = snapshot.docs.map(doc => {
+            const data = doc.data();
+            // Serialize timestamps to ISO strings for the client
+            const serializableData: { [key: string]: any } = { id: doc.id };
+            for (const key in data) {
+                // Handle Timestamps correctly
+                if (data[key] && typeof data[key].toDate === 'function') {
+                    serializableData[key] = data[key].toDate().toISOString();
+                } else {
+                    serializableData[key] = data[key];
+                }
+            }
+            return serializableData;
+        });
+
+        return { success: true, data: plans };
+    } catch (error: any) {
+        console.error("Error fetching upcoming indulgences:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Fetches and analyzes stress and hunger data from the last 24 hours
+ * to provide a single, actionable "spotlight" insight.
+ */
+
+/**
+ * Saves or updates a food item in the user's "recent foods" list.
+ * Uses the fdcId as the document ID to automatically handle duplicates.
+ * Updates the lastViewed timestamp each time a food is saved.
+ */
+export async function saveRecentFood(userId: string, food: RecentFood): Promise<{ success: boolean; error?: string }> {
+    try {
+        if (!userId) throw new Error("User ID is required.");
+        if (!food || !food.fdcId) throw new Error("Valid food object with fdcId is required.");
+
+        const recentFoodRef = adminDb.collection(`clients/${userId}/userRecentFoods`).doc(food.fdcId.toString());
+
+        await recentFoodRef.set({
+            ...food,
+            lastViewed: FieldValue.serverTimestamp(), // Always update the last viewed time
+            uid: userId,
+        }, { merge: true });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Error saving recent food for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Fetches a user's recent foods, ordered by when they were last viewed.
+ */
+export async function getRecentFoods(userId: string): Promise<{ success: boolean; data?: RecentFood[]; error?: string }> {
+    try {
+        if (!userId) throw new Error("User ID is required.");
+
+        const recentFoodsCollection = adminDb.collection(`clients/${userId}/userRecentFoods`).orderBy('lastViewed', 'desc').limit(50);
+        const snapshot = await recentFoodsCollection.get();
+
+        if (snapshot.empty) {
+            return { success: true, data: [] };
+        }
+
+        const foods = snapshot.docs.map(doc => {
+            const data = doc.data();
+            const newEntry: { [key: string]: any } = { ...data };
+            for(const key in newEntry) {
+                if (newEntry[key] && typeof newEntry[key].toDate === 'function') {
+                    newEntry[key] = newEntry[key].toDate().toISOString();
+                }
+            }
+            return newEntry as RecentFood;
+        });
+        
+
+        return { success: true, data: foods };
+    } catch (error: any) {
+        console.error(`Error fetching recent foods for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Toggles the favorite status of a food item.
+ */
+export async function updateFoodAsFavorite(userId: string, fdcId: number, isFavorite: boolean): Promise<{ success: boolean; error?: string }> {
+    try {
+        if (!userId) throw new Error("User ID is required.");
+        if (!fdcId) throw new Error("Food FDC ID is required.");
+
+        const foodRef = adminDb.collection(`clients/${userId}/userRecentFoods`).doc(fdcId.toString());
+
+        await foodRef.update({ isFavorite: isFavorite });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Error updating favorite status for food ${fdcId} for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Saves a new meal to the user's saved meals collection.
+ */
+/**
+ * Saves a new meal to the user's saved meals collection.
+ */
+export async function saveUserMeal(userId: string, mealName: string, items: MealItem[]): Promise<{ success: boolean; mealId?: string; error?: string }> {
+    try {
+        if (!userId) throw new Error("User ID is required.");
+        if (!mealName) throw new Error("Meal name is required.");
+        if (!items || items.length === 0) throw new Error("Meal must contain at least one item.");
+
+        const newMealRef = adminDb.collection(`clients/${userId}/userSavedMeals`).doc();
+
+        const totalCalories = items.reduce((acc, item) => acc + item.calories, 0);
+
+        const mealData: Omit<SavedMeal, 'id'> = {
+            name: mealName,
+            items: items,
+            totalCalories: totalCalories,
+            createdAt: FieldValue.serverTimestamp(),
+            uid: userId,
+        };
+
+        await newMealRef.set(mealData);
+
+        return { success: true, mealId: newMealRef.id };
+    } catch (error: any) {
+        console.error(`Error saving meal for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+
+
+/**
+ * Fetches all saved meals for a given user.
+ */
+export async function getUserMeals(userId: string): Promise<{ success: boolean; data?: SavedMeal[]; error?: string }> {
+    try {
+        if (!userId) throw new Error("User ID is required.");
+
+        const mealsCollection = adminDb.collection(`clients/${userId}/userSavedMeals`).orderBy('createdAt', 'desc');
+        const snapshot = await mealsCollection.get();
+
+        if (snapshot.empty) {
+            return { success: true, data: [] };
+        }
+
+        const meals = snapshot.docs.map(doc => {
+            const data = doc.data();
+            const newEntry: { [key: string]: any } = { id: doc.id, ...data };
+            for(const key in newEntry) {
+                if (newEntry[key] && typeof newEntry[key].toDate === 'function') {
+                    newEntry[key] = newEntry[key].toDate().toISOString();
+                }
+            }
+            return newEntry as SavedMeal;
+        });
+        
+
+        return { success: true, data: meals };
+    } catch (error: any) {
+        console.error(`Error fetching user meals for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+/**
+ * Processes a reminder that has become due.
+ * Marks non-recurring reminders as 'delivered' and reschedules recurring reminders for their next occurrence.
+ * This function is called from the client-side NotificationProvider when a notification is presented to the user.
+ */
+export async function processAndRescheduleNotification(userId: string, notificationId: string) {
+    try {
+        if (!userId || !notificationId) {
+            throw new Error('User ID and Notification ID are required.');
+        }
+
+        const notificationRef = adminDb.doc(`user_scheduled_reminders/${notificationId}`);
+        await adminDb.runTransaction(async (transaction) => {
+            const docSnap = await transaction.get(notificationRef);
+
+            if (!docSnap.exists) {
+                console.warn(`[ProcessReminder] Notification ${notificationId} not found.`);
+                return;
+            }
+
+            const notification = docSnap.data();
+
+            if (notification?.userId !== userId) {
+                console.error(`[ProcessReminder] Security violation: User ${userId} attempted to process notification ${notificationId} for user ${notification.userId}.`);
+                return;
+            }
+
+            // SAFETY CHECK: If status is already 'delivered', do nothing to prevent double-processing.
+            if (notification.status === 'delivered') {
+                console.log(`[ProcessReminder] Notification ${notificationId} already delivered. Aborting.`);
+                return;
+            }
+
+            // Use a switch statement for robust, type-safe handling.
+            switch (notification.type) {
+                case 'chat_message':
+                    // Chat messages are never recurring. Mark as 'delivered' to prevent re-notification.
+                    transaction.update(notificationRef, { status: 'delivered' });
+                    break;
+                
+                case 'hydration_reminder':
+                    // Hydration reminders are recurring. Reschedule for the next day.
+                    const scheduledAt = notification.scheduledAt.toDate();
+                    const clientRef = adminDb.doc(`clients/${userId}`);
+                    
+                    // Fetch the user's timezone to calculate the 'next day' correctly.
+                    const clientSnap = await transaction.get(clientRef);
+                    const timezone = clientSnap.data()?.timezone || 'UTC';
+
+                    // Get the original time of the reminder (e.g., "17:30").
+                    const originalTime = formatInTimeZone(scheduledAt, timezone, 'HH:mm');
+                    const [hours, minutes] = originalTime.split(':').map(Number);
+                    
+                    // Get the current date in the user's timezone and advance it by one day.
+                    const nowInUserTz = toZonedTime(new Date(), timezone);
+                    const tomorrowInUserTz = addDays(nowInUserTz, 1);
+
+                    // Create the next reminder at the original time, but on the new day.
+                    const nextReminderInTz = set(tomorrowInUserTz, { hours, minutes, seconds: 0, milliseconds: 0 });
+                    
+                    const nextScheduledDate = fromZonedTime(nextReminderInTz, timezone);
+
+                    transaction.update(notificationRef, {
+                        scheduledAt: Timestamp.fromDate(nextScheduledDate),
+                        status: 'scheduled', // Keep it 'scheduled' for the future.
+                    });
+                    break;
+
+                default:
+                    // Fallback for any other notification types.
+                    if (notification.isRecurring) {
+                        // For a generic recurring notification, just add 1 day.
+                        const nextScheduledDate = addDays(notification.scheduledAt.toDate(), 1);
+                        transaction.update(notificationRef, {
+                            scheduledAt: Timestamp.fromDate(nextScheduledDate),
+                            status: 'scheduled',
+                        });
+                    } else {
+                        // For a generic non-recurring notification, mark it as delivered.
+                        transaction.update(notificationRef, { status: 'delivered' });
+                    }
+                    break;
+            }
+        });
+
+        return { success: true };
+
+    } catch (error: any) {
+        console.error(`[ProcessReminder] Error processing notification ${notificationId} for user ${userId}:`, error);
+        return { success: false, error: error.message };
+    }
+}
+

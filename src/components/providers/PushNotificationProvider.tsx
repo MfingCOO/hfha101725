@@ -1,64 +1,193 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications } from '@capacitor/push-notifications';
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
-import { db } from '@/lib/firebase'; 
+import { PushNotifications, ActionPerformed, Token, PushNotificationSchema, PermissionStatus } from '@capacitor/push-notifications';
+import { LocalNotifications, LocalNotificationSchema, LocalNotificationActionPerformed } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
+import { messaging } from '@/lib/firebase';
+import { getToken, onMessage } from 'firebase/messaging';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useChatModalStore, useWorkoutModalStore, useCalendarStore } from '@/store/ui-store';
+import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
+
+const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, getIdToken: () => Promise<string | null>) => {
+    const idToken = await getIdToken();
+    if (!idToken) {
+        console.error("Auth token not available. Cannot save FCM token.");
+        return;
+    }
+    const functionUrl = 'https://us-central1-hunger-free-and-happy-app.cloudfunctions.net/saveFcmToken';
+    try {
+        const response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ data: { token: fcmToken, isCoach } }),
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to save FCM token. Status: ${response.status}. Message: ${errorText}`);
+        }
+        console.log('Successfully saved FCM token to backend.');
+        return response.json();
+    } catch (error) {
+        console.error("Error saving FCM token to backend:", error);
+    }
+};
+
 
 const PushNotificationProvider = ({ children }: { children: React.ReactNode }) => {
-  const { user } = useAuth();
+  const { user, userProfile, isCoach, getIdToken, loading } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const registerDevice = useCallback(async () => {
-    if (!user || !Capacitor.isNativePlatform()) return;
+  const { openModal: openChatModal } = useChatModalStore();
+  const { openModal: openWorkoutModal } = useWorkoutModalStore();
+  const { openModal: openDataEntryModal } = useDataEntryModal();
+  const { onOpen: onOpenCalendar } = useCalendarStore();
 
-    try {
-      let permStatus = await PushNotifications.checkPermissions();
+  const registrationCompletedForUser = useRef<string | null>(null);
 
-      if (permStatus.receive === 'prompt') {
-        permStatus = await PushNotifications.requestPermissions();
-      }
-
-      if (permStatus.receive !== 'granted') {
-        throw new Error('User denied permissions!');
-      }
-
-      await PushNotifications.register();
-    } catch (error) {
-      console.error('Error during push notification registration:', error);
+  const handleNotificationAction = useCallback((data: { [key: string]: any }) => {
+    if (!data) {
+        console.warn("handleNotificationAction called with no data.");
+        return;
     }
-  }, [user]);
+    console.log("Handling notification action with data:", data);
+    const { notificationType, entityId } = data;
 
-  const addListeners = useCallback(async () => {
-    if (!Capacitor.isNativePlatform()) return;
-
-    await PushNotifications.addListener('registration', async (token) => {
-      if (user) {
-        console.info('Registration token found', token.value);
-        const userRef = doc(db, 'userProfiles', user.uid);
-        await updateDoc(userRef, { fcmTokens: arrayUnion(token.value) });
-      }
-    });
-
-    await PushNotifications.addListener('registrationError', (error) => {
-      console.error('Error on registration:', JSON.stringify(error));
-    });
-
-  }, [user]);
+    if (notificationType) {
+      setTimeout(() => {
+        switch (String(notificationType)) {
+          case 'hydration':
+            console.log('Opening hydration modal');
+            openDataEntryModal('hydration');
+            break;
+          case 'chat':
+            console.log(`Handling 'chat' notification. ChatID: ${entityId}`);
+            openChatModal(entityId ? String(entityId) : undefined);
+            break;
+          case 'workout':
+            if (entityId) {
+              console.log(`Opening workout modal for entityId: ${entityId}`);
+              openWorkoutModal(String(entityId));
+            }
+            break;
+          case 'appointment_reminder':
+          case 'appointment_booked':
+            console.log(`Handling '${notificationType}' notification. EventID: ${entityId}`);
+            onOpenCalendar(entityId ? String(entityId) : null);
+            break;
+          default:
+            console.warn(`Unknown notificationType received: ${notificationType}`);
+        }
+      }, 100);
+    }
+  }, [openChatModal, openWorkoutModal, openDataEntryModal, onOpenCalendar]);
 
   useEffect(() => {
-    if (user) {
-        registerDevice();
-        addListeners();
+    if (searchParams) {
+        const notificationType = searchParams.get('notificationType');
+        const entityId = searchParams.get('entityId');
+        if (notificationType) {
+            console.log("Detected notification parameters in URL, handling action.");
+            handleNotificationAction({ notificationType, entityId });
+            router.replace('/client/dashboard', { scroll: false });
+        }
     }
+  }, [searchParams, handleNotificationAction, router]);
+
+  useEffect(() => {
+    if (!user || loading || !userProfile || registrationCompletedForUser.current === user.uid) {
+      return;
+    }
+
+    const initializeNotifications = async () => {
+      try {
+        if (Capacitor.isNativePlatform()) {
+            let permStatus: PermissionStatus = await PushNotifications.checkPermissions();
+            if (permStatus.receive === 'prompt') permStatus = await PushNotifications.requestPermissions();
+            if (permStatus.receive !== 'granted') return;
+
+            PushNotifications.addListener('registration', async (token: Token) => {
+                await callSaveFcmTokenHttp(token.value, isCoach, getIdToken);
+                registrationCompletedForUser.current = user.uid;
+            });
+            PushNotifications.addListener('registrationError', console.error);
+
+            PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+                console.log('Native FOREGROUND notification:', notification);
+                LocalNotifications.schedule({
+                    notifications: [{
+                        title: notification.title || 'Hunger-Free & Happy',
+                        body: notification.body || '',
+                        id: Math.floor(Math.random() * 4294967295),
+                        extra: notification.data,
+                        smallIcon: 'res://public/app/icon.png'
+                    } as LocalNotificationSchema]
+                });
+            });
+
+            PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+                console.log('Native ACTION event (tap)', action);
+                handleNotificationAction(action.notification.data);
+            });
+
+            LocalNotifications.addListener('localNotificationActionPerformed', (action: LocalNotificationActionPerformed) => {
+                console.log('Local notification ACTION event (tap)', action);
+                handleNotificationAction(action.notification.extra);
+            });
+
+            await PushNotifications.register();
+        } else {
+          if (!messaging) return;
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') return;
+
+          const currentToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY });
+
+          if (currentToken) {
+              await callSaveFcmTokenHttp(currentToken, isCoach, getIdToken);
+              registrationCompletedForUser.current = user.uid;
+
+              onMessage(messaging, (message) => {
+                console.log('Web FOREGROUND notification:', message);
+                if (message.data) {
+                  const { title, body } = message.data;
+                  const notification = new Notification(title || 'Hunger-Free & Happy', {
+                    body: body || '',
+                    icon: '/apple-touch-icon.png',
+                    data: message.data
+                  });
+
+                  notification.onclick = (event) => {
+                    event.preventDefault();
+                    console.log('Foreground web notification CLICKED');
+                    handleNotificationAction((event.currentTarget as Notification).data);
+                  };
+                }
+              });
+            }
+        }
+      } catch (error) {
+        console.error("Critical error during push notification setup:", error);
+        registrationCompletedForUser.current = user.uid;
+      }
+    };
+
+    initializeNotifications();
 
     return () => {
       if (Capacitor.isNativePlatform()) {
         PushNotifications.removeAllListeners();
+        LocalNotifications.removeAllListeners();
       }
     };
-  }, [user, registerDevice, addListeners]);
+
+  }, [user, userProfile, isCoach, getIdToken, loading, handleNotificationAction]);
 
   return <>{children}</>;
 };
