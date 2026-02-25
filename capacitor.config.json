@@ -17,5 +17,10 @@
 				"alert"
 			]
 		}
+	},
+	"platforms": {
+		"android": {
+			"path": "android/android" // Corrected path to the nested Android project
+		}
 	}
 }
