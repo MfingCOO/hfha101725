@@ -2,31 +2,22 @@
 
 import { z } from 'zod';
 import { db as adminDb } from '@/lib/firebaseAdmin';
-import { COACH_UIDS } from '@/lib/coaches';
 import { postMessageAction } from '@/app/chats/actions';
 
-// Minimal profile type for this server action
-interface Profile {
-    fullName?: string;
-}
-
-// Helper function to get a profile from the 'clients' or 'userProfiles' collection.
-export async function getClientProfile_Admin(uid: string): Promise<Profile | null> {
+// Helper function to verify if the user is a coach by checking their role in the 'clients' collection
+async function verifyCoach(coachId: string): Promise<{ authorized: boolean; name: string }> {
+    if (!adminDb || !coachId) {
+        return { authorized: false, name: 'Unknown' };
+    }
     try {
-        const clientDoc = await adminDb.collection('clients').doc(uid).get();
-        if (clientDoc.exists) {
-            return clientDoc.data() as Profile;
+        const coachSnap = await adminDb.collection('clients').doc(coachId).get();
+        if (coachSnap.exists && coachSnap.data()?.role === 'coach') {
+            return { authorized: true, name: coachSnap.data()?.fullName || 'Your Coach' };
         }
-        
-        const userDoc = await adminDb.collection('userProfiles').doc(uid).get();
-        if (userDoc.exists) {
-            return userDoc.data() as Profile;
-        }
-
-        return null;
+        return { authorized: false, name: 'Unknown' };
     } catch (error) {
-        console.error(`Error fetching profile for ${uid}:`, error);
-        return null;
+        console.error(`Error verifying coach ${coachId}:`, error);
+        return { authorized: false, name: 'Unknown' };
     }
 }
 
@@ -44,16 +35,14 @@ export async function broadcastMiaMessageAction(input: z.infer<typeof BroadcastM
   try {
     const { message, coachId, chatIds } = BroadcastMiaMessageInputSchema.parse(input);
 
-    if (!COACH_UIDS.includes(coachId)) {
+    const { authorized, name: coachName } = await verifyCoach(coachId);
+    if (!authorized) {
         return { success: false, error: { message: 'Unauthorized action.' } };
     }
 
     if (chatIds.length === 0) {
         return { success: true, count: 0, message: 'No clients to message.' };
     }
-
-    const coachProfile = await getClientProfile_Admin(coachId);
-    const coachName = coachProfile?.fullName || 'Your Coach';
 
     const broadcastPromises = chatIds.map(chatId => {
         return postMessageAction({

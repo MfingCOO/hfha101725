@@ -3,9 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/components/auth/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Send, Paperclip, XCircle, FileText, Trash2 } from 'lucide-react';
-import { ChatMessage, UserProfile } from '@/types';
+import { Loader2, Send, Paperclip, XCircle, FileText, Trash2, Flag } from 'lucide-react';
+import { ChatMessage, ClientProfile } from '@/types';
 import { postMessageAction, deleteMessageAction, uploadChatImageAction, markChatAsReadAction, getChatMessagesAction } from '@/app/chats/actions';
+import { reportMessageAction } from '@/app/actions/moderation-actions';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -60,7 +61,7 @@ export function ChatView({ chatId }: ChatViewProps) {
     const { user, isCoach } = useAuth();
     const { toast } = useToast();
     const [messages, setMessages] = useState<ChatMessage[]>([]);
-    const [participants, setParticipants] = useState<Record<string, UserProfile>>({});
+    const [participants, setParticipants] = useState<Record<string, ClientProfile>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [isSending, setIsSending] = useState(false);
     const [newMessage, setNewMessage] = useState('');
@@ -70,6 +71,8 @@ export function ChatView({ chatId }: ChatViewProps) {
     
     const [deleteAlertState, setDeleteAlertState] = useState<{ open: boolean, message: ChatMessage | null }>({ open: false, message: null });
     const [isDeleting, setIsDeleting] = useState(false);
+    const [reportAlertState, setReportAlertState] = useState<{ open: boolean, message: ChatMessage | null }>({ open: false, message: null });
+    const [isReporting, setIsReporting] = useState(false);
     
     const viewportRef = useRef<HTMLDivElement>(null);
 
@@ -220,6 +223,25 @@ export function ChatView({ chatId }: ChatViewProps) {
         setDeleteAlertState({ open: false, message: null });
     };
 
+    const handleReportMessage = async () => {
+        if (!reportAlertState.message || !user || !chatId) return;
+        setIsReporting(true);
+        const { message } = reportAlertState;
+        const result = await reportMessageAction(user.uid, {
+            chatId,
+            messageId: message.id,
+            messageContent: message.text || '',
+            reportedUserId: message.userId,
+        });
+        if (result.success) {
+            toast({ title: "Message Reported", description: "Thank you for your feedback. A coach will review this message." });
+        } else {
+             toast({ variant: "destructive", title: "Error", description: result.error || "Failed to report message." });
+        }
+        setIsReporting(false);
+        setReportAlertState({ open: false, message: null });
+    };
+
     if (isLoading) {
         return <div className="flex h-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
     }
@@ -270,6 +292,11 @@ export function ChatView({ chatId }: ChatViewProps) {
                                             <Trash2 className="h-3 w-3 text-muted-foreground" />
                                         </Button>
                                     )}
+                                    {!isMyMessage && (
+                                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReportAlertState({open: true, message: msg})}>
+                                            <Flag className="h-3 w-3 text-muted-foreground" />
+                                        </Button>
+                                    )}
                                 </div>
                                 </>
                             )}
@@ -303,6 +330,17 @@ export function ChatView({ chatId }: ChatViewProps) {
                     <AlertDialogAction onClick={handleDeleteMessage} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90">
                         {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Delete
                     </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+            <AlertDialog open={reportAlertState.open} onOpenChange={(open) => !open && setReportAlertState({ open: false, message: null })}>
+                <AlertDialogContent>
+                    <AlertDialogHeader><AlertDialogTitle>Report this message?</AlertDialogTitle><AlertDialogDescription>This message will be flagged for review by a coach. Are you sure you want to report it?</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleReportMessage} disabled={isReporting}>
+                            {isReporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Report
+                        </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

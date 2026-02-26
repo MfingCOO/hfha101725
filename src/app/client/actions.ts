@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 import { db as firestore } from '@/lib/firebaseAdmin';
-import { Program, UserProgram, ProgramWeek, ClientProfile } from '@/types/workout-program';
+import { Program, UserProgram, ProgramWeek } from '@/types/workout-program';
+import { ClientProfile } from '@/types';
 import { ScheduledEvent } from '@/types/event';
 import { ActionResponse } from '@/types/action-response';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -27,6 +28,23 @@ const toSerializable = (value: any): any => {
   }
   return value;
 };
+
+export async function getCoachesAction(): Promise<ActionResponse<ClientProfile[]>> {
+  try {
+    const snapshot = await firestore.collection('clients').where('role', '==', 'coach').get();
+    if (snapshot.empty) {
+      return { success: true, data: [] };
+    }
+    const coaches = snapshot.docs.map(doc => {
+        const coach = doc.data() as ClientProfile;
+        coach.uid = doc.id;
+        return coach;
+    });
+    return { success: true, data: toSerializable(coaches) };
+  } catch (error: any) {
+    return { success: false, error: "Failed to fetch coaches." };
+  }
+}
 
 export async function getVideoCallLinkAction(): Promise<ActionResponse<{ link: string | null }>> {
   try {

@@ -1,13 +1,21 @@
- 'use server';
+'use server';
 import { db as adminDb } from '@/lib/firebaseAdmin';
-import { COACH_UIDS } from '@/lib/coaches';
 import { z } from 'zod';
 import { Timestamp, FieldPath } from 'firebase-admin/firestore';
 
-// Helper function to verify if the user is a coach
+// Helper function to verify if the user is a coach by checking their role in the 'clients' collection
 async function verifyCoach(coachId: string) {
-    if (!COACH_UIDS.includes(coachId)) {
+    if (!adminDb || !coachId) {
         throw new Error("User is not authorized to perform this action.");
+    }
+    try {
+        const coachSnap = await adminDb.collection('clients').doc(coachId).get();
+        if (!coachSnap.exists || coachSnap.data()?.role !== 'coach') {
+            throw new Error("User is not authorized to perform this action.");
+        }
+    } catch (error) {
+        console.error(`Error verifying coach ${coachId}:`, error);
+        throw new Error("An error occurred while verifying authorization.");
     }
 }
 
@@ -25,6 +33,43 @@ const ReportSchema = z.object({
     status: z.string(),
 });
 export type Report = z.infer<typeof ReportSchema>;
+
+const ReportMessageSchema = z.object({
+    messageId: z.string(),
+    chatId: z.string(),
+    messageContent: z.string(),
+    reportedUserId: z.string(),
+});
+
+export async function reportMessageAction(
+    reportingUserId: string,
+    data: z.infer<typeof ReportMessageSchema>
+): Promise<{ success: boolean; error?: string }> {
+    try {
+        const { messageId, chatId, messageContent, reportedUserId } = ReportMessageSchema.parse(data);
+
+        const report = {
+            messageId,
+            chatId,
+            messageContent,
+            reportedUserId,
+            reportingUserId,
+            timestamp: Timestamp.now(),
+            status: 'pending',
+        };
+
+        await adminDb.collection('reports').add(report);
+
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error in reportMessageAction: ", error);
+        if (error instanceof z.ZodError) {
+            return { success: false, error: "Data validation failed: " + error.message };
+        }
+        return { success: false, error: "Could not report message." };
+    }
+}
+
 
 // Gets all pending reports for the modal, now with enriched data
 export async function getPendingReportsAction(coachId: string): Promise<{ success: boolean; data?: Report[]; error?: string }> {
@@ -45,7 +90,6 @@ export async function getPendingReportsAction(coachId: string): Promise<{ succes
             chatIds.add(data.chatId);
         });
 
-        // SURGICAL CHANGE: Query 'clients' collection instead of 'userProfiles'.
         const clientData: { [key: string]: string } = {};
         if (userIds.size > 0) {
             const usersSnapshot = await adminDb.collection('clients').where('uid', 'in', Array.from(userIds)).get();
@@ -66,7 +110,6 @@ export async function getPendingReportsAction(coachId: string): Promise<{ succes
             const reportData = doc.data();
             const timestamp = (reportData.timestamp as Timestamp).toDate().toISOString();
             
-            // SURGICAL CHANGE: Use the new clientData variable.
             return ReportSchema.parse({
                 id: doc.id,
                 ...reportData,
@@ -140,10 +183,8 @@ export async function banUserAndResolveReportAction(coachId: string, reportId: s
         await verifyCoach(coachId);
         const batch = adminDb.batch();
         const reportRef = adminDb.collection('reports').doc(reportId);
-        // SURGICAL CHANGE: Reference the 'clients' collection.
         const clientRef = adminDb.collection('clients').doc(userIdToBan);
 
-        // SURGICAL CHANGE: Use the new clientRef variable.
         batch.update(clientRef, { isBannedFromChat: true });
         batch.update(reportRef, { status: 'resolved' });
 

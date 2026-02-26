@@ -146,7 +146,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             const lowerCaseQuery = searchQuery.toLowerCase();
             if (!lowerCaseQuery) return true;
             if (chat.type === 'coaching') {
-                const clientParticipants = chat.participants.filter(p => !COACH_UIDS.includes(p));
+                const clientParticipants = (chat.participants || []).filter(p => !COACH_UIDS.includes(p));
                 const primaryClient = clientParticipants.length > 0 ? clientMap.get(clientParticipants[0]) : null;
                 const chatName = primaryClient ? primaryClient.fullName : chat.name;
                 return chatName?.toLowerCase().includes(lowerCaseQuery) ?? false;
@@ -195,7 +195,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             toast({ title: 'Success', description: `Successfully ${action}ed the chat.` });
             fetchChats();
         } else {
-            toast({ variant: 'destructive', title: 'Error', description: result.error });
+            toast({ variant: 'destructive', title: 'Error', description: result.error?.message || 'An unknown error occurred.' });
         }
         setIsActing(null);
     }
@@ -203,18 +203,32 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     const handleToggleMute = async (chatId: string) => {
         if (!user) return;
         setIsActing(chatId);
-        const result = await toggleChatMuteAction({ chatId, coachId: user.uid });
+        const result = await toggleChatMuteAction({ chatId, userId: user.uid });
         if (result.success) {
             toast({ title: "Success", description: "Notification settings updated." });
             fetchChats();
         } else {
-            toast({ variant: 'destructive', title: 'Error', description: result.error });
+            toast({ variant: 'destructive', title: 'Error', description: result.error?.message || 'An unknown error occurred.' });
         }
         setIsActing(null);
     };
 
     const handleOpenChat = async (chat: SerializableChat, chatName: string) => {
         if (!user) return;
+
+        const isParticipant = (chat.participants || []).includes(user.uid);
+
+        if (!isParticipant) {
+            setIsActing(chat.id);
+            const result = await joinChat(chat.id, user.uid);
+            setIsActing(null);
+            if (!result.success) {
+                toast({ variant: 'destructive', title: 'Error', description: result.error?.message || 'Could not join chat.' });
+                return;
+            }
+            fetchChats(); // Refresh the chat list to get the updated participant info
+        }
+
         await markChatAsReadAction({ chatId: chat.id, userId: user.uid });
         setChatMetadata(prev => ({ ...prev, [chat.id]: { lastReadTimestamp: new Date().toISOString() } }));
         setDetailDialogState({ open: true, chatInfo: { id: chat.id, name: chatName } });
@@ -223,12 +237,12 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     const handleDelete = async () => {
         if (!deleteAlertState.chat || !user) return;
         setIsDeleting(true);
-        const result = await deleteChatAction(deleteAlertState.chat.id, user.uid);
+        const result = await deleteChatAction({ chatId: deleteAlertState.chat.id });
         if (result.success) {
             toast({ title: "Success", description: "The chat has been deleted." });
             fetchChats();
         } else {
-            toast({ title: "Error", description: result.error, variant: "destructive" });
+            toast({ title: "Error", description: result.error?.message || 'An unknown error occurred.', variant: "destructive" });
         }
         setIsDeleting(false);
         setDeleteAlertState({ open: false, chat: null });
@@ -242,14 +256,14 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         return (
              <div className="space-y-2">
                 {list.map(chat => {
-                    const clientParticipants = chat.participants.filter(p => !COACH_UIDS.includes(p));
+                    const clientParticipants = (chat.participants || []).filter(p => !COACH_UIDS.includes(p));
                     const primaryClient = clientParticipants.length > 0 ? clientMap.get(clientParticipants[0]) : null;
                     const chatName = chat.type === 'coaching' && primaryClient ? primaryClient.fullName : chat.name;
                     const chatAvatar = chat.type === 'coaching' && primaryClient ? primaryClient.photoURL : undefined;
 
                     if (!user) return null;
 
-                    const isParticipant = chat.participants.includes(user.uid);
+                    const isParticipant = (chat.participants || []).includes(user.uid);
                     const isMuted = chat.mutedBy?.includes(user.uid) ?? false;
 
                     const needsReply = chat.lastMessage?.senderId && !COACH_UIDS.includes(chat.lastMessage.senderId) && !isMuted;
@@ -272,7 +286,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                              <div className="flex items-center gap-0">
                                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleOpenChat(chat, chatName || 'Chat')}>
                                     <MessageSquare className="h-3.5 w-3.5" />
-                                </Button>
+                                 </Button>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0">
@@ -284,12 +298,10 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                                             {isMuted ? <Bell className="mr-2 h-4 w-4" /> : <BellOff className="mr-2 h-4 w-4" />} 
                                             {isMuted ? 'Unmute' : 'Mute'}
                                         </DropdownMenuItem>
-                                        {type === 'group' && (
-                                            isParticipant ? (
-                                                <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'leave')} disabled={isActing === chat.id}><LogOut className="mr-2 h-4 w-4" /> Leave</DropdownMenuItem>
-                                            ) : (
-                                                <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'join')} disabled={isActing === chat.id}><PlusCircle className="mr-2 h-4 w-4" /> Join</DropdownMenuItem>
-                                            )
+                                        {isParticipant ? (
+                                            <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'leave')} disabled={isActing === chat.id}><LogOut className="mr-2 h-4 w-4" /> Leave</DropdownMenuItem>
+                                        ) : (
+                                            <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'join')} disabled={isActing === chat.id}><PlusCircle className="mr-2 h-4 w-4" /> Join</DropdownMenuItem>
                                         )}
                                         <DropdownMenuItem onClick={() => setDeleteAlertState({ open: true, chat })} className="text-destructive">
                                             <Trash2 className="mr-2 h-4 w-4" /> Delete
@@ -320,15 +332,15 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                                 size="sm"
                                 onClick={() => window.open(videoCallLink, '_blank', 'noopener,noreferrer')}
                             >
-                                Meeting Chat
+                                Meet
                             </Button>
                         )}
                          <Button variant="outline" size="sm" onClick={() => setIsMiaMessageOpen(true)}>
-                            MIA Message
+                            MIA
                         </Button>
                     </div>
                     <Button onClick={() => setIsCreateChatOpen(true)} size="sm">
-                        New Chat
+                        Chat
                     </Button>
                 </div>
             }

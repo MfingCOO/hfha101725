@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -14,9 +13,9 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, User, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getCoachAvailabilityAndEvents, saveCalendarEvent } from '@/app/coach/calendar/actions';
-import type { AvailabilitySettings } from '@/types';
+import { getCoachesAction } from '@/app/client/actions';
+import type { AvailabilitySettings, ClientProfile } from '@/types';
 import { addMinutes, format, startOfDay, getDay, areIntervalsOverlapping, isPast, addDays, eachDayOfInterval, isSameDay, startOfWeek, endOfWeek, endOfDay } from 'date-fns';
-import { COACH_UIDS } from '@/lib/coaches';
 import { useAuth } from '@/components/auth/auth-provider';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Label } from '@/components/ui/label';
@@ -27,12 +26,6 @@ interface BookingDialogProps {
   onClose: () => void;
 }
 
-const coaches = [
-  { name: 'Alan Roberts', id: COACH_UIDS[0] },
-  { name: 'Crystal Roberts', id: COACH_UIDS[1] },
-];
-
-// Helper to parse yyyy-MM-dd string into a local Date object
 const parseDateString = (dateString: string) => {
     const [year, month, day] = dateString.split('-').map(Number);
     return new Date(year, month - 1, day);
@@ -41,9 +34,10 @@ const parseDateString = (dateString: string) => {
 export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
   const { toast } = useToast();
   const { user, userProfile } = useAuth();
+  const [coaches, setCoaches] = useState<ClientProfile[]>([]);
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(addDays(new Date(), 2)));
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(addDays(new Date(), 2));
-  const [selectedCoachId, setSelectedCoachId] = useState(coaches[0].id);
+  const [selectedCoachId, setSelectedCoachId] = useState<string | null>(null);
   const [availability, setAvailability] = useState<AvailabilitySettings | null>(null);
   const [existingEvents, setExistingEvents] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,27 +46,47 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
   const [userTimezone, setUserTimezone] = useState('');
 
   useEffect(() => {
-    if (isOpen) {
-        setUserTimezone(getUserTimezone());
+    async function fetchCoaches() {
+      const result = await getCoachesAction();
+      if (result.success && result.data) {
+        const filteredCoaches = result.data.filter(coach => 
+          coach.fullName?.includes('Crystal') || coach.fullName?.includes('Alan')
+        );
+        setCoaches(filteredCoaches);
+        if (filteredCoaches.length > 0) {
+          setSelectedCoachId(filteredCoaches[0].uid);
+        }
+      }
     }
+    if (isOpen) {
+      fetchCoaches();
+      setUserTimezone(getUserTimezone());
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     if (isOpen && selectedDate) {
       setIsLoading(true);
       setSelectedSlot(null);
       
       const start = startOfDay(selectedDate);
-      const end = addMinutes(start, 24 * 60 - 1);
+      const end = endOfDay(selectedDate);
 
       getCoachAvailabilityAndEvents(start, end).then(result => {
         if (result.success && result.data) {
           setAvailability(result.data.availability);
-          setExistingEvents(result.data.events);
+          // THIS IS THE FIX: Safely handle the possibility of undefined events.
+          const coachSpecificEvents = (result.data.events || []).filter((event: any) => event.coachId === selectedCoachId);
+          setExistingEvents(coachSpecificEvents);
         } else {
           toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch coach availability.' });
+          setAvailability(null);
+          setExistingEvents([]);
         }
         setIsLoading(false);
       });
     }
-  }, [isOpen, selectedDate, toast]);
+  }, [isOpen, selectedDate, selectedCoachId, toast]);
   
   const handleWeekChange = (direction: 'next' | 'prev') => {
     setCurrentWeekStart(prev => addDays(prev, direction === 'next' ? 7 : -7));
@@ -84,7 +98,6 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
     const isBlockedForVacation = availability.vacationBlocks?.some(block => 
       areIntervalsOverlapping(
         { start: startOfDay(selectedDate), end: endOfDay(selectedDate) },
-        // Parse the string dates and ensure the end of the block is the end of the day
         { start: parseDateString(block.start as string), end: endOfDay(parseDateString(block.end as string)) }
       )
     );
@@ -134,15 +147,15 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
 
     setIsBooking(true);
     try {
-        const selectedCoach = coaches.find(c => c.id === selectedCoachId);
+        const selectedCoach = coaches.find(c => c.uid === selectedCoachId);
         const eventData = {
             title: `Coaching: ${userProfile.fullName}`,
             start: selectedSlot,
             end: addMinutes(selectedSlot, 15),
             clientId: user.uid,
             clientName: userProfile.fullName,
-            coachId: selectedCoach?.id,
-            coachName: selectedCoach?.name,
+            coachId: selectedCoach?.uid,
+            coachName: selectedCoach?.fullName,
             isPersonal: false,
             attachVideoLink: true,
         };
@@ -184,21 +197,23 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
         </DialogHeader>
         
         <div className="flex-1 flex flex-col min-h-0 p-4 space-y-4">
-             <div className="space-y-2">
-                <Label>Select Coach</Label>
-                <div className="flex gap-2">
-                    {coaches.map(coach => (
-                        <Button 
-                            key={coach.id} 
-                            variant={selectedCoachId === coach.id ? 'default' : 'outline'}
-                            onClick={() => setSelectedCoachId(coach.id)}
-                            className="flex-1"
-                        >
-                            <User className="mr-2 h-4 w-4"/> {coach.name.split(' ')[0]}
-                        </Button>
-                    ))}
+            {coaches.length > 0 && (
+                 <div className="space-y-2">
+                    <Label>Select Coach</Label>
+                    <div className="flex gap-2">
+                        {coaches.map(coach => (
+                            <Button 
+                                key={coach.uid} 
+                                variant={selectedCoachId === coach.uid ? 'default' : 'outline'}
+                                onClick={() => setSelectedCoachId(coach.uid)}
+                                className="flex-1"
+                            >
+                                <User className="mr-2 h-4 w-4"/> {coach.fullName ? coach.fullName.split(' ')[0] : 'Coach'}
+                            </Button>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
             
             <div className="space-y-2">
                  <Label>Select Date</Label>

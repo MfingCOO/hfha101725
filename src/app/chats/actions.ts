@@ -3,12 +3,23 @@
 import { db as adminDb, messaging } from '@/lib/firebaseAdmin';
 import type { Chat, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
-import { COACH_UIDS } from '@/lib/coaches';
-import { FieldValue, FieldPath, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath, Timestamp, DocumentData } from 'firebase-admin/firestore';
 import { v4 as uuidv4 } from 'uuid';
 import { storage as adminStorage } from 'firebase-admin';
 
 const SERVER_ERROR = { success: false, error: { message: "Server configuration error." } };
+
+// Helper function to dynamically check if a user is a coach
+async function isUserCoach(userId: string): Promise<boolean> {
+    if (!adminDb || !userId) return false;
+    try {
+        const clientSnap = await adminDb.collection('clients').doc(userId).get();
+        return clientSnap.exists && clientSnap.data()?.role === 'coach';
+    } catch (error) {
+        console.error(`Error checking if user ${userId} is a coach:`, error);
+        return false; // Fail safe
+    }
+}
 
 const AddFcmTokenInputSchema = z.object({
     userId: z.string(),
@@ -85,17 +96,19 @@ function serializeTimestamps(docData: any) {
     return newObject;
 }
 
-export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; data?: { chats: Chat[], clients: ClientProfile[] }; error?: any; }> {
+export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; data?: { chats: Chat[], clients: ClientProfile[], coachUIDs: string[] }; error?: any; }> {
     if (!adminDb) {
         return SERVER_ERROR;
     }
     try {
         const chatsQuery = adminDb.collection('chats').orderBy('createdAt', 'desc').get();
-        const clientsQuery = adminDb.collection('userProfiles').where('tier', 'in', ['premium', 'coaching']).get();
-        const [chatsSnapshot, clientsSnapshot] = await Promise.all([chatsQuery, clientsQuery]);
+        const clientsQuery = adminDb.collection('clients').where('tier', 'in', ['premium', 'coaching']).get();
+        const coachesQuery = adminDb.collection('clients').where('role', '==', 'coach').get();
+        const [chatsSnapshot, clientsSnapshot, coachesSnapshot] = await Promise.all([chatsQuery, clientsQuery, coachesQuery]);
         
         let allChats = chatsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
         const allClients = clientsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as ClientProfile));
+        const coachUIDs = coachesSnapshot.docs.map(doc => doc.id);
 
         const chatsWithDataPromises = allChats.map(async (chat) => {
             const recentMessagesQuery = adminDb!.collection('chats').doc(chat.id).collection('messages')
@@ -121,7 +134,13 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
                     isSystemMessage: lastMessageData.isSystemMessage || false,
                 };
 
-                const lastClientMessageData = recentMessages.find(msg => msg.userId && !COACH_UIDS.includes(msg.userId));
+                let lastClientMessageData: DocumentData | null = null;
+                for (const msg of recentMessages) {
+                    if (msg.userId && !coachUIDs.includes(msg.userId)) {
+                        lastClientMessageData = msg;
+                        break;
+                    }
+                }
                 const lastClientMessageTimestamp = lastClientMessageData ? (lastClientMessageData.timestamp || null) : null;
 
                 return { ...chat, lastMessage, lastClientMessageTimestamp };
@@ -136,7 +155,7 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
         const serializableChats = allChats.map(serializeTimestamps);
         const serializableClients = allClients.map(serializeTimestamps);
 
-        return { success: true, data: { chats: serializableChats as Chat[], clients: serializableClients as ClientProfile[] } };
+        return { success: true, data: { chats: serializableChats as Chat[], clients: serializableClients as ClientProfile[], coachUIDs } };
     } catch (error: any) {
         console.error("Error fetching chats and clients for coach (admin): ", error);
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
@@ -320,10 +339,11 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
             return { success: true };
         }
         
-        const primaryCoachId = COACH_UIDS[0];
-        if (!primaryCoachId) {
-            throw new Error("No coaches are configured.");
+        const coachesSnap = await adminDb.collection('clients').where('role', '==', 'coach').limit(1).get();
+        if (coachesSnap.empty) {
+            throw new Error("No coaches are configured in the system.");
         }
+        const primaryCoachId = coachesSnap.docs[0].id;
         
         const userProfileRef = adminDb.collection('userProfiles').doc(userId);
         const chatRef = adminDb.collection('chats').doc();
@@ -488,7 +508,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 }
             };
 
-            if (!COACH_UIDS.includes(userId)) {
+            if (!(await isUserCoach(userId))) {
                 updateData.lastClientMessageTimestamp = sentTimestamp;
             }
             
@@ -507,7 +527,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
         let allRecipientTokens: string[] = [];
 
         for (const recipientId of recipients) {
-            if (COACH_UIDS.includes(recipientId) && mutedBy.includes(recipientId)) {
+            if ((await isUserCoach(recipientId)) && mutedBy.includes(recipientId)) {
                 continue;
             }
 
@@ -567,7 +587,7 @@ export async function joinChat(chatId: string, userId: string): Promise<{ succes
     }
     try {
         const chatRef = adminDb.collection('chats').doc(chatId);
-        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+        const userDocRef = adminDb.collection('clients').doc(userId);
 
         await adminDb.runTransaction(async (transaction) => {
             const chatDoc = await transaction.get(chatRef);
@@ -578,7 +598,7 @@ export async function joinChat(chatId: string, userId: string): Promise<{ succes
                 participants: FieldValue.arrayUnion(userId),
                 participantCount: FieldValue.increment(1)
             });
-            transaction.update(userProfileRef, { chatIds: FieldValue.arrayUnion(chatId) });
+            transaction.update(userDocRef, { chatIds: FieldValue.arrayUnion(chatId) });
         });
 
         return { success: true };
@@ -594,7 +614,7 @@ export async function leaveChat(chatId: string, userId: string): Promise<{ succe
     }
     try {
         const chatRef = adminDb.collection('chats').doc(chatId);
-        const userProfileRef = adminDb.collection('userProfiles').doc(userId);
+        const userDocRef = adminDb.collection('clients').doc(userId);
 
         await adminDb.runTransaction(async (transaction) => {
             const chatDoc = await transaction.get(chatRef);
@@ -605,7 +625,7 @@ export async function leaveChat(chatId: string, userId: string): Promise<{ succe
                 participants: FieldValue.arrayRemove(userId),
                 participantCount: FieldValue.increment(-1)
             });
-            transaction.update(userProfileRef, { chatIds: FieldValue.arrayRemove(chatId) });
+            transaction.update(userDocRef, { chatIds: FieldValue.arrayRemove(chatId) });
         });
 
         return { success: true };
@@ -659,7 +679,7 @@ export async function getUnreadChatCountForCoach(coachId: string): Promise<{ suc
   if (!adminDb) {
       return SERVER_ERROR;
   }
-  if (!COACH_UIDS.includes(coachId)) {
+  if (!(await isUserCoach(coachId))) {
       return { success: false, error: { message: "Invalid user." } };
   }
 
@@ -692,7 +712,7 @@ export async function getUnreadChatCountForCoach(coachId: string): Promise<{ suc
           if (!lastMessageSnapshot.empty) {
               const lastMessage = lastMessageSnapshot.docs[0].data();
               
-              if (lastMessage.userId && !COACH_UIDS.includes(lastMessage.userId)) {
+              if (lastMessage.userId && !(await isUserCoach(lastMessage.userId))) {
                   const lastReadTime = lastReadTimestamps[chat.id];
                   const lastMessageTime = lastMessage.timestamp.toDate();
 
@@ -734,7 +754,7 @@ export async function deleteMessageAction(input: z.infer<typeof DeleteMessageInp
 
         const messageData = messageDoc.data();
         const isOwner = messageData?.userId === requesterId;
-        const isCoachUser = COACH_UIDS.includes(requesterId);
+        const isCoachUser = await isUserCoach(requesterId);
 
         if (!isOwner && !isCoachUser) {
             return { success: false, error: { message: "You do not have permission to delete this message." } };
@@ -783,8 +803,8 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
         batch.set(chatRef, chatData);
 
         for (const userId of finalParticipants) {
-            const userProfileRef = adminDb.collection('userProfiles').doc(userId);
-            batch.update(userProfileRef, { chatIds: FieldValue.arrayUnion(chatRef.id) });
+            const userDocRef = adminDb.collection('clients').doc(userId);
+            batch.update(userDocRef, { chatIds: FieldValue.arrayUnion(chatRef.id) });
         }
 
         await batch.commit();
@@ -863,8 +883,8 @@ export async function deleteChatAction(input: { chatId: string }): Promise<{ suc
         
         if (participants.length > 0) {
             for (const userId of participants) {
-                const userProfileRef = adminDb.collection('userProfiles').doc(userId);
-                batch.update(userProfileRef, {
+                const userDocRef = adminDb.collection('clients').doc(userId);
+                batch.update(userDocRef, {
                     chatIds: FieldValue.arrayRemove(chatId)
                 });
             }
