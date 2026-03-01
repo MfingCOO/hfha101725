@@ -64,6 +64,8 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
     }
   }, [isOpen]);
 
+  // UNIFIED AVAILABILITY FIX: This hook now fetches all events for a day
+  // and does not re-run when the coach is switched.
   useEffect(() => {
     if (isOpen && selectedDate) {
       setIsLoading(true);
@@ -75,9 +77,8 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
       getCoachAvailabilityAndEvents(start, end).then(result => {
         if (result.success && result.data) {
           setAvailability(result.data.availability);
-          // THIS IS THE FIX: Safely handle the possibility of undefined events.
-          const coachSpecificEvents = (result.data.events || []).filter((event: any) => event.coachId === selectedCoachId);
-          setExistingEvents(coachSpecificEvents);
+          // Use all events for the day to block off slots, regardless of coach.
+          setExistingEvents(result.data.events || []);
         } else {
           toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch coach availability.' });
           setAvailability(null);
@@ -86,7 +87,7 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
         setIsLoading(false);
       });
     }
-  }, [isOpen, selectedDate, selectedCoachId, toast]);
+  }, [isOpen, selectedDate, toast]);
   
   const handleWeekChange = (direction: 'next' | 'prev') => {
     setCurrentWeekStart(prev => addDays(prev, direction === 'next' ? 7 : -7));
@@ -158,6 +159,7 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
             coachName: selectedCoach?.fullName,
             isPersonal: false,
             attachVideoLink: true,
+            isCoachBooking: false, // BUG FIX: Added missing property
         };
         const result = await saveCalendarEvent(eventData);
         if(result.success) {

@@ -69,8 +69,6 @@ export interface DailySummary {
     };
 }
 
-// **THE FIX**: UserProfile has been removed and all properties are consolidated into ClientProfile.
-// This is now the single source of truth for all user/client data.
 export interface ClientProfile {
     uid: string;
     fullName: string;
@@ -130,7 +128,6 @@ export interface ClientProfile {
     remindersEnabled?: boolean;
 }
 
-// CORRECTED: Restoring CreateClientInput to its full, correct definition where all fields are required.
 export type CreateClientInput = {
     email: string;
     password: string;
@@ -176,6 +173,8 @@ export interface Chat {
     lastClientMessage?: any;
     mutedBy?: string[];
     lastClientMessageTimestamp?: any;
+    isCoachingChat?: boolean;
+    lastActivity?: any;
 }
 
 export interface ChatMessage {

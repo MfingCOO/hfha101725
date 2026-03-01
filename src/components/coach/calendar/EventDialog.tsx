@@ -30,7 +30,6 @@ import { useState, useEffect } from 'react';
 import { Loader2, Trash2, Link as LinkIcon } from 'lucide-react';
 import { saveCalendarEvent, deleteCalendarEvent } from '@/app/coach/calendar/actions';
 import { getAllAppUsers } from '@/app/coach/dashboard/actions';
-// THE FIX: Replaced UserProfile with ClientProfile.
 import type { ClientProfile } from '@/types';
 import { Combobox } from '@/components/ui/combobox';
 import { format } from 'date-fns';
@@ -64,7 +63,6 @@ interface EventDialogProps {
 export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
   const { toast } = useToast();
   const { user } = useAuth();
-  // THE FIX: Use the correct ClientProfile type for the clients state.
   const [clients, setClients] = useState<ClientProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -93,7 +91,6 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
       });
       
       if (event) {
-        // Editing an existing event
         const startDate = new Date(event.start);
         const endDate = new Date(event.end);
         const diffMs = endDate.getTime() - startDate.getTime();
@@ -117,7 +114,6 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
           attachVideoLink: !!event.videoCallLink,
         });
       } else {
-        // Creating a new event
         form.reset({
           id: undefined,
           title: '',
@@ -154,6 +150,7 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
             coachId: user?.uid,
             coachName: user?.displayName,
             clientTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            isCoachBooking: true, // This gives coaches override power
         };
 
         const result = await saveCalendarEvent(dataToSave as any);
@@ -174,7 +171,8 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
     if (!event?.id) return;
     setIsLoading(true);
     try {
-        const result = await deleteCalendarEvent(event.id);
+        // Pass the start time to the delete function to remove the slot lock
+        const result = await deleteCalendarEvent(event.id, event.start);
         if(result.success) {
             toast({ title: 'Event Deleted' });
             onClose(true);

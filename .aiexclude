@@ -1,0 +1,26 @@
+# Dependency folders
+node_modules/
+bower_components/
+
+# Build outputs (This is likely what's causing your current crash)
+.next/
+build/
+dist/
+out/
+
+# Firebase specific
+.firebase/
+firestore.indexes.json
+*.local.indexeddb/
+
+# Version control & IDEs
+.git/
+.vscode/
+.idea/
+
+# Large assets
+public/assets/
+*.mp4
+*.zip
+*.png
+*.jpg

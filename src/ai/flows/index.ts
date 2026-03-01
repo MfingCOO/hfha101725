@@ -1,5 +1,4 @@
 import { analyzeSingleFoodFlow } from './nutrition/analyze-single-food';
-import { automatedClientNudge } from './automated-client-nudge';
 import { calculateDailySummaries as calculateDailySummariesFlow } from './calculate-daily-summaries';
 // import { createClientFlow } from './create-client-flow'; // This flow is known to be broken, keeping it commented out.
 import { enrichFoodDetailsFlow } from './nutrition/enrich-food-details-flow';
@@ -12,7 +11,6 @@ import { proactiveCoachingFlow } from './rag/proactive-coach';
 
 export const flows = [
   analyzeSingleFoodFlow,
-  automatedClientNudge,
   calculateDailySummariesFlow,
   // createClientFlow,
   enrichFoodDetailsFlow,

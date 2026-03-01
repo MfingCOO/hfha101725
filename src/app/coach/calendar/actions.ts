@@ -9,7 +9,6 @@ import { formatInTimeZone } from 'date-fns-tz';
 import type { AvailabilitySettings, SiteSettings } from '@/types/index';
 import { createUserNotification } from '@/services/reminders';
 
-// ADDED clientTimezone to the schema
 const eventSchema = z.object({
     id: z.string().optional(),
     title: z.string().min(1, "Title is required."),
@@ -22,7 +21,8 @@ const eventSchema = z.object({
     attachVideoLink: z.boolean().default(false),
     coachId: z.string().optional().nullable(),
     coachName: z.string().optional().nullable(),
-    clientTimezone: z.string().optional(), // IANA timezone string, e.g., 'America/New_York'
+    clientTimezone: z.string().optional(),
+    isCoachBooking: z.boolean().optional().default(false),
 });
 
 type CalendarEventInput = z.infer<typeof eventSchema>;
@@ -73,42 +73,63 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         return { success: false, error: validation.error.errors.map(e => e.message).join(', ') };
     }
 
-    try {
-        const { id, ...dataToSave } = validation.data;
-        
-        let finalEventData: any = {
-            ...dataToSave,
-            start: Timestamp.fromDate(dataToSave.start),
-            entryDate: Timestamp.fromDate(dataToSave.start),
-            end: Timestamp.fromDate(dataToSave.end),
-            videoCallLink: null, 
-        };
-        // We don't want to save the timezone to the main event document
-        delete finalEventData.clientTimezone;
+    const { id, isCoachBooking, ...dataToSave } = validation.data;
+    const slotId = dataToSave.start.toISOString();
 
+    let finalEventData: any = {
+        ...dataToSave,
+        start: Timestamp.fromDate(dataToSave.start),
+        entryDate: Timestamp.fromDate(dataToSave.start),
+        end: Timestamp.fromDate(dataToSave.end),
+        videoCallLink: null,
+    };
+    delete finalEventData.clientTimezone;
 
-        if (dataToSave.attachVideoLink) {
-            const settingsDocRef = adminDb.collection('siteSettings').doc('v1');
-            const settingsSnap = await settingsDocRef.get();
-            if (settingsSnap.exists) {
-                const siteSettings = settingsSnap.data() as SiteSettings;
-                if (siteSettings.videoCallLink) {
-                    finalEventData.videoCallLink = siteSettings.videoCallLink;
-                }
+    if (dataToSave.attachVideoLink) {
+        const settingsDocRef = adminDb.collection('siteSettings').doc('v1');
+        const settingsSnap = await settingsDocRef.get();
+        if (settingsSnap.exists) {
+            const siteSettings = settingsSnap.data() as SiteSettings;
+            if (siteSettings.videoCallLink) {
+                finalEventData.videoCallLink = siteSettings.videoCallLink;
             }
         }
-        
-        const eventRef = id ? adminDb.collection('coachCalendar').doc(id) : adminDb.collection('coachCalendar').doc();
-        
-        await eventRef.set(finalEventData, { merge: true });
+    }
+
+    try {
+        let eventId: string;
+
+        if (isCoachBooking) {
+            const eventRef = id ? adminDb.collection('coachCalendar').doc(id) : adminDb.collection('coachCalendar').doc();
+            await eventRef.set(finalEventData, { merge: true });
+            eventId = eventRef.id;
+
+            const slotDocRef = adminDb.collection('bookedSlots').doc(slotId);
+            await slotDocRef.set({ bookedAt: Timestamp.now(), coachId: dataToSave.coachId });
+
+        } else {
+            const createdEventId = await adminDb.runTransaction(async (transaction) => {
+                const slotDocRef = adminDb.collection('bookedSlots').doc(slotId);
+                const slotDoc = await transaction.get(slotDocRef);
+
+                if (slotDoc.exists) {
+                    throw new Error("This time slot is no longer available. Please select another time.");
+                }
+
+                transaction.set(slotDocRef, { bookedAt: Timestamp.now(), coachId: dataToSave.coachId, clientId: dataToSave.clientId });
+                
+                const eventRef = id ? adminDb.collection('coachCalendar').doc(id) : adminDb.collection('coachCalendar').doc();
+                transaction.set(eventRef, finalEventData, { merge: true });
+
+                return eventRef.id;
+            });
+            eventId = createdEventId;
+        }
 
         const isAppointment = dataToSave.coachId && dataToSave.clientId;
 
         if (isAppointment) {
-            // TIMEZONE FIX: Determine the correct timezone for the notification.
-            let notificationTimezone = dataToSave.clientTimezone; // 1. Prioritize timezone from the browser.
-
-            // 2. As a fallback, check the coach's saved profile in the database.
+            let notificationTimezone = dataToSave.clientTimezone;
             if (!notificationTimezone && dataToSave.coachId) {
                 const coachProfileSnap = await adminDb.collection('clients').doc(dataToSave.coachId).get();
                 const coachProfile = coachProfileSnap.data();
@@ -116,10 +137,7 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                     notificationTimezone = coachProfile.timezone;
                 }
             }
-            
-            // 3. Last resort is UTC, which was causing the bug.
             const finalTimezone = notificationTimezone || 'UTC';
-
             const formattedStartTime = formatInTimeZone(dataToSave.start, finalTimezone, 'PPP p');
 
             if (dataToSave.clientName) {
@@ -129,38 +147,37 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                     message: `${dataToSave.clientName} has booked a call with you for ${formattedStartTime}`,
                     pillarId: 'calendar',
                     deliverAt: Timestamp.now(),
-                    entityId: eventRef.id
+                    entityId: eventId
                 });
             }
 
             const reminderTime = subMinutes(dataToSave.start, 10);
             if (reminderTime > new Date()) {
-
                 if (dataToSave.clientName) {
                     await createUserNotification(dataToSave.coachId!, {
                         type: 'appointment_reminder',
                         title: 'Upcoming Appointment',
                         message: `Your appointment with ${dataToSave.clientName} is in 10 minutes.`,
                         pillarId: 'calendar',
-                        entityId: eventRef.id,
+                        entityId: eventId,
                         deliverAt: Timestamp.fromDate(reminderTime)
                     });
                 }
-
                 if (dataToSave.coachName) {
                      await createUserNotification(dataToSave.clientId!, {
                         type: 'appointment_reminder',
                         title: 'Upcoming Appointment',
                         message: `Your appointment with ${dataToSave.coachName} is in 10 minutes.`,
                         pillarId: 'calendar',
-                        entityId: eventRef.id,
+                        entityId: eventId,
                         deliverAt: Timestamp.fromDate(reminderTime)
                     });
                 }
             }
         }
 
-        return { success: true, id: eventRef.id };
+        return { success: true, id: eventId };
+
     } catch (error: any) {
         console.error("Error saving calendar event:", error);
         return { success: false, error: error.message };
@@ -168,12 +185,23 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
 }
 
 
-export async function deleteCalendarEvent(eventId: string) {
+export async function deleteCalendarEvent(eventId: string, startTime: string): Promise<{ success: boolean; error?: string }> {
     try {
         if (!eventId) {
             throw new Error("Event ID is required for deletion.");
         }
-        await adminDb.collection('coachCalendar').doc(eventId).delete();
+
+        await adminDb.runTransaction(async (transaction) => {
+            const eventRef = adminDb.collection('coachCalendar').doc(eventId);
+            transaction.delete(eventRef);
+
+            if (startTime) {
+                const slotId = new Date(startTime).toISOString();
+                const slotDocRef = adminDb.collection('bookedSlots').doc(slotId);
+                transaction.delete(slotDocRef);
+            }
+        });
+
         return { success: true };
     } catch (error: any) {
         console.error("Error deleting calendar event:", error);

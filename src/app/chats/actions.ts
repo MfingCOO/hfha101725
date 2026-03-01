@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { FieldValue, FieldPath, Timestamp, DocumentData } from 'firebase-admin/firestore';
 import { v4 as uuidv4 } from 'uuid';
 import { storage as adminStorage } from 'firebase-admin';
+import { differenceInHours } from 'date-fns';
 
 const SERVER_ERROR = { success: false, error: { message: "Server configuration error." } };
 
@@ -96,7 +97,17 @@ function serializeTimestamps(docData: any) {
     return newObject;
 }
 
-export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; data?: { chats: Chat[], clients: ClientProfile[], coachUIDs: string[] }; error?: any; }> {
+export async function getChatsAndClientsForCoach(): Promise<{ 
+    success: boolean; 
+    data?: { 
+        activeCoachingChats: Chat[], 
+        miaCoachingChats: Chat[], 
+        groupChats: Chat[], 
+        clients: ClientProfile[], 
+        coaches: ClientProfile[]
+    }; 
+    error?: any; 
+}> {
     if (!adminDb) {
         return SERVER_ERROR;
     }
@@ -106,9 +117,11 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
         const coachesQuery = adminDb.collection('clients').where('role', '==', 'coach').get();
         const [chatsSnapshot, clientsSnapshot, coachesSnapshot] = await Promise.all([chatsQuery, clientsQuery, coachesQuery]);
         
-        let allChats = chatsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
         const allClients = clientsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as ClientProfile));
-        const coachUIDs = coachesSnapshot.docs.map(doc => doc.id);
+        const coaches = coachesSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as ClientProfile));
+        const coachUIDs = coaches.map(c => c.uid);
+
+        let allChats = chatsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Chat));
 
         const chatsWithDataPromises = allChats.map(async (chat) => {
             const recentMessagesQuery = adminDb!.collection('chats').doc(chat.id).collection('messages')
@@ -152,15 +165,53 @@ export async function getChatsAndClientsForCoach(): Promise<{ success: boolean; 
         });
 
         allChats = await Promise.all(chatsWithDataPromises);
-        const serializableChats = allChats.map(serializeTimestamps);
-        const serializableClients = allClients.map(serializeTimestamps);
 
-        return { success: true, data: { chats: serializableChats as Chat[], clients: serializableClients as ClientProfile[], coachUIDs } };
+        const now = new Date();
+        const miaThresholdHours = 48;
+
+        const coachingChats: Chat[] = [];
+        const groupChats: Chat[] = [];
+
+        allChats.forEach(chat => {
+            if (chat.type === 'coaching') {
+                coachingChats.push(chat);
+            } else if (chat.type === 'private_group' || chat.type === 'open') {
+                groupChats.push(chat);
+            }
+        });
+
+        const activeCoachingChats = coachingChats.filter(chat => {
+            const lastClientTimestamp = chat.lastClientMessageTimestamp ? new Date((chat.lastClientMessageTimestamp as any).toDate()) : null;
+            return lastClientTimestamp && differenceInHours(now, lastClientTimestamp) < miaThresholdHours;
+        });
+
+        const miaCoachingChats = coachingChats.filter(chat => {
+            const lastClientTimestamp = chat.lastClientMessageTimestamp ? new Date((chat.lastClientMessageTimestamp as any).toDate()) : null;
+            return !lastClientTimestamp || differenceInHours(now, lastClientTimestamp) >= miaThresholdHours;
+        });
+
+        const serializableActive = activeCoachingChats.map(serializeTimestamps);
+        const serializableMia = miaCoachingChats.map(serializeTimestamps);
+        const serializableGroup = groupChats.map(serializeTimestamps);
+        const serializableClients = allClients.map(serializeTimestamps);
+        const serializableCoaches = coaches.map(serializeTimestamps);
+
+        return { 
+            success: true, 
+            data: { 
+                activeCoachingChats: serializableActive as Chat[], 
+                miaCoachingChats: serializableMia as Chat[],
+                groupChats: serializableGroup as Chat[],
+                clients: serializableClients as ClientProfile[], 
+                coaches: serializableCoaches as ClientProfile[]
+            } 
+        };
     } catch (error: any) {
         console.error("Error fetching chats and clients for coach (admin): ", error);
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
     }
 }
+
 
 export async function getChatsForClient(userId: string): Promise<{ success: boolean; data?: Chat[]; error?: any; }> {
     if (!adminDb) {
@@ -260,8 +311,8 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
         const serializableData = uniqueChats.map(serializeTimestamps);
         
         serializableData.sort((a: any, b: any) => {
-            const dateA = new Date(a.lastMessage?.timestamp || a.createdAt || "0").getTime();
-            const dateB = new Date(b.lastMessage?.timestamp || b.createdAt || "0").getTime();
+            const dateA = new Date(a.lastActivity || a.createdAt || "0").getTime();
+            const dateB = new Date(b.lastActivity || b.createdAt || "0").getTime();
             return dateB - dateA;
         });
         
@@ -349,6 +400,8 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
         const chatRef = adminDb.collection('chats').doc();
         const participants = [userId, primaryCoachId];
 
+        const serverTimestamp = FieldValue.serverTimestamp() as any;
+
         const chatData: Omit<Chat, 'id'> = {
             name: `Coaching: ${userName}`,
             description: `Private coaching chat for ${userName}.`,
@@ -356,15 +409,16 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
             ownerId: primaryCoachId,
             participants,
             participantCount: participants.length,
-            createdAt: FieldValue.serverTimestamp() as any,
+            createdAt: serverTimestamp,
+            isCoachingChat: true, // Automatically a coaching chat
+            lastActivity: serverTimestamp, // Set initial activity timestamp
         };
 
-        const sentTimestamp = FieldValue.serverTimestamp();
         const initialMessage = {
             userId: 'system',
             userName: 'System',
             text: `This private coaching chat has been created for ${userName}.`,
-            timestamp: sentTimestamp,
+            timestamp: serverTimestamp,
             isSystemMessage: true,
         };
         const messageRef = chatRef.collection('messages').doc();
@@ -485,7 +539,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
         const chatData = chatSnapshot.data() as Chat;
 
         const messageText = text || fileName || 'Attachment';
-        const sentTimestamp = new Timestamp(Math.floor(Date.now() / 1000), 0);
+        const sentTimestamp = Timestamp.now();
 
         await adminDb.runTransaction(async (transaction) => {
             const messagesCollectionRef = chatDocRef.collection('messages');
@@ -505,7 +559,8 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                     text: messageText,
                     timestamp: sentTimestamp,
                     senderId: userId,
-                }
+                },
+                lastActivity: sentTimestamp, // Update activity on every message
             };
 
             if (!(await isUserCoach(userId))) {
@@ -918,6 +973,29 @@ export async function dismissEducationalModal(input: z.infer<typeof DismissEduca
         return { success: true };
     } catch (error: any) {
         console.error(`Failed to mark educational modal as seen for user ${userId}:`, error);
+        return { success: false, error: { message: error.message || "An unknown error occurred." } };
+    }
+}
+const ConvertChatToCoachingInputSchema = z.object({
+    chatId: z.string(),
+});
+
+export async function convertChatToCoachingAction(input: z.infer<typeof ConvertChatToCoachingInputSchema>): Promise<{ success: boolean; error?: { message: string } }> {
+    if (!adminDb) {
+        return { success: false, error: { message: "Server configuration error." } };
+    }
+    try {
+        const { chatId } = ConvertChatToCoachingInputSchema.parse(input);
+        const chatRef = adminDb.collection('chats').doc(chatId);
+
+        await chatRef.update({
+            type: 'coaching',
+        });
+
+        console.log(`Chat ${chatId} successfully converted to a coaching chat.`);
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Failed to convert chat ${input.chatId} to coaching:`, error);
         return { success: false, error: { message: error.message || "An unknown error occurred." } };
     }
 }

@@ -33,18 +33,37 @@ export async function broadcastMiaMessageAction(input: z.infer<typeof BroadcastM
   }
 
   try {
-    const { message, coachId, chatIds } = BroadcastMiaMessageInputSchema.parse(input);
+    const { message, coachId, chatIds: miaChatIdsFromClient } = BroadcastMiaMessageInputSchema.parse(input);
 
     const { authorized, name: coachName } = await verifyCoach(coachId);
     if (!authorized) {
         return { success: false, error: { message: 'Unauthorized action.' } };
     }
 
-    if (chatIds.length === 0) {
+    if (miaChatIdsFromClient.length === 0) {
         return { success: true, count: 0, message: 'No clients to message.' };
     }
 
-    const broadcastPromises = chatIds.map(chatId => {
+    // THE FIX:
+    // 1. Fetch the chats that this specific coach is a member of.
+    const coachChatsQuery = await adminDb.collection('chats')
+        .where('participants', 'array-contains', coachId)
+        .get();
+        
+    const authorizedChatIds = new Set(coachChatsQuery.docs.map(doc => doc.id));
+
+    // 2. Filter the client's MIA list to get only the chats the coach is in.
+    const finalChatIdsToSend = miaChatIdsFromClient.filter(chatId => authorizedChatIds.has(chatId));
+
+    if (finalChatIdsToSend.length === 0) {
+        console.log(`Coach ${coachId} attempted to broadcast, but has no valid MIA chats.`);
+        return { success: true, count: 0, message: 'You have no clients in the MIA list.' };
+    }
+
+    console.log(`Broadcasting to ${finalChatIdsToSend.length} chats for coach ${coachId}.`);
+
+    // 3. Send messages only to the filtered, authorized list.
+    const broadcastPromises = finalChatIdsToSend.map(chatId => {
         return postMessageAction({
             chatId: chatId,
             text: message,
@@ -55,7 +74,7 @@ export async function broadcastMiaMessageAction(input: z.infer<typeof BroadcastM
 
     await Promise.all(broadcastPromises);
 
-    return { success: true, count: chatIds.length };
+    return { success: true, count: finalChatIdsToSend.length };
 
   } catch (error: any) {
     console.error('Failed to broadcast MIA message:', error);
