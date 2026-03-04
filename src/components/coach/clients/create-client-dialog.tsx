@@ -73,7 +73,15 @@ export function CreateClientDialog({ open, onOpenChange, onClientCreated }: Crea
                 </DialogHeader>
                 <div className="flex-1 min-h-0">
                     <ScrollArea className="h-full pr-6 -mr-6">
-                        <CreateClientForm onFormSubmit={handleCreateClient} onCancel={() => onOpenChange(false)} />
+                        {/* FIX: Wrapped handleCreateClient in an arrow function to match 
+                           the expected Promise<void> signature.
+                        */}
+                        <CreateClientForm 
+                            onFormSubmit={async (values) => {
+                                await handleCreateClient(values);
+                            }} 
+                            onCancel={() => onOpenChange(false)} 
+                        />
                     </ScrollArea>
                 </div>
             </DialogContent>

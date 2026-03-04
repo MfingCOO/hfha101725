@@ -1,5 +1,5 @@
-
 'use client';
+
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -20,6 +20,9 @@ import { auth } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+// Added the import for the role-checking action
+import { getUserProfileAndRole } from '@/app/auth/actions';
 
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email." }),
@@ -29,6 +32,8 @@ const formSchema = z.object({
 export function LoginForm() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -40,9 +45,28 @@ export function LoginForm() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, values.email, values.password);
-      toast({ title: "Login Successful", description: "Welcome back!" });
-      // The AuthProvider will handle the redirect.
+      // 1. Log in via Firebase
+      const userCredential = await signInWithEmailAndPassword(auth, values.email, values.password);
+      const user = userCredential.user;
+
+      // 2. Immediately fetch their role to determine the correct dashboard
+      const result = await getUserProfileAndRole(user.uid);
+
+      if (result.success && 'data' in result) {
+        const profileData = result.data as any;
+        toast({ title: "Login Successful", description: "Welcome back!" });
+
+        // 3. Smart Redirect based on role
+        if (profileData?.role === 'coach') {
+          router.push('/coach/dashboard');
+        } else {
+          router.push('/client/dashboard');
+        }
+      } else {
+        // Fallback: If no profile exists, they likely need to complete signup
+        toast({ title: "Profile incomplete", description: "Redirecting to setup..." });
+        router.push('/signup');
+      }
     } catch (error: any) {
       console.error("Error signing in:", error);
       toast({

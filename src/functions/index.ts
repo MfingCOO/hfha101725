@@ -1,3 +1,4 @@
+'use strict';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
@@ -8,14 +9,9 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
-// -----------------------------------------------------------------------------
-// PART A: INFORMATIVE NOTIFICATION TRIGGERS
-// -----------------------------------------------------------------------------
-
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
     try {
-        // Check both collections for the user's name
         const clientDoc = await db.collection('clients').doc(userId).get();
         if (clientDoc.exists && clientDoc.data()?.fullName) {
             return clientDoc.data()?.fullName as string;
@@ -40,7 +36,8 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
 
     const chatId = event.params.chatId;
     const senderId = message.userId;
-    const messageText = message.text || 'You received a new message';
+    const messageText = message.text || 'You received a new attachment';
+    const imageUrl = message.imageUrl || null;
 
     console.log(`onNewMessage: Processing new message in chat ${chatId} from sender ${senderId}.`);
 
@@ -69,10 +66,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
         title = `New message in ${chatData.name || 'your group chat'}`;
     }
 
-    console.log(`onNewMessage: Notification details - Title: '${title}', Body: '${body}', EntityID: '${chatId}'`);
-
     const promises = recipients.map((recipientId: string) => {
-        // FIX: Determine the correct dashboard URL for the recipient
         const isRecipientCoach = recipientId === chatData.coachUid;
         const dashboardUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
         const ctaUrl = `${dashboardUrl}?notificationType=chat&entityId=${chatId}`;
@@ -83,17 +77,83 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
             message: body,
             ctaUrl: ctaUrl,
             notificationType: 'chat',
-            entityId: chatId, 
+            entityId: chatId,
+            imageUrl: imageUrl,
             sendTime: Timestamp.now(),
             processed: false,
         };
-        console.log(`onNewMessage: Creating notification document for recipient: ${recipientId}`);
+
+        console.log(`Creating notification document for user ${recipientId} for chat ${chatId}`);
         return db.collection('notifications').add(notificationData);
     });
 
     await Promise.all(promises);
     console.log(`onNewMessage: Successfully created ${recipients.length} notification documents for chat ${chatId}.`);
 });
+
+// CORRECTED FUNCTION
+async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, sentTime?: Timestamp, imageUrl?: string) {
+    let userDoc = await db.collection('clients').doc(userId).get();
+    if (!userDoc.exists) {
+        console.log(`sendPushNotification: User ${userId} not found in 'clients', trying 'coaches'.`);
+        userDoc = await db.collection('coaches').doc(userId).get();
+    }
+
+    if (!userDoc.exists) {
+        console.log(`sendPushNotification: User profile ${userId} not found in 'clients' or 'coaches'.`);
+        return;
+    }
+
+    const userData = userDoc.data();
+    if (!userData || !userData.fcmTokens || userData.fcmTokens.length === 0) {
+        console.log(`sendPushNotification: User ${userId} has no FCM tokens.`);
+        return;
+    }
+
+    const tokens = userData.fcmTokens.filter((t: string) => t);
+    if (tokens.length === 0) {
+        console.log(`sendPushNotification: No valid FCM tokens for user ${userId}.`);
+        return;
+    }
+
+    // This is the specific flat payload structure that sw.js is expecting.
+    const url = new URL(ctaUrl || '/', 'https://hunger-free-and-happy-app.web.app'); // Assuming this is your canonical URL
+    const searchParams = url.searchParams;
+
+    const dataPayload = {
+        title: title,
+        body: message,
+        url: ctaUrl || '/',
+        // Add all original query params to the top-level payload
+        ...(Object.fromEntries(searchParams.entries())),
+        // Only include imageUrl if it exists, otherwise the key should be absent.
+        ...(imageUrl && { imageUrl: imageUrl }),
+    };
+
+    const payload = { 
+        tokens: tokens,
+        data: dataPayload,
+        apns: {
+            payload: {
+                aps: {
+                    'content-available': 1,
+                    sound: 'default',
+                    badge: 1,
+                }
+            }
+        },
+    };
+
+    try {
+        console.log(`sendPushNotification: Sending corrected payload to user ${userId}:`, JSON.stringify(payload, null, 2));
+        await messaging.sendEachForMulticast(payload as any);
+        console.log(`sendPushNotification: Successfully sent notification to user ${userId}.`);
+    } catch (error) {
+        console.error(`sendPushNotification: Error sending push notification to user ${userId}:`, error);
+    }
+}
+
+// --- All other reminder engines below this line are unchanged ---
 
 export const hydrationReminderEngine = onSchedule('every 15 minutes', async (event) => {
     const now = Timestamp.now();
@@ -258,100 +318,6 @@ export const workoutReminderEngine = onSchedule('every 1 minutes', async (event)
     await Promise.all(promises);
 });
 
-// -----------------------------------------------------------------------------
-// PART B: THE ENGINE (SENDS ALL PUSH NOTIFICATIONS)
-// -----------------------------------------------------------------------------
-
-async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, notificationType?: string, entityId?: string, sentTime?: Timestamp) {
-    // --- FIX: Look for user in both 'clients' and 'coaches' collections ---
-    let userDoc = await db.collection('clients').doc(userId).get();
-    if (!userDoc.exists) {
-        console.log(`sendPushNotification: User ${userId} not found in 'clients', trying 'coaches'.`);
-        userDoc = await db.collection('coaches').doc(userId).get();
-    }
-
-    if (!userDoc.exists) {
-        console.log(`sendPushNotification: User profile ${userId} not found in 'clients' or 'coaches'.`);
-        return;
-    }
-
-    const userData = userDoc.data();
-    if (!userData) {
-        console.log(`sendPushNotification: User data is empty for user ${userId}.`);
-        return;
-    }
-
-    if (!userData.fcmTokens || userData.fcmTokens.length === 0) {
-        console.log(`sendPushNotification: User ${userId} has no FCM tokens.`);
-        return;
-    }
-
-    const tokens = userData.fcmTokens.filter((t: string) => t);
-    if (tokens.length === 0) {
-        console.log(`sendPushNotification: No valid FCM tokens for user ${userId}.`);
-        return;
-    }
-
-    // --- FIX: Construct a clean data payload with all values as strings ---
-    const dataPayload: { [key: string]: string } = {
-        title: String(title),
-        body: String(message),
-        ctaUrl: String(ctaUrl || '/'),
-        notificationType: String(notificationType || 'general'),
-        sent_time: String(sentTime?.toMillis() || Date.now()),
-    };
-
-    const type = notificationType || 'general';
-    const id = entityId || 'none';
-
-    switch (type) {
-        case 'chat':
-            dataPayload['chatId'] = String(id);
-            break;
-        case 'workout':
-        case 'workout_reminder':
-            dataPayload['workoutId'] = String(id);
-            break;
-        case 'appointment_reminder':
-        case 'appointment_booked':
-            dataPayload['appointmentId'] = String(id);
-            break;
-        default:
-            dataPayload['entityId'] = String(id);
-            break;
-    }
-
-    const payload = {
-        tokens: tokens,
-        data: dataPayload,
-        notification: { title, body: message },
-        webpush: { fcmOptions: { link: ctaUrl || '/' }, notification: { icon: '/icon.png', data: dataPayload } },
-        android: { 
-            priority: 'high' as const, 
-            notification: { 
-                title, 
-                body: message, 
-                channelId: 'chat_messages', 
-                icon: 'ic_stat_notification',
-                // --- FIX: Add priority for foreground display ---
-                priority: 'high' as const,
-            }
-        },
-        apns: {
-            payload: { aps: { alert: { title, body: message }, 'content-available': 1, sound: 'default', badge: 1, category: 'HUNGREE_NOTIFICATION_ACTIONS' }, ...dataPayload },
-            headers: { 'apns-push-type': 'alert', 'apns-priority': '10' },
-        },
-    };
-
-    try {
-        console.log(`sendPushNotification: Sending payload to user ${userId}:`, JSON.stringify(payload, null, 2));
-        await messaging.sendEachForMulticast(payload as any);
-        console.log(`sendPushNotification: Successfully sent notification to user ${userId} for type '${notificationType}'.`);
-    } catch (error) {
-        console.error(`sendPushNotification: Error sending push notification to user ${userId}:`, error);
-    }
-}
-
 export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (event) => {
   const now = Timestamp.now();
   const query = db.collection('notifications').where('processed', '==', false).where('sendTime', '<=', now);
@@ -364,7 +330,7 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
     const notification = doc.data();
     await doc.ref.update({ processed: true });
     console.log(`unifiedNotificationEngine: Processing notification ${doc.id} for user ${notification.userId}`);
-    await sendPushNotification(notification.userId, notification.title, notification.message, notification.ctaUrl, notification.notificationType, notification.entityId, notification.sendTime);
+    await sendPushNotification(notification.userId, notification.title, notification.message, notification.ctaUrl, notification.sendTime, notification.imageUrl);
   });
   await Promise.all(promises);
 });

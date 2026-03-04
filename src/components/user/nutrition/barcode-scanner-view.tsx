@@ -24,7 +24,6 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
       handleScannedBarcode(result.getText());
     },
     onDecodeError(err) {
-      // Don't set an error for normal scanning operation, only for critical failures
       if (err.message.includes('device') || err.message.includes('stream')) {
           console.error('[BarcodeScannerView] Scanner Error:', err);
           setError('Scanner error: Could not access camera. Please ensure permissions are granted and no other app is using the camera.');
@@ -51,7 +50,6 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
     } catch (err: any) {
       console.error('[BarcodeScannerView] Error processing barcode:', err);
       setError(err.message || 'An unexpected error occurred.');
-      // Keep the scanner paused on API error to show the message
     }
   };
 
@@ -79,7 +77,11 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
         </div>
       ) : (
         <>
-          <video ref={ref} className="w-full h-auto max-h-[70vh] rounded-md" />
+          {/* FIX: Cast the ref to match the expected LegacyRef/RefObject type */}
+          <video 
+            ref={ref as React.RefObject<HTMLVideoElement>} 
+            className="w-full h-auto max-h-[70vh] rounded-md" 
+          />
           <p className="text-white mt-4">Point the camera at a barcode</p>
         </>
       )}

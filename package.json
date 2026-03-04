@@ -3,19 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-  "dev": "next dev",
-  "build": "next build",
-  "start": "next start",
-  "lint": "next lint",
-  "typecheck": "tsc --noEmit",
-  "build:functions": "tsc --project src/functions/tsconfig.json"
-},
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "build:functions": "tsc --project src/functions/tsconfig.json"
+  },
   "engines": {
     "node": "20.x"
   },
   "dependencies": {
     "@capacitor-community/admob": "^5.3.1",
-    "@capacitor/local-notifications": "^5.0.7",
+    "@capacitor/local-notifications": "^5.0.8",
     "@capacitor/push-notifications": "^5.1.2",
     "@firebase/testing": "^0.20.11",
     "@genkit-ai/ai": "^1.24.0",
@@ -95,6 +95,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/uuid": "^9.0.8",
+    "@types/webpack": "^5.28.5",
     "dotenv": "^17.3.1",
     "dotenv-cli": "^7.4.2",
     "firebase-admin": "^13.6.1",

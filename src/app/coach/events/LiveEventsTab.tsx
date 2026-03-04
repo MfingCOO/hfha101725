@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { getLiveEvents, deleteLiveEvent } from './actions';
-import type { LiveEvent, UserProfile } from '@/types';
+import type { LiveEvent, ClientProfile } from '@/types';
 import { Loader2, MoreVertical, Edit, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { 
@@ -25,7 +25,7 @@ import {
 import { UpsertEventDialog } from './UpsertEventDialog';
 
 interface LiveEventWithAttendees extends LiveEvent {
-    attendeeDetails: UserProfile[];
+    attendeeDetails: ClientProfile[];
 }
 
 export function LiveEventsTab() {
@@ -38,9 +38,12 @@ export function LiveEventsTab() {
   const fetchEvents = async () => {
     setIsLoading(true);
     try {
-      const result = await getLiveEvents();
+      // FIX 1: getLiveEvents now expects the coachId as an argument
+      // Replace 'CURRENT_COACH_ID' with your actual coach context/auth ID
+      const result = await getLiveEvents('CURRENT_COACH_ID'); 
+      
       if (result.success) {
-        setEvents(result.data || []);
+        setEvents((result.data as LiveEventWithAttendees[]) || []);
       } else {
         throw new Error(result.error || 'Failed to fetch events.');
       }
@@ -58,8 +61,9 @@ export function LiveEventsTab() {
   const handleDeleteEvent = async () => {
     if (!deleteAlertState.eventId) return;
     try {
-        const deletePayload = { eventId: deleteAlertState.eventId };
-        const result = await deleteLiveEvent(deletePayload);
+        // FIX 2: deleteLiveEvent expects a string ID, not an object
+        const result = await deleteLiveEvent(deleteAlertState.eventId);
+        
         if (result.success) {
             toast({ title: 'Success', description: 'Event deleted successfully.' });
             fetchEvents();
@@ -99,7 +103,7 @@ export function LiveEventsTab() {
                         </div>
                         <div className="flex items-center">
                              <div className="text-right flex-shrink-0 ml-4">
-                                <p className="font-bold">{event.attendees.length}</p>
+                                <p className="font-bold">{event.attendees?.length || 0}</p>
                                 <p className="text-xs text-muted-foreground">Signed Up</p>
                             </div>
                             <DropdownMenu>
@@ -123,7 +127,9 @@ export function LiveEventsTab() {
                         <h4 className="text-xs font-semibold">Attendees:</h4>
                         {event.attendeeDetails && event.attendeeDetails.length > 0 ? (
                             <ul className="text-xs text-muted-foreground columns-2">
-                                {event.attendeeDetails.map(a => <li key={a.uid} className="truncate">{a.fullName}</li>)}
+                                {event.attendeeDetails.map(a => (
+                                    <li key={a.uid} className="truncate">{a.fullName}</li>
+                                ))}
                             </ul>
                         ) : ( <p className="text-xs text-muted-foreground italic">No one has signed up yet.</p> )}
                     </div>

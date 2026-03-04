@@ -1,6 +1,6 @@
 'use server';
 
-import { db as adminDb, messaging } from '@/lib/firebaseAdmin';
+import { db as adminDb } from '@/lib/firebaseAdmin';
 import type { Chat, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
 import { FieldValue, FieldPath, Timestamp, DocumentData } from 'firebase-admin/firestore';
@@ -51,23 +51,29 @@ async function getUserProfile_Admin_Robust(userId: string): Promise<any | null> 
 
     try {
         const clientRef = adminDb.collection('clients').doc(userId);
+        const clientSnap = await clientRef.get();
+
+        if (clientSnap.exists) {
+            const clientData = clientSnap.data();
+            return { ...clientData, uid: userId };
+        }
+
+        console.warn(`User ${userId} not found in 'clients' collection. Falling back to legacy userProfiles/coaches.`);
         const userProfileRef = adminDb.collection('userProfiles').doc(userId);
         const coachRef = adminDb.collection('coaches').doc(userId);
 
-        const [clientSnap, userProfileSnap, coachSnap] = await Promise.all([
-            clientRef.get(),
+        const [userProfileSnap, coachSnap] = await Promise.all([
             userProfileRef.get(),
             coachRef.get()
         ]);
 
-        const clientData = clientSnap.exists ? clientSnap.data() : {};
         const userProfileData = userProfileSnap.exists ? userProfileSnap.data() : {};
         const coachData = coachSnap.exists ? coachSnap.data() : {};
 
-        const mergedProfile = { ...clientData, ...userProfileData, ...coachData, uid: userId };
+        const mergedProfile = { ...userProfileData, ...coachData, uid: userId };
 
-        if (!clientSnap.exists && !userProfileSnap.exists && !coachSnap.exists) {
-            console.warn(`Could not find a profile for user ${userId} in any collection.`);
+        if (!userProfileSnap.exists && !coachSnap.exists) {
+            console.error(`Could not find a profile for user ${userId} in any collection.`);
             return null;
         }
 
@@ -219,12 +225,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
     }
     try {
         const userProfile = await getUserProfile_Admin_Robust(userId);
-        if (!userProfile) {
-            return { success: true, data: [] };
-        }
-        
-        const userChatIds = userProfile.chatIds || [];
-        const userTier = userProfile.tier;
+        const userTier = userProfile?.tier;
 
         const metadataSnap = await adminDb.collection('user_chat_metadata').where('userId', '==', userId).get();
         const chatMetadata: Record<string, { lastReadTimestamp: Timestamp }> = {};
@@ -238,15 +239,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
 
         const chatPromises: Promise<any>[] = [];
 
-        if (userChatIds.length > 0) {
-            const chunks: string[][] = [];
-            for (let i = 0; i < userChatIds.length; i += 30) {
-                chunks.push(userChatIds.slice(i, i + 30));
-            }
-            chunks.forEach(chunk => {
-                chatPromises.push(adminDb!.collection('chats').where(FieldPath.documentId(), 'in', chunk).get());
-            });
-        }
+        chatPromises.push(adminDb.collection('chats').where('participants', 'array-contains', userId).get());
 
         if (userTier === 'premium' || userTier === 'coaching') {
             chatPromises.push(adminDb.collection('chats').where('type', '==', 'open').get());
@@ -318,7 +311,7 @@ export async function getChatsForClient(userId: string): Promise<{ success: bool
         
         return { success: true, data: serializableData as Chat[] };
     } catch (error: any) {
-        console.error("Error fetching user's chats (admin): ", error);
+        console.error(`Error fetching user's chats (admin) for ${userId}: `, error);
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
     }
 }
@@ -358,10 +351,10 @@ export async function markChatAsReadAction(input: z.infer<typeof MarkChatAsReadI
     if (!adminDb) {
         return SERVER_ERROR;
     }
-    const { chatId, userId } = MarkChatAsReadInputSchema.parse(input);
-    const metadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
-
     try {
+        const { chatId, userId } = MarkChatAsReadInputSchema.parse(input);
+        const metadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
+
         await metadataRef.set({
             userId: userId,
             chatId: chatId,
@@ -370,13 +363,13 @@ export async function markChatAsReadAction(input: z.infer<typeof MarkChatAsReadI
 
         return { success: true };
     } catch (error: any) {
-        console.error(`Failed to mark chat ${chatId} as read for user ${userId}:`, error);
+        console.error(`Failed to mark chat ${input.chatId} as read for user ${input.userId}:`, error);
         return { success: false, error: { message: error.message } };
     }
 }
 
 export async function createCoachingChatOnFirstLogin(userId: string, userName: string): Promise<{ success: boolean; chatId?: string; error?: any }> {
-    if (!adminDb || !messaging) {
+    if (!adminDb) {
         return SERVER_ERROR;
     }
     try {
@@ -410,8 +403,8 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
             participants,
             participantCount: participants.length,
             createdAt: serverTimestamp,
-            isCoachingChat: true, // Automatically a coaching chat
-            lastActivity: serverTimestamp, // Set initial activity timestamp
+            isCoachingChat: true,
+            lastActivity: serverTimestamp,
         };
 
         const initialMessage = {
@@ -432,29 +425,6 @@ export async function createCoachingChatOnFirstLogin(userId: string, userName: s
         });
 
         await batch.commit();
-
-        const coachProfile = await getUserProfile_Admin_Robust(primaryCoachId);
-        if (coachProfile) {
-            if (coachProfile.fcmTokens && coachProfile.fcmTokens.length > 0) {
-                const validTokens = coachProfile.fcmTokens.filter((t: any) => t);
-                if (validTokens.length > 0) {
-                    const payload = {
-                        tokens: validTokens,
-                        data: {
-                            chatId: String(chatRef.id),
-                            sent_time: String(Date.now()),
-                            notificationType: 'chat'
-                        },
-                        notification: {
-                            title: `New Coaching Chat`,
-                            body: `A new coaching chat has been created for ${userName}.`
-                        }
-                    };
-                    await messaging!.sendEachForMulticast(payload as any);
-                }
-            }
-        }
-
         return { success: true, chatId: chatRef.id };
 
     } catch (error: any) {
@@ -511,7 +481,7 @@ export async function uploadChatImageAction(input: z.infer<typeof UploadChatImag
         return { success: true, fileUrl: publicUrl, fileName: fileName };
 
     } catch (error: any) {
-        console.error("Error uploading chat image via server action: ", error);
+        console.error(`Error uploading chat image via server action for chat ${input.chatId}: `, error);
         return { success: false, error: { message: error.message || 'Failed to upload image.' } };
     }
 }
@@ -526,22 +496,18 @@ const PostMessageInputSchema = z.object({
 });
 
 export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>): Promise<{ success: boolean; error?: { message: string; }; }> {
-    console.log('postMessageAction started');
-    if (!adminDb || !messaging) {
+    if (!adminDb) {
         return SERVER_ERROR;
     }
-    const { chatId, text, userId, userName, fileUrl, fileName } = PostMessageInputSchema.parse(input);
-    const chatDocRef = adminDb.collection('chats').doc(chatId);
-
     try {
-        const chatSnapshot = await chatDocRef.get();
-        if (!chatSnapshot.exists) throw new Error("Chat does not exist.");
-        const chatData = chatSnapshot.data() as Chat;
-
-        const messageText = text || fileName || 'Attachment';
+        const { chatId, text, userId, userName, fileUrl, fileName } = PostMessageInputSchema.parse(input);
+        const chatDocRef = adminDb.collection('chats').doc(chatId);
         const sentTimestamp = Timestamp.now();
 
         await adminDb.runTransaction(async (transaction) => {
+            const chatSnapshot = await transaction.get(chatDocRef);
+            if (!chatSnapshot.exists) throw new Error("Chat does not exist.");
+
             const messagesCollectionRef = chatDocRef.collection('messages');
             const messageData: any = {
                 userId,
@@ -555,12 +521,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             transaction.set(messagesCollectionRef.doc(), messageData);
 
             const updateData: { [key: string]: any } = {
-                lastMessage: {
-                    text: messageText,
-                    timestamp: sentTimestamp,
-                    senderId: userId,
-                },
-                lastActivity: sentTimestamp, // Update activity on every message
+                lastActivity: sentTimestamp,
             };
 
             if (!(await isUserCoach(userId))) {
@@ -577,61 +538,15 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             transaction.update(chatDocRef, updateData);
         });
 
-        const recipients = chatData.participants.filter(pId => pId !== userId);
-        const mutedBy = chatData.mutedBy || [];
-        let allRecipientTokens: string[] = [];
-
-        for (const recipientId of recipients) {
-            if ((await isUserCoach(recipientId)) && mutedBy.includes(recipientId)) {
-                continue;
-            }
-
-            try {
-                const userData = await getUserProfile_Admin_Robust(recipientId);
-                if (userData && userData.fcmTokens && userData.fcmTokens.length > 0) {
-                    const validTokens = userData.fcmTokens.filter((t: any) => t);
-                    allRecipientTokens.push(...validTokens);
-                }
-            } catch (error) {
-                console.error(`Error fetching profile for recipient ${recipientId}:`, error);
-            }
-        }
-        
-        const uniqueTokens = Array.from(new Set(allRecipientTokens));
-
-        if (uniqueTokens.length > 0) {
-            console.log(`Sending notification to ${uniqueTokens.length} tokens for chat ${chatId}.`);
-            const title = `New message from ${userName}`;
-            const body = messageText.slice(0, 100);
-
-            const payload = {
-                tokens: uniqueTokens,
-                notification: { title, body },
-                data: {
-                    chatId: String(chatId),
-                    notificationType: 'chat',
-                    sent_time: String(sentTimestamp.toMillis())
-                },
-                android: {
-                    priority: 'high' as const,
-                    notification: {
-                        title,
-                        body,
-                        channelId: 'chat_messages',
-                        icon: 'ic_notification',
-                        clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-                    }
-                },
-            };
-            const response = await messaging!.sendEachForMulticast(payload as any);
-            console.log('postMessageAction finished');
-            console.log(`FCM response: ${response.successCount} success, ${response.failureCount} failure.`);
-        }
+        console.log(`postMessageAction for chat ${chatId} finished. Notification will be handled by onNewMessage trigger.`);
         
         return { success: true };
 
     } catch (error: any) {
-        console.error(`Critical error in postMessageAction for chat ${chatId}:`, error);
+        console.error(`Critical error in postMessageAction for chat ${input.chatId}:`, error);
+        if (error instanceof z.ZodError) {
+            return { success: false, error: { message: `Validation Error: ${error.message}` } };
+        }
         return { success: false, error: { message: error.message || `An unknown admin error occurred.` } };
     }
 }
@@ -818,7 +733,7 @@ export async function deleteMessageAction(input: z.infer<typeof DeleteMessageInp
         await messageRef.delete();
         return { success: true };
     } catch (error: any) {
-        console.error(`Failed to delete message:`, error);
+        console.error(`Failed to delete message ${input.messageId}:`, error);
         if (error instanceof z.ZodError) {
             return { success: false, error: { message: error.errors.map(e => e.message).join(', ') } };
         }
@@ -877,10 +792,10 @@ export async function toggleChatMuteAction(input: { chatId: string, userId: stri
     if (!adminDb) {
         return SERVER_ERROR;
     }
-    const { chatId, userId } = z.object({ chatId: z.string(), userId: z.string() }).parse(input);
-    const chatRef = adminDb.collection('chats').doc(chatId);
-
     try {
+        const { chatId, userId } = z.object({ chatId: z.string(), userId: z.string() }).parse(input);
+        const chatRef = adminDb.collection('chats').doc(chatId);
+
         await adminDb.runTransaction(async (transaction) => {
             const chatDoc = await transaction.get(chatRef);
             if (!chatDoc.exists) {
@@ -899,21 +814,21 @@ export async function toggleChatMuteAction(input: { chatId: string, userId: stri
 
         return { success: true };
     } catch (error: any) {
-        console.error(`Failed to toggle mute for chat ${chatId}:`, error);
+        console.error(`Failed to toggle mute for chat ${input.chatId}:`, error);
         return { success: false, error: { message: error.message } };
     }
 }
 
-export async function deleteChatAction(input: { chatId: string }): Promise<{ success: boolean; error?: any }> {
+export async function deleteChatAction(input: { chatId: string, userId: string }): Promise<{ success: boolean; error?: any }> {
     if (!adminDb) {
         return SERVER_ERROR;
     }
 
-    const { chatId } = z.object({ chatId: z.string() }).parse(input);
-    const chatRef = adminDb.collection('chats').doc(chatId);
-
     try {
+        const { chatId, userId } = z.object({ chatId: z.string(), userId: z.string() }).parse(input);
+        const chatRef = adminDb.collection('chats').doc(chatId);
         const chatDoc = await chatRef.get();
+
         if (!chatDoc.exists) {
             console.log(`Chat ${chatId} does not exist. No action taken.`);
             return { success: true }; // Idempotent
@@ -930,15 +845,11 @@ export async function deleteChatAction(input: { chatId: string }): Promise<{ suc
         });
 
         if (participants.length > 0) {
-            for (const userId of participants) {
-                const metadataRef = adminDb.collection('user_chat_metadata').doc(`${userId}_${chatId}`);
+            for (const participantId of participants) {
+                const metadataRef = adminDb.collection('user_chat_metadata').doc(`${participantId}_${chatId}`);
                 batch.delete(metadataRef);
-            }
-        }
-        
-        if (participants.length > 0) {
-            for (const userId of participants) {
-                const userDocRef = adminDb.collection('clients').doc(userId);
+                
+                const userDocRef = adminDb.collection('clients').doc(participantId);
                 batch.update(userDocRef, {
                     chatIds: FieldValue.arrayRemove(chatId)
                 });
@@ -951,7 +862,7 @@ export async function deleteChatAction(input: { chatId: string }): Promise<{ suc
         return { success: true };
 
     } catch (error: any) {
-        console.error(`Failed to delete chat ${chatId}:`, error);
+        console.error(`Failed to delete chat ${input.chatId}:`, error);
         return { success: false, error: { message: error.message || "An unknown error occurred while deleting the chat." } };
     }
 }
@@ -964,15 +875,15 @@ export async function dismissEducationalModal(input: z.infer<typeof DismissEduca
     if (!adminDb) {
         return SERVER_ERROR;
     }
-    const { userId } = DismissEducationalModalSchema.parse(input);
     try {
+        const { userId } = DismissEducationalModalSchema.parse(input);
         const userProfileRef = adminDb.collection('userProfiles').doc(userId);
         await userProfileRef.update({
             dismissedEducationalModal: true,
         });
         return { success: true };
     } catch (error: any) {
-        console.error(`Failed to mark educational modal as seen for user ${userId}:`, error);
+        console.error(`Failed to mark educational modal as seen for user ${input.userId}:`, error);
         return { success: false, error: { message: error.message || "An unknown error occurred." } };
     }
 }

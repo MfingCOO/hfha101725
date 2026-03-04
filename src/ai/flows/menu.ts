@@ -1,22 +1,33 @@
-import { defineFlow, generate } from '@genkit-ai/core';
+import { genkit, z } from 'genkit';
 import { googleAI } from '@genkit-ai/googleai';
-import { z } from 'zod';
 
-export const initMenuFlow = () => defineFlow(
+const ai = genkit({
+  plugins: [googleAI()],
+});
+
+export const menuFlow = ai.defineFlow(
   {
     name: 'menuFlow',
-    inputSchema: z.string(),
+    inputSchema: z.object({
+      prompt: z.string(),
+      modelId: z.string(), // Pass siteSettings.aiModelSettings.flash here
+    }),
     outputSchema: z.string(),
   },
-  async (prompt) => {
-    const llmResponse = await generate({
-      prompt: `You are a helpful AI that can suggest meals based on a given food item. Suggest a few meals that can be made with the following item: ${prompt}`,
-      model: googleAI('gemini-pro'),
+  async (input) => {
+    const llmResponse = await ai.generate({
+      model: input.modelId, 
+      prompt: `Analyze the following food item: ${input.prompt}. 
+               Provide:
+               1. Normal portion sizes.
+               2. UPF (Ultra-Processed Food) percentage and justification.
+               3. Gluten-free status and justification.
+               4. Suggested healthy meals using this item.`,
       config: {
-        temperature: 0.7,
+        temperature: 0.4, // Lower temperature is better for factual nutritional data
       },
     });
 
-    return llmResponse.text();
+    return llmResponse.text; 
   }
 );

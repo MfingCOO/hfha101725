@@ -30,18 +30,17 @@ import {
 import { Loader2 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-// import { FirstUseEducationalModal } from '../modals/FirstUseEducationalModal';
-import { educationalContentLibrary, EducationalContent } from '@/lib/educational-content';
+import quotes from '@/lib/quotes.json';
+
+import { LucideIcon } from 'lucide-react';
+import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
 import { UpgradeModal } from '../modals/upgrade-modal';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
 import { ProgramWidget } from '@/components/client/ProgramWidget'; 
 import { ProgramListDialog } from '@/components/programs/program-list-dialog';
 import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
-import quotes from '@/lib/quotes.json';
 
-import { LucideIcon } from 'lucide-react';
-import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
 export interface Pillar {
   id: string;
   label: string;
@@ -50,7 +49,6 @@ export interface Pillar {
   bgColor: string;
   borderColor: string;
   requiredTier: UserTier;
-
 }
 
 const pillarsAndTools: Pillar[] = [
@@ -65,8 +63,8 @@ const pillarsAndTools: Pillar[] = [
   { id: 'insights', label: 'Insights', icon: Lightbulb, color: 'text-foreground', bgColor: 'bg-yellow-400', borderColor: 'border-yellow-600', requiredTier: UserTier.Basic },
   { id: 'measurements', label: 'Measurements', icon: Scale, color: 'text-foreground', bgColor: 'bg-gray-400', borderColor: 'border-gray-600', requiredTier: UserTier.Free },
 ];
-const tierRank: UserTier[] = [UserTier.Free, UserTier.AdFree, UserTier.Basic, UserTier.Premium, UserTier.Coaching];
 
+const tierRank: UserTier[] = [UserTier.Free, UserTier.AdFree, UserTier.Basic, UserTier.Premium, UserTier.Coaching];
 
 const topRowButtons = pillarsAndTools.slice(0, 5);
 const bottomRowButtons = pillarsAndTools.slice(5, 10);
@@ -81,7 +79,7 @@ const safeNewDate = (dateSource: any): Date | null => {
 
 export function DashboardClient() {
   const { onOpenChallenges, onOpenCalendar, isSettingsOpen, onCloseSettings } = useDashboardActions();
-  const { user, isCoach, loading } = useAuth(); // THE FIX: Get loading state
+  const { user, isCoach, loading } = useAuth(); 
   const { toast } = useToast();
   const { modalType, closeModal } = useDataEntryModal();
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
@@ -103,8 +101,6 @@ export function DashboardClient() {
   const [liveBingeFreeSince, setLiveBingeFreeSince] = useState<any>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
 
-  const [educationalModalContent, setEducationalModalContent] = useState<EducationalContent | null>(null);
-  const [isEducationalModalOpen, setIsEducationalModalOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [isProgramListOpen, setIsProgramListOpen] = useState(false);
@@ -115,17 +111,6 @@ export function DashboardClient() {
     setIsMounted(true);
   }, []);
 
-  const hasSeenFeature = useCallback((featureId: string) => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem(`hasSeen_${featureId}`) === 'true';
-  }, []);
-
-  const markFeatureAsSeen = useCallback((featureId: string) => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(`hasSeen_${featureId}`, 'true');
-  }, []);
-
-
   const executePillarAction = (pillar: Pillar) => {
     if (pillar.id === 'insights') {
       setInsightsDialogOpen(true);
@@ -134,7 +119,6 @@ export function DashboardClient() {
       setDataEntryDialogOpen(true);
     }
   }
-
 
   const handlePillarClick = (pillar: Pillar) => {
     if (!clientProfile || !isMounted) return;
@@ -150,29 +134,6 @@ export function DashboardClient() {
 
     executePillarAction(pillar);
   };
-
-
-  const handleEducationalModalConfirm = () => {
-    if (!educationalModalContent) return;
-
-    markFeatureAsSeen(educationalModalContent.id);
-    setIsEducationalModalOpen(false);
-
-    const pillar = pillarsAndTools.find(p => p.id === educationalModalContent.id);
-    if (!pillar) return;
-
-    setTimeout(() => {
-        executePillarAction(pillar);
-    }, 150);
-  };
-  
-  const handleEducationalModalClose = () => {
-      if (educationalModalContent) {
-          markFeatureAsSeen(educationalModalContent.id);
-      }
-      setIsEducationalModalOpen(false);
-  }
-
 
   const fetchDashboardData = useCallback(async () => {
     if (!user) return;
@@ -217,12 +178,6 @@ export function DashboardClient() {
     }
   }, [user, isCoach, loading, fetchDashboardData]);
 
-
- const handleOpenCalendarForIndulgence = (plan: any) => {
-  return;
-};
-
-
   useEffect(() => {
     if (onOpenCalendar) {
         (onOpenCalendar as any)._open = () => {
@@ -232,6 +187,7 @@ export function DashboardClient() {
         }
     }
   }, [onOpenCalendar]);
+
   useEffect(() => {
     if (modalType) {
       const pillarToOpen = pillarsAndTools.find(p => p.id === modalType);
@@ -319,7 +275,6 @@ export function DashboardClient() {
     setIsJoiningChallenge(false);
   };
 
-
   const renderPillarButton = (pillar: Pillar) => {
     const Icon = pillar.icon;
     const currentTierIndex = clientProfile ? tierRank.indexOf(clientProfile.tier || UserTier.Free) : 0;
@@ -338,7 +293,7 @@ export function DashboardClient() {
           )}
         >
           {isLocked && <div className="absolute inset-0 bg-black/50 rounded-full" />}
-          <Icon className={cn("h-8 w-8 sm:h-10 sm:h-10 transition-transform group-hover:scale-110", isLocked && "opacity-50")} />
+          <Icon className={cn("h-8 w-8 sm:h-10 transition-transform group-hover:scale-110", isLocked && "opacity-50")} />
           {isLocked && <Lock className="h-4 w-4 absolute top-2 right-2 sm:top-3 sm:right-3 text-white/70" />}
         </button>
       )
@@ -424,8 +379,6 @@ export function DashboardClient() {
     );
   };
 
-  const isEducationalModalLocked = clientProfile && educationalModalContent ? tierRank.indexOf(clientProfile.tier || UserTier.Free) < tierRank.indexOf(educationalModalContent.requiredTier) : false;
-
   return (
     <div className="space-y-6 pb-10">
         <div>
@@ -445,18 +398,17 @@ export function DashboardClient() {
       
       {renderChallengeSection()}
 
+      {/* FIX: Cleaned up redundant/incorrect props */}
       <ProgramWidget 
-        userProfile={clientProfile}
-        clientProfile={clientProfile}
+        clientProfile={clientProfile as ClientProfile}
         onOpenProgramList={handleOpenProgramList}
         onOpenCurrentProgram={handleOpenCurrentProgram}
       />
 
-      <UpcomingEventWidget 
-        userProfile={clientProfile}
-        clientProfile={clientProfile}
-        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
-      />
+<UpcomingEventWidget 
+  clientProfile={clientProfile}
+  onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
+/>
       
       {isLoadingIndulgences ? (
           <Skeleton className="h-24 w-full" />
@@ -480,7 +432,6 @@ export function DashboardClient() {
                    <p className="font-medium">{plan.plannedIndulgence}</p>
                    <p className="text-muted-foreground">{format(indulgenceDate, 'MMM d')}</p>
                   </div>
-
                 )
               })}
             </div>
@@ -546,23 +497,12 @@ export function DashboardClient() {
         isOpen={isUpgradeModalOpen}
         onClose={() => {
             setIsUpgradeModalOpen(false);
-            setActivePillar(null); // Clear context when closing
+            setActivePillar(null);
         }}
         requiredTier={activePillar?.requiredTier || UserTier.Premium}
         featureName={activePillar?.label || 'Premium Features'}
         reason={activePillar ? `Access to the ${activePillar.label} pillar requires a subscription.` : 'Access to this feature requires an upgrade.'}
       />
-
-      
-      {/* {isMounted && educationalModalContent && (
-        <FirstUseEducationalModal 
-            isOpen={isEducationalModalOpen}
-            onClose={handleEducationalModalClose}
-            onConfirm={handleEducationalModalConfirm}
-            content={educationalModalContent}
-            isLocked={isEducationalModalLocked}
-        />
-      )} */}
       
        {clientProfile && (
         <CalendarDialog

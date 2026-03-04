@@ -11,7 +11,8 @@ import type { LiveEvent, UserProfile, ClientProfile } from '@/types';
 interface AllEventsDialogProps {
   open: boolean;
   onClose: () => void;
-  userProfile: UserProfile | null;
+  // Make userProfile optional to match the widget
+  userProfile?: UserProfile | null;
   clientProfile: ClientProfile | null;
   onOpenUpgradeModal: () => void;
 }
@@ -22,12 +23,17 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
   const [isSigningUp, setIsSigningUp] = useState<string | null>(null);
   const { toast } = useToast();
 
+  // Helper to get the actual user ID from whichever profile is available
+  const currentUserId = userProfile?.uid || clientProfile?.uid;
+
   useEffect(() => {
-    if (open) {
+    const coachId = clientProfile?.coachId;
+
+    if (open && coachId) {
       const fetchEvents = async () => {
         setIsLoading(true);
         try {
-          const result = await getLiveEvents();
+          const result = await getLiveEvents(coachId);
           if (result.success) {
             setEvents(result.data || []);
           } else {
@@ -35,25 +41,26 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
           }
         } catch (error: any) {
           toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        } finally {
+          setIsLoading(false);
         }
-        setIsLoading(false);
       };
       fetchEvents();
     }
-  }, [open, toast]);
+  }, [open, toast, clientProfile?.coachId]);
 
   const handleSignUp = async (eventId: string) => {
-    if (!userProfile) return;
+    // Use the helper ID here
+    if (!currentUserId) return;
+    
     setIsSigningUp(eventId);
     try {
-      // CORRECTED IMPLEMENTATION: Create the input object separately
-      const input = { eventId, userId: userProfile.uid };
-      const result = await signUpForEvent(input);
+      const result = await signUpForEvent({ eventId, userId: currentUserId });
 
       if (result.success) {
         toast({ title: 'Success!', description: "You've been registered for the event." });
         setEvents(prevEvents => prevEvents.map(e => 
-            e.id === eventId ? { ...e, attendees: [...e.attendees, userProfile.uid] } : e
+            e.id === eventId ? { ...e, attendees: [...(e.attendees || []), currentUserId] } : e
         ));
       } else {
         throw new Error(result.error || 'Could not sign you up for the event.');
@@ -65,11 +72,12 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
     }
   };
 
-  const userTier = clientProfile?.tier;
+  // Modern check for tier - handles both string comparison or specific Enum if applicable
+  const userTier = clientProfile?.tier?.toLowerCase();
   const canJoin = userTier === 'premium' || userTier === 'coaching';
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Upcoming Live Events</DialogTitle>
@@ -84,7 +92,9 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
             <p className="text-center text-muted-foreground py-10">No upcoming events scheduled. Check back soon!</p>
           ) : (
             events.map(event => {
-              const isRegistered = userProfile && event.attendees.includes(userProfile.uid);
+              // Check registration using the consolidated ID
+              const isRegistered = currentUserId && event.attendees?.includes(currentUserId);
+              
               return (
                 <div key={event.id} className="p-4 border rounded-lg">
                   <h3 className="font-semibold text-md">{event.title}</h3>
@@ -95,7 +105,7 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
                   {canJoin ? (
                     <Button 
                         onClick={() => handleSignUp(event.id)}
-                        disabled={isRegistered || isSigningUp === event.id}
+                        disabled={!!isRegistered || isSigningUp === event.id}
                         className="w-full"
                     >
                       {isSigningUp === event.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

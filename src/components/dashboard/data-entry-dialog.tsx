@@ -583,7 +583,7 @@ export function DataEntryDialog({
 
     const dialogTitle = `${logId ? 'Edit' : 'Log'} ${pillar.label}`;
     const dialogDescription = randomQuote || undefined;
-    const pillarUsesTime = !['planner', 'measurements'].includes(pillar.id);
+    const pillarUsesTime = !['measurements'].includes(pillar.id);
 
     const buttonText = logId 
     ? 'Update Entry' 
@@ -638,7 +638,7 @@ export function DataEntryDialog({
                 )}
                 {pillar.id === 'planner' && (
                     <div className="flex-shrink-0 flex justify-center pyy-1">
-                        <Label className="text-xs mr-2">Date of Indulgence</Label>
+                        <Label className="text-xs mr-2">Date & Time of Indulgence</Label>
                         <DateTimePicker date={entryDate} setDate={setEntryDate} showTime={pillarUsesTime} />
                     </div>
                 )}

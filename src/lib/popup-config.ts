@@ -1,6 +1,5 @@
 import { collection, query, where, getDocs, doc, updateDoc, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { InAppMessage } from '@/contexts/NotificationContext';
+import { db } from '@/lib/firebase';import { InAppMessage } from '@/types';
 
 // Defines how to query and transform different types of pop-ups
 interface PopupConfig {

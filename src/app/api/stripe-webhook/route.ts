@@ -35,12 +35,14 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
         });
         uid = userRecord.uid;
 
+        // Ensure birthdate is a Date object if present
         if (data.birthdate) {
             data.birthdate = new Date(data.birthdate);
         }
 
         const { password, ...onboardingData } = data;
 
+        // FIX: Removed 'role' property to align with ClientProfile type
         const clientDataForGoals: Partial<ClientProfile> = {
             uid: uid,
             email: data.email,
@@ -51,13 +53,11 @@ async function createUserFromStripe(session: Stripe.Checkout.Session) {
             coachId: DEFAULT_COACH_ID,
             chatIds: [],
             challengeIds: [],
-            role: 'client',
         };
 
         const initialGoals = calculateNutritionalGoals(clientDataForGoals as ClientProfile);
         const clientDocRef = adminDb.collection('clients').doc(uid);
 
-        // A single batch write to the 'clients' collection is sufficient.
         await clientDocRef.set({
             ...clientDataForGoals,
             createdAt: Timestamp.now(),
@@ -113,7 +113,6 @@ export async function POST(req: NextRequest) {
                 }
 
                 await adminDb.runTransaction(async (transaction) => {
-                    // REFACTORED: Query the 'clients' collection instead of 'userProfiles'.
                     const clientQuery = adminDb.collection('clients').where('stripeCustomerId', '==', customerId).limit(1);
                     const clientSnapshot = await transaction.get(clientQuery);
 
@@ -130,7 +129,6 @@ export async function POST(req: NextRequest) {
                         ? 'free' 
                         : subscription.items.data[0]?.price.metadata.tier as UserTier || 'free';
 
-                    // A single update to the 'clients' collection is sufficient.
                     transaction.update(clientDoc.ref, { tier: newTier });
 
                     console.log(`[WEBHOOK] Transaction success: Updated user ${uid} to tier ${newTier}.`);

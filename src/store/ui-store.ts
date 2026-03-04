@@ -10,11 +10,12 @@ interface ChatModalState {
   closeModal: () => void;
 }
 
+// FIX: Use functional set state to ensure reactivity
 export const useChatModalStore = create<ChatModalState>((set) => ({
   isOpen: false,
   entityId: undefined,
-  openModal: (entityId) => set({ isOpen: true, entityId }),
-  closeModal: () => set({ isOpen: false, entityId: undefined }),
+  openModal: (id) => set((state) => ({ ...state, isOpen: true, entityId: id })),
+  closeModal: () => set((state) => ({ ...state, isOpen: false, entityId: undefined }))
 }));
 
 // Store for the Workout Modal
@@ -25,11 +26,12 @@ interface WorkoutModalState {
   closeModal: () => void;
 }
 
+// FIX: Use functional set state for consistency
 export const useWorkoutModalStore = create<WorkoutModalState>((set) => ({
   isOpen: false,
   entityId: null,
-  openModal: (entityId) => set({ isOpen: true, entityId }),
-  closeModal: () => set({ isOpen: false, entityId: null }),
+  openModal: (id) => set((state) => ({ ...state, isOpen: true, entityId: id })),
+  closeModal: () => set((state) => ({ ...state, isOpen: false, entityId: null }))
 }));
 
 // Store for the Calendar Modal
@@ -40,9 +42,10 @@ interface CalendarStore {
     onClose: () => void;
 }
 
+// FIX: Use functional set state for consistency
 export const useCalendarStore = create<CalendarStore>((set) => ({
     isOpen: false,
     eventId: null,
-    onOpen: (eventId = null) => set({ isOpen: true, eventId }),
-    onClose: () => set({ isOpen: false, eventId: null }),
+    onOpen: (id = null) => set((state) => ({...state, isOpen: true, eventId: id})),
+    onClose: () => set((state) => ({...state, isOpen: false, eventId: null})),
 }));

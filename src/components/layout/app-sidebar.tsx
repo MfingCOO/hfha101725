@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -50,7 +49,8 @@ export function AppSidebar() {
         if (item.id === 'challenges') {
             onOpenChallenges();
         } else if (item.id === 'chats') {
-            openChatModal(null); // ** FIX: Pass null to open the general chat list **
+            // FIX: Pass undefined instead of null to match 'string | undefined' type
+            openChatModal(undefined); 
         } else if (item.id === 'calendar') {
             onOpenCalendar();
         }

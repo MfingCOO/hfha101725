@@ -25,7 +25,7 @@ import { CreatePopupDialog } from '@/components/coach/popups/create-popup-dialog
 import { getPopupsForCoach, deletePopupAction } from "@/app/coach/popups/actions";
 import { useAuth } from '@/components/auth/auth-provider';
 import { format } from 'date-fns';
-import { Badge } from '../ui/badge';
+import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -134,7 +134,7 @@ export function ManagePopupsDialog({ open, onOpenChange }: ManagePopupsDialogPro
                              <div className="flex items-start gap-2">
                                 {popup.imageUrl && (
                                     <div className="relative w-12 h-12 flex-shrink-0">
-                                        <Image src={popup.imageUrl} alt={popup.title} fill className="object-cover rounded-md" unoptimized/>
+                                        <Image src={popup.imageUrl || ''} alt={popup.title || 'Popup'} fill className="object-cover rounded-md" unoptimized/>
                                     </div>
                                 )}
                                 <div className="flex-1 min-w-0">

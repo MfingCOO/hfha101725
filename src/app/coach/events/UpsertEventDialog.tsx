@@ -15,11 +15,10 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, Loader2 } from 'lucide-react';
-import { format, parse } from 'date-fns';
+import { format, addMinutes } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { createLiveEvent, updateLiveEvent } from './actions';
 import type { LiveEvent } from '@/types';
-import { getUserTimezone, convertToUTC } from '@/services/time';
 
 const formSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters'),
@@ -57,7 +56,9 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
   useEffect(() => {
     if (open) {
       if (initialData) {
-        const eventDate = new Date(initialData.eventTimestamp);
+        const timestamp = initialData.eventTimestamp;
+        const eventDate = timestamp instanceof Date ? timestamp : new Date(timestamp);
+        
         form.reset({
           title: initialData.title,
           description: initialData.description,
@@ -70,7 +71,7 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
         form.reset({
           title: '',
           description: '',
-          eventDate: undefined,
+          eventDate: undefined as any,
           eventTime: '17:00',
           durationMinutes: 60,
           attachVideoLink: true,
@@ -87,28 +88,39 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
 
     setIsSubmitting(true);
     try {
-      const localDate = values.eventDate;
+      // 1. Calculate Start and End Dates as ISO strings
+      const start = new Date(values.eventDate);
       const [hours, minutes] = values.eventTime.split(':').map(Number);
-      localDate.setHours(hours, minutes, 0, 0);
+      start.setHours(hours, minutes, 0, 0);
+      
+      const end = addMinutes(start, values.durationMinutes);
 
-      const userTimezone = getUserTimezone();
-      const utcEventTimestamp = convertToUTC(localDate.toISOString(), userTimezone);
-
-      const payload = {
+      // 2. Prepare Base Data matching the expected signature
+      const baseData = {
         title: values.title,
         description: values.description,
-        durationMinutes: values.durationMinutes,
-        attachVideoLink: values.attachVideoLink,
-        eventTimestamp: utcEventTimestamp,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        coachId: user.uid,
+        coachName: user.displayName || 'Coach',
       };
 
       let result;
-      if (isEditMode) {
-        const updatePayload = { ...payload, eventId: initialData!.id };
-        result = await updateLiveEvent(updatePayload);
+      if (isEditMode && initialData) {
+        // MATCH: Update expects id and isPersonal
+        const updatePayload = { 
+            ...baseData, 
+            id: initialData.id,
+            isPersonal: false 
+        };
+        result = await updateLiveEvent(updatePayload as any);
       } else {
-        const createPayload = { ...payload, coachId: user.uid };
-        result = await createLiveEvent(createPayload);
+        // MATCH: Create expects maxParticipants
+        const createPayload = { 
+            ...baseData, 
+            maxParticipants: 100 
+        };
+        result = await createLiveEvent(createPayload as any);
       }
 
       if (result.success) {
@@ -127,10 +139,14 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{isEditMode ? 'Edit Live Event' : 'Create New Live Event'}</DialogTitle>
-          <DialogDescription>{isEditMode ? 'Update the details for your live event.' : 'Fill out the details below to schedule a new event for your clients.'}</DialogDescription>
+          <DialogDescription>
+            {isEditMode 
+              ? 'Update the details for your live event.' 
+              : 'Fill out the details below to schedule a new event for your clients.'}
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -161,8 +177,8 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
                 control={form.control}
                 name="eventDate"
                 render={({ field }) => (
-                    <FormItem className="flex flex-col mt-2.5">
-                        <FormLabel>Event Date</FormLabel>
+                    <FormItem className="flex flex-col">
+                        <FormLabel className="mb-2">Event Date</FormLabel>
                         <Popover>
                             <PopoverTrigger asChild>
                                 <FormControl>

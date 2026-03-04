@@ -2,37 +2,29 @@
 
 import { useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { PushNotifications, ActionPerformed, Token, PushNotificationSchema, PermissionStatus } from '@capacitor/push-notifications';
-import { LocalNotifications, LocalNotificationSchema, LocalNotificationActionPerformed } from '@capacitor/local-notifications';
+import { ActionPerformed, PushNotifications, Token, PushNotificationSchema } from '@capacitor/push-notifications';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
-import { messaging } from '@/lib/firebase';
-import { getToken } from 'firebase/messaging';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useNotificationStore } from '@/store/notification-store';
+import { addFcmTokenAction } from '@/app/chats/actions';
+import { messaging } from '@/lib/firebase';
+import { getToken, isSupported, onMessage } from 'firebase/messaging';
+import { toast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 
-const callSaveFcmTokenHttp = async (fcmToken: string, isCoach: boolean, idToken: string | null) => {
-    if (!idToken) {
-        console.error("Auth token not available. Cannot save FCM token.");
-        return;
-    }
-    const functionUrl = 'https://us-central1-hunger-free-and-happy-app.cloudfunctions.net/saveFcmToken';
+const log = (message: string, ...data: any[]) => console.log(`[PushProvider] ${message}`, ...data);
+const logError = (message: string, ...data: any[]) => console.error(`[PushProvider] ${message}`, ...data);
+
+const createNotificationChannels = async () => {
+    if (Capacitor.getPlatform() !== 'android') return;
     try {
-        const response = await fetch(functionUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${idToken}`,
-            },
-            body: JSON.stringify({ data: { token: fcmToken, isCoach } }),
-        });
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Failed to save FCM token. Status: ${response.status}. Message: ${errorText}`);
-        }
-        console.log('Successfully saved FCM token to backend.');
-        return response.json();
+        log("Creating Android notification channels...");
+        await LocalNotifications.createChannel({ id: 'chat_messages', name: 'Chat Messages', importance: 5, sound: 'default', vibration: true, visibility: 1 });
+        await LocalNotifications.createChannel({ id: 'reminders', name: 'Reminders', importance: 4, sound: 'default', vibration: true, visibility: 1 });
+        log('Android channels created.');
     } catch (error) {
-        console.error("Error saving FCM token to backend:", error);
+        logError('Error creating channels:', error);
     }
 };
 
@@ -40,135 +32,142 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const { user, isCoach, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { 
-    setNotificationChatId, 
-    setNotificationAppointmentId, 
-    setNotificationWorkoutId, 
-    setTriggerHydrationModal 
-  } = useNotificationStore();
-  
+  const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
   const listenersAttachedForUser = useRef<string | null>(null);
 
-  const handleNotificationAction = (data: { [key: string]: any } | undefined) => {
-    if (!data) {
-        console.warn("handleNotificationAction called with no data.");
-        return;
-    }
-    console.log("Provider: Processing notification action with data:", data);
-    
-    const { notificationType } = data;
+  const handleNotificationAction = (context: string, data: { [key: string]: any }) => {
+    log(`[${context}] Handling action. Data:`, data);
+    const { notificationType, chatId, workoutId, appointmentId, link } = data;
+    if (notificationType === 'chat' && chatId) setNotificationChatId(String(chatId));
+    else if (notificationType === 'workout' && workoutId) setNotificationWorkoutId(String(workoutId));
+    else if (['appointment_reminder', 'appointment_booked'].includes(String(notificationType)) && appointmentId) setNotificationAppointmentId(String(appointmentId));
+    else if (notificationType === 'hydration') setTriggerHydrationModal(true);
+    else if (link) router.push(String(link));
+    else logError(`Unknown notification action.`, data);
+  };
 
-    switch (String(notificationType)) {
-      case 'hydration':
-        console.log('Provider: Setting hydration trigger.');
-        setTriggerHydrationModal(true);
-        break;
-      case 'chat':
-        const chatId = data.chatId;
-        console.log(`Provider: Setting notification chat ID: ${chatId}`);
-        if (chatId) setNotificationChatId(String(chatId));
-        break;
-      case 'workout':
-        const workoutId = data.workoutId;
-        console.log(`Provider: Setting notification workout ID: ${workoutId}`);
-        if (workoutId) setNotificationWorkoutId(String(workoutId));
-        break;
-      case 'appointment_reminder':
-      case 'appointment_booked':
-        const appointmentId = data.appointmentId;
-        console.log(`Provider: Setting notification appointment ID: ${appointmentId}`);
-        if (appointmentId) setNotificationAppointmentId(String(appointmentId));
-        break;
-      default:
-        console.warn(`Provider: Unknown notificationType received: ${notificationType}`);
-        break;
-    }
+  const showInAppNotification = (title: string, body: string, data: { [key: string]: any }) => {
+    toast({
+      title,
+      description: body,
+      action: (
+        <ToastAction
+          altText="Open"
+          onClick={() => handleNotificationAction('Foreground Click', data)}
+        >
+          Open
+        </ToastAction>
+      ),
+    });
   };
 
   useEffect(() => {
-    if (Capacitor.isNativePlatform() || !searchParams) return;
-    
-    const notificationType = searchParams.get('notificationType');
-    if (notificationType) {
-        console.log("PWA: Detected notification parameters in URL, handling action.");
-        const payload = { ...Object.fromEntries(searchParams.entries()) };
-        handleNotificationAction(payload);
+    if (searchParams?.get('notificationType')) {
+        log("PWA: Detected notification in URL.");
+        handleNotificationAction('PWA URL', Object.fromEntries(searchParams.entries()));
         router.replace(isCoach ? '/coach/dashboard' : '/client/dashboard', { scroll: false });
     }
   }, [searchParams, router, isCoach]);
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform() || !user || loading || listenersAttachedForUser.current === user.uid) {
-      return;
-    }
+    if (loading || !user || listenersAttachedForUser.current === user.uid) return;
 
-    const initializeNativeNotifications = async () => {
-      console.log("Initializing NATIVE push notification listeners...");
-
-      let permStatus: PermissionStatus = await PushNotifications.checkPermissions();
-      if (permStatus.receive === 'prompt') {
-        permStatus = await PushNotifications.requestPermissions();
-      }
-      if (permStatus.receive !== 'granted') {
-        console.warn("User has not granted notification permissions.");
-        return;
-      }
-
-      await PushNotifications.register();
-
-      PushNotifications.addListener('registration', async (token: Token) => {
-        console.log('Native FCM token received:', token.value);
-        const idToken = await user.getIdToken();
-        await callSaveFcmTokenHttp(token.value, !!isCoach, idToken);
-      });
-
-      PushNotifications.addListener('registrationError', (err) => console.error('Native FCM registration error:', err));
-
-      PushNotifications.addListener('pushNotificationReceived', async (notification: PushNotificationSchema) => {
-        console.log('Native FOREGROUND notification received:', notification);
-        // This block will now attempt to show a local notification.
-        // If the native plugin isn't set up from Step 1, it will log a clear error instead of crashing.
-        try {
-            await LocalNotifications.schedule({
-                notifications: [{
-                    title: notification.title || 'Hunger-Free & Happy',
-                    body: notification.body || '',
-                    id: new Date().getTime(), // Use a unique ID
-                    extra: notification.data,
-                    // IMPORTANT: Make sure 'ic_stat_notification' exists in your 'android/app/src/main/res/drawable' folders.
-                    smallIcon: 'ic_stat_notification',
-                }]
-            });
-        } catch (e) {
-            console.error("Error scheduling local notification. Is the LocalNotifications plugin configured correctly in MainActivity.java?", e);
-        }
-      });
-
-      PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-        console.log('Native BACKGROUND/COLD-START notification action performed:', action);
-        handleNotificationAction(action.notification.data);
-      });
-
-      LocalNotifications.addListener('localNotificationActionPerformed', (action: LocalNotificationActionPerformed) => {
-        console.log('Native FOREGROUND notification action performed:', action);
-        handleNotificationAction(action.notification.extra);
-      });
-
+    const initialize = async () => {
+      log(`Attaching listeners for user: ${user.uid}`);
       listenersAttachedForUser.current = user.uid;
-    };
 
-    initializeNativeNotifications().catch(err => {
-      console.error("Critical error during NATIVE push notification setup:", err);
-    });
-
-    return () => {
       if (Capacitor.isNativePlatform()) {
-        console.log("Cleaning up native notification listeners.");
-        PushNotifications.removeAllListeners();
-        LocalNotifications.removeAllListeners();
+        await createNotificationChannels();
+        await PushNotifications.requestPermissions();
+        await PushNotifications.register();
+
+        PushNotifications.addListener('registration', async (token: Token) => {
+            log('Native registration success, token:', token.value.substring(0,10));
+            await addFcmTokenAction({ userId: user.uid, token: token.value });
+            log('Native token saved.');
+        });
+
+        PushNotifications.addListener('registrationError', (error: any) => {
+            logError('Native registration error:', error);
+        });
+
+        PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+            log('Native foreground notification:', notification);
+            const { title, body, data } = notification;
+            showInAppNotification(title || 'New Message', body || '', data);
+        });
+
+        PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+            log('Native notification action performed:', action);
+            handleNotificationAction('Native Action', action.notification.data);
+        });
+
+
+      } else {
+          log('Initializing WEB push...');
+
+          try {
+            // CORRECTED: Point to the default PWA service worker.
+            await navigator.serviceWorker.register('/sw.js');
+            log('Service Worker registered successfully.');
+          } catch (error) {
+            logError('Service Worker registration failed:', error);
+            return; // Do not proceed if the SW fails to register.
+          }
+          
+          const supported = await isSupported();
+          if (!supported || !messaging) {
+            return logError('Firebase messaging is not supported in this browser.');
+          }
+
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') {
+            return logError(`Web permission denied.`, `Status: ${permission}`);
+          }
+          
+          log('Web permission granted. Getting token...');
+          // Now we can safely wait for the registration to be ready.
+          const swRegistration = await navigator.serviceWorker.ready;
+          const fcmToken = await getToken(messaging, {
+              vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
+              serviceWorkerRegistration: swRegistration,
+          });
+
+          if (fcmToken) {
+              log('Web token received. Saving...');
+              await addFcmTokenAction({ userId: user.uid, token: fcmToken });
+              log('Web token saved.');
+          } else {
+              logError('Could not get web FCM token.');
+          }
+          
+          const unsubscribeOnMessage = onMessage(messaging, (payload) => {
+            log('Web foreground message received:', payload);
+            const { notification, data } = payload;
+            if (notification && data) {
+                showInAppNotification(notification.title || 'New Message', notification.body || '', data);
+            }
+          });
+
+          const handleServiceWorkerMessage = (event: MessageEvent) => {
+            if (event.data?.type === 'notification_clicked') {
+                log('Received notification click from service worker');
+                handleNotificationAction('PWA Click', event.data.data);
+            }
+          };
+    
+          navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+
+          return () => {
+            unsubscribeOnMessage();
+            navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
+          }
       }
     };
-  }, [user, isCoach, loading]);
+
+    initialize();
+
+  }, [user, loading, isCoach, router]);
 
   return <>{children}</>;
 };

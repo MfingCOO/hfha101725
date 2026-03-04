@@ -14,36 +14,22 @@ const FoodSearchResultSchema = z.array(
   })
 );
 
-async function searchUSDA(
-  query: string
-): Promise<z.infer<typeof FoodSearchResultSchema>> {
+async function searchUSDA(query: string) {
   const USDA_API_KEY = process.env.USDA_API_KEY;
-  if (!USDA_API_KEY) {
-    console.error('[Food Search API] CRITICAL: USDA_API_KEY is not configured.');
-    return [];
-  }
-  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(
-    query
-  )}&pageSize=50&dataType=Branded,SR%20Legacy,Foundation`;
+  if (!USDA_API_KEY) return [];
+  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=20`;
   try {
     const response = await fetch(url);
-    if (!response.ok) {
-      return [];
-    }
+    if (!response.ok) return [];
     const data: FoodData = await response.json();
-    return FoodSearchResultSchema.parse(
-      data.foods.map((food) => ({
-        fdcId: food.fdcId,
-        description: food.description,
-        brandOwner: food.brandOwner,
-        ingredients: food.ingredients,
-      }))
-    );
+    return data.foods.map((food) => ({
+      fdcId: food.fdcId,
+      description: food.description,
+      brandOwner: food.brandOwner || '',
+      ingredients: food.ingredients || '',
+      source: 'usda'
+    }));
   } catch (error) {
-    console.error(
-      '[Food Search API] Failed to fetch or parse data from USDA API:',
-      error
-    );
     return [];
   }
 }
@@ -53,71 +39,47 @@ async function searchAlgolia(query: string): Promise<HybridFoodSearchResult[]> {
     const { results } = await algoliaAdmin.search([
       {
         indexName: 'food_cache',
-        params: {
-          query: query,
-          hitsPerPage: 50,
-          removeWordsIfNoResults: 'allOptional', // Allow partial matches
-        },
+        params: { query: query, hitsPerPage: 20 },
       },
     ]);
 
     const hits = (results[0] as any)?.hits || [];
+    // CRITICAL: We map manually to ensure we only send PLAIN PRIMITIVES
     return hits.map((hit: any) => ({
-      fdcId: hit.fdcId,
-      description: hit.description,
-      brandOwner: hit.brandOwner || '',
+      fdcId: Number(hit.fdcId),
+      description: String(hit.description || ''),
+      brandOwner: String(hit.brandOwner || ''),
       isCached: true,
     }));
   } catch (error) {
-    console.error('[Food Search API] Failed to search Algolia:', error);
     return [];
   }
 }
 
-export async function hybridFoodSearch(
-  query: string,
-  scope: 'all' | 'usda' | 'cached' = 'all'
-) {
-  'use server';
+export async function hybridFoodSearch(query: string, scope: string = 'all') {
   if (query.length < 2) return [];
 
-  // 1. Fetch results from both sources concurrently.
   const [usdaResults, algoliaResults] = await Promise.all([
-    scope === 'all' || scope === 'usda'
-      ? searchUSDA(query)
-      : Promise.resolve([]),
-    scope === 'all' || scope === 'cached'
-      ? searchAlgolia(query)
-      : Promise.resolve([]),
+    (scope === 'all' || scope === 'usda') ? searchUSDA(query) : Promise.resolve([]),
+    (scope === 'all' || scope === 'cached') ? searchAlgolia(query) : Promise.resolve([]),
   ]);
 
-  // 2. Combine results, prioritizing the cache and respecting provider ranking.
-  const finalResults: HybridFoodSearchResult[] = [];
+  const finalResults: any[] = [];
   const seenFdcIds = new Set<number>();
 
-  // Add Algolia (cached) results first. Algolia's ranking is respected.
   algoliaResults.forEach(food => {
-      if (!seenFdcIds.has(food.fdcId)) {
-          finalResults.push({ ...food, isCached: true });
-          seenFdcIds.add(food.fdcId);
-      }
+    if (!seenFdcIds.has(food.fdcId)) {
+      finalResults.push({ ...food, isCached: true });
+      seenFdcIds.add(food.fdcId);
+    }
   });
 
-  // Add USDA results for items that are not already in our cache.
   usdaResults.forEach(food => {
-      if (!seenFdcIds.has(food.fdcId)) {
-          finalResults.push({ ...food, isCached: false });
-          seenFdcIds.add(food.fdcId);
-      }
+    if (!seenFdcIds.has(food.fdcId)) {
+      finalResults.push({ ...food, isCached: false });
+      seenFdcIds.add(food.fdcId);
+    }
   });
-
-  // 3. Filter results based on the requested scope.
-  if (scope === 'cached') {
-    return finalResults.filter(r => r.isCached);
-  }
-  if (scope === 'usda') {
-    return finalResults.filter(r => !r.isCached);
-  }
   
   return finalResults;
 }

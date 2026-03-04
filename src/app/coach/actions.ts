@@ -1,7 +1,6 @@
-
 'use server';
 
-import { admin, db as adminDb, auth } from "@/lib/firebaseAdmin";
+import { admin, db as adminDb } from "@/lib/firebaseAdmin";
 import { Chat, Challenge, ClientProfile } from "@/types";
 import { Timestamp, FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
@@ -23,10 +22,38 @@ function serializeTimestamps(obj: any): any {
     return obj;
 }
 
+/**
+ * Updates a coach's email address in Firebase Auth.
+ */
+export async function updateCoachEmailAction(uid: string, newEmail: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        await admin.auth().updateUser(uid, {
+            email: newEmail,
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error updating coach email:", error);
+        return { success: false, error: error.message || "Failed to update email." };
+    }
+}
+
+/**
+ * Updates a coach's password in Firebase Auth.
+ */
+export async function updateCoachPasswordAction(uid: string, newPassword: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        await admin.auth().updateUser(uid, {
+            password: newPassword,
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error updating coach password:", error);
+        return { success: false, error: error.message || "Failed to update password." };
+    }
+}
 
 /**
  * Creates a new coaching chat between a coach and a client.
- * Updates both the client and coach profiles to include the new chat ID.
  */
 export async function createCoachingChat(clientUid: string, coachUid: string, clientName: string, coachName: string): Promise<{ success: boolean; error?: string; chatId?: string }> {
     if (!clientUid || !coachUid) {
@@ -45,16 +72,12 @@ export async function createCoachingChat(clientUid: string, coachUid: string, cl
         participants: [clientUid, coachUid],
         participantCount: 2,
         createdAt: FieldValue.serverTimestamp(),
-        lastMessage: undefined, // No last message on creation
         unreadCount: 0,
     };
 
     try {
         await adminDb.runTransaction(async (transaction) => {
-            // 1. Set the new chat data
             transaction.set(newChatRef, chatData);
-
-            // 2. Add chat ID to both client's and coach's profiles
             transaction.update(clientRef, { chatIds: FieldValue.arrayUnion(newChatRef.id) });
             transaction.update(coachRef, { chatIds: FieldValue.arrayUnion(newChatRef.id) });
         });
@@ -67,7 +90,6 @@ export async function createCoachingChat(clientUid: string, coachUid: string, cl
     }
 }
 
-
 /**
  * Creates a new open chat available for all premium users to join.
  */
@@ -78,7 +100,7 @@ export async function createOpenChat(name: string, description: string, rules: s
 
     const newChatRef = adminDb.collection('chats').doc();
     
-    const chatData = {
+    const chatData: Omit<Chat, 'id'> = {
         name,
         description,
         type: 'open',
@@ -87,17 +109,15 @@ export async function createOpenChat(name: string, description: string, rules: s
         participantCount: 1, 
         createdAt: FieldValue.serverTimestamp(),
         rules: rules || ['Be respectful and supportive.'],
+        unreadCount: 0
     };
 
     try {
         await newChatRef.set(chatData);
-        
-        // The coach who creates it should also have it in their chat list
         const coachRef = adminDb.collection('clients').doc(coachId);
         await coachRef.update({ chatIds: FieldValue.arrayUnion(newChatRef.id) });
 
-        revalidatePath('/chats'); // Revalidate for all users to see the new open chat
-
+        revalidatePath('/chats');
         return { success: true, chatId: newChatRef.id };
     } catch (error: any) {
         console.error("Error creating open chat:", error);
@@ -106,16 +126,13 @@ export async function createOpenChat(name: string, description: string, rules: s
 }
 
 /**
- * Fetches all challenges, including participant data.
- * This is a coach-specific action.
- * BUG FIX: Now serializes timestamps before returning data.
+ * Fetches all challenges for coach.
  */
 export async function getChallengesForCoach(): Promise<{ success: boolean; data?: Challenge[]; error?: any; }> {
     try {
         const q = adminDb.collection("challenges").orderBy("dates.from", "desc");
         const querySnapshot = await q.get();
         const challenges = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Challenge));
-        
         const serializedChallenges = serializeTimestamps(challenges);
 
         return { success: true, data: serializedChallenges };
@@ -127,7 +144,6 @@ export async function getChallengesForCoach(): Promise<{ success: boolean; data?
 
 /**
  * Creates a new challenge and an associated chat room.
- * Only accessible to coaches.
  */
 export async function createChallengeAction(challengeData: Omit<Challenge, 'id' | 'participantCount' | 'participants'>, coachId: string): Promise<{ success: boolean; error?: string }> {
     try {
@@ -136,42 +152,39 @@ export async function createChallengeAction(challengeData: Omit<Challenge, 'id' 
         }
 
         const challengeRef = adminDb.collection('challenges').doc();
-        const chatRef = adminDb.collection('chats').doc(challengeRef.id); // Chat will have the same ID as the challenge
+        const chatRef = adminDb.collection('chats').doc(challengeRef.id);
         const coachProfileRef = adminDb.collection('clients').doc(coachId);
 
         const batch = adminDb.batch();
 
-        // 1. Create the Challenge document
         const newChallenge: Omit<Challenge, 'id'> = {
             ...challengeData,
-            participants: [coachId], // The coach is the first participant
+            participants: [coachId],
             participantCount: 1,
             createdAt: FieldValue.serverTimestamp(),
         };
         batch.set(challengeRef, newChallenge);
 
-        // 2. Create the associated Chat document
         const newChat: Omit<Chat, 'id'> = {
-            name: challengeData.name,
+            name: challengeData.name ?? (challengeData as any).title ?? "New Challenge",
             description: challengeData.description,
             type: 'challenge',
             ownerId: coachId,
             participants: [coachId],
             participantCount: 1,
             createdAt: FieldValue.serverTimestamp(),
-            thumbnailUrl: challengeData.thumbnailUrl,
+            unreadCount: 0,
             rules: ['Be respectful, supportive, and stick to the challenge goals!']
         };
         batch.set(chatRef, newChat);
 
-        // 3. Add the challenge and chat IDs to the coach's profile
         batch.update(coachProfileRef, {
             challengeIds: FieldValue.arrayUnion(challengeRef.id),
             chatIds: FieldValue.arrayUnion(chatRef.id),
         });
 
         await batch.commit();
-        revalidatePath('/challenges'); // Revalidate the page for all users
+        revalidatePath('/challenges');
 
         return { success: true };
 
@@ -183,14 +196,12 @@ export async function createChallengeAction(challengeData: Omit<Challenge, 'id' 
 
 /**
  * Fetches all clients for a specific coach.
- * BUG FIX: Now serializes timestamps before returning data.
  */
 export async function getClientsForCoach(coachId: string): Promise<{ success: boolean; data?: ClientProfile[]; error?: any; }> {
     try {
         const q = adminDb.collection('clients').where('coachId', '==', coachId);
         const querySnapshot = await q.get();
         const clients = querySnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as ClientProfile));
-        
         const serializedClients = serializeTimestamps(clients);
 
         return { success: true, data: serializedClients };
@@ -210,17 +221,13 @@ export async function uploadImageAction(formData: FormData): Promise<{ success: 
         const bucket = admin.storage().bucket();
         const filePath = `user-uploads/${Date.now()}-${file.name}`;
         const bucketFile = bucket.file(filePath);
-
         const fileBuffer = Buffer.from(await file.arrayBuffer());
 
         await bucketFile.save(fileBuffer, {
-            metadata: {
-                contentType: file.type,
-            },
+            metadata: { contentType: file.type },
         });
         
         const [url] = await bucketFile.getSignedUrl({ action: 'read', expires: '03-09-2491' });
-
         return { success: true, url };
 
     } catch (error: any) {
@@ -228,7 +235,6 @@ export async function uploadImageAction(formData: FormData): Promise<{ success: 
         return { success: false, error: error.message };
     }
 }
-
 
 export async function upsertChallengeAction(challengeData: Omit<Challenge, 'id' | 'participantCount' | 'participants'>, coachId: string): Promise<{ success: boolean; error?: string }> {
     return createChallengeAction(challengeData, coachId);
@@ -238,8 +244,6 @@ export async function deleteChallengeAction(challengeId: string): Promise<{ succ
     try {
         const challengeRef = adminDb.collection('challenges').doc(challengeId);
         const chatRef = adminDb.collection('chats').doc(challengeId);
-
-        // You might want to remove the challenge/chat from user profiles as well, which requires a more complex transaction or batch write.
 
         const batch = adminDb.batch();
         batch.delete(challengeRef);

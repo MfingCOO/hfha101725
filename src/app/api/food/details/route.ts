@@ -1,50 +1,62 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/firebaseAdmin';
+import { enrichFoodDetailsFlow } from '@/ai/flows/nutrition/enrich-food-details-flow';
+import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 
-import { NextResponse } from 'next/server';
-
-// This is the new, centralized function for fetching food details.
-async function getFoodDetailsFromUSDA(fdcId: number) {
-  const apiKey = process.env.USDA_API_KEY;
-  if (!apiKey) {
-    throw new Error('USDA API key is not configured.');
-  }
-
-  const url = `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${apiKey}`;
-  console.log(`[Food Details API] Fetching from: ${url}`)
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    console.error(`[Food Details API] USDA API request failed with status: ${response.status}`)
-    throw new Error(`USDA API request failed with status: ${response.status}`);
-  }
-
-  const data = await response.json();
-
-  // Standardize the output to match our application's data model.
-  return {
-    fdcId: data.fdcId,
-    description: data.description,
-    ingredients: data.ingredients || ''
-  };
+/**
+ * Fixes the "Only plain objects" error by converting 
+ * Firestore Timestamps into plain numbers.
+ */
+function makePlain(data: any): any {
+  return JSON.parse(JSON.stringify(data, (key, value) => {
+    if (value && typeof value === 'object' && value._seconds !== undefined) {
+      return (value._seconds * 1000) + (value._nanoseconds / 1000000);
+    }
+    return value;
+  }));
 }
 
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-    const { fdcId } = body;
+    const { fdcId } = await req.json();
+    if (!fdcId) return NextResponse.json({ error: 'Missing fdcId' }, { status: 400 });
 
-    if (!fdcId) {
-      return new NextResponse(JSON.stringify({ message: 'fdcId is required' }), { status: 400 });
+    // 1. Check Cache
+    const cachedDoc = await db.collection('foodCache').doc(String(fdcId)).get();
+    if (cachedDoc.exists) {
+      console.log(`[Cache Hit] Returning cached data for ${fdcId}`);
+      // The makePlain() call is the critical fix here
+      return NextResponse.json(makePlain(cachedDoc.data()));
     }
 
-    console.log(`[Food Details API] Received request for fdcId: ${fdcId}`)
-    const foodDetails = await getFoodDetailsFromUSDA(fdcId);
-    return NextResponse.json(foodDetails);
+    // 2. Fetch from USDA
+    const apiKey = process.env.USDA_API_KEY;
+    const usdaRes = await fetch(`https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${apiKey}`);
+    if (!usdaRes.ok) throw new Error('USDA API failure');
+    const foodData = await usdaRes.json();
+
+    // 3. Get Model & Run AI
+    const settings = await getSiteSettingsAction();
+    const model = settings.data?.aiModelSettings?.flash || 'gemini-1.5-flash';
+
+    const enrichedData = await enrichFoodDetailsFlow({
+      description: foodData.description,
+      ingredients: foodData.ingredients || '',
+      modelName: model
+    });
+
+    // 4. Save to Cache
+    const finalData = {
+      ...enrichedData,
+      fdcId,
+      updatedAt: new Date(),
+    };
+    await db.collection('foodCache').doc(String(fdcId)).set(finalData);
+
+    return NextResponse.json(makePlain(finalData));
 
   } catch (error: any) {
-    console.error('[Food Details API] An error occurred:', error);
-    return new NextResponse(
-      JSON.stringify({ message: error.message || 'An internal server error occurred.' }),
-      { status: 500 }
-    );
+    console.error('[Details API Error]:', error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

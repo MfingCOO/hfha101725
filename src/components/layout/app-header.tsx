@@ -24,9 +24,10 @@ export function AppHeader() {
     });
   }, []);
 
-
   const getTitle = () => {
-    if (pathname === '/') return 'Dashboard';
+    if (pathname === '/' || pathname === '/client/dashboard' || pathname === '/coach/dashboard') {
+      return 'Dashboard';
+    }
     const name = pathname.split('/').pop() ?? 'Dashboard';
     return name.charAt(0).toUpperCase() + name.slice(1);
   };
@@ -40,13 +41,17 @@ export function AppHeader() {
           </div>
       )
     }
-     return <h1 className="text-xl font-semibold tracking-tight">{getTitle()}</h1>
+    return <h1 className="text-xl font-semibold tracking-tight">{getTitle()}</h1>
   };
 
   return (
     <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm sm:px-6 lg:px-8">
       <div className="flex items-center gap-4">
-        {!isCoach && <SidebarTrigger className={cn("md:hidden", isMobile === undefined && "invisible")} />}
+        {/* Only show sidebar trigger for clients on mobile */}
+        {!isCoach && (
+          <SidebarTrigger className={cn("md:hidden", isMobile === undefined && "invisible")} />
+        )}
+        
         {siteUrl ? (
           <Link href={siteUrl} target="_blank" rel="noopener noreferrer">
             <TitleContent />
@@ -55,8 +60,10 @@ export function AppHeader() {
           <TitleContent />
         )}
       </div>
+
       <div className="flex items-center gap-2 sm:gap-4">
-        <div className="md:block">
+        <div className="flex items-center">
+            {/* UserNav handles the Avatar/Profile Picture logic */}
             <UserNav />
         </div>
       </div>

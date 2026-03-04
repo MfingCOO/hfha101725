@@ -1,75 +1,83 @@
-"use client";
+'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, DocumentData } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
-import { usePathname, useRouter } from 'next/navigation';
+import { auth } from '@/lib/firebase';
+import type { ClientProfile, UserProfile } from '@/types';
+import { getUserProfileAndRole } from '@/app/auth/actions';
 
 interface AuthContextType {
-    user: User | null;
-    userProfile: DocumentData | null;
-    loading: boolean;
-    isCoach: boolean;
+  user: User | null;
+  profile: ClientProfile | null;
+  /** Alias for profile to maintain compatibility across components */
+  userProfile: UserProfile | null;
+  loading: boolean;
+  isCoach: boolean;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, userProfile: null, loading: true, isCoach: false });
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-    const [user, setUser] = useState<User | null>(null);
-    const [userProfile, setUserProfile] = useState<DocumentData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [isCoach, setIsCoach] = useState(false);
-    const router = useRouter();
-    const pathname = usePathname();
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<ClientProfile | null>(null);
+  const [isCoach, setIsCoach] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-            if (firebaseUser) {
-                const userDocRef = doc(db, 'clients', firebaseUser.uid);
-                const userDoc = await getDoc(userDocRef);
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setIsLoading(true);
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        try {
+          const result = await getUserProfileAndRole(firebaseUser.uid);
 
-                if (userDoc.exists()) {
-                    const profileData = userDoc.data() as DocumentData;
-                    setUser(firebaseUser);
-                    setUserProfile(profileData);
+          if (result.success && 'data' in result) {
+            const profileData = result.data as any;
+            setProfile(profileData as ClientProfile);
+            setIsCoach(profileData?.role === 'coach');
+          } else {
+            // If the user exists in Auth but has no profile document yet,
+            // we set profile to null which will trigger the onboarding/signup logic correctly.
+            console.warn("[AuthProvider] User authenticated but no profile found.");
+            setProfile(null);
+            setIsCoach(false);
+          }
+        } catch (err) {
+          console.error("[AuthProvider] Error fetching profile:", err);
+          setProfile(null);
+          setIsCoach(false);
+        }
+      } else {
+        // Clear state on logout
+        setUser(null);
+        setProfile(null);
+        setIsCoach(false);
+      }
+      setIsLoading(false);
+    });
 
-                    const coachCheck = profileData.role === 'coach';
-                    setIsCoach(coachCheck);
+    return () => unsubscribe();
+  }, []);
 
-                    if (pathname) {
-                        if (coachCheck) {
-                            if (!pathname.startsWith('/coach')) router.push('/coach/dashboard');
-                        } else {
-                            if (!pathname.startsWith('/client')) router.push('/client/dashboard');
-                        }
-                    }
-                } else {
-                    console.error("CRITICAL: User profile not found. Logging out.");
-                    auth.signOut();
-                    setUser(null);
-                    setUserProfile(null);
-                }
-            } else {
-                setUser(null);
-                setUserProfile(null);
-                setIsCoach(false);
-                const publicPaths = ['/login', '/', '/signup', '/tos', '/privacy', '/support'];
-                if (pathname && !publicPaths.includes(pathname)) {
-                    router.push('/login');
-                }
-            }
-            setLoading(false);
-        });
+  return (
+    <AuthContext.Provider 
+      value={{ 
+        user, 
+        profile, 
+        userProfile: profile as unknown as UserProfile, // Alias for component compatibility
+        loading: isLoading, 
+        isCoach 
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
-        return () => unsubscribe();
-    }, [router, pathname]);
-
-    return (
-        <AuthContext.Provider value={{ user, userProfile, loading, isCoach }}>
-            {children}
-        </AuthContext.Provider>
-    );
-};
-
-export const useAuth = () => useContext(AuthContext);
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}

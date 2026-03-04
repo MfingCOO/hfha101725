@@ -90,7 +90,10 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
         const tempProfileForCalc: Partial<ClientProfile> = {
             onboarding: { ...data, birthdate: new Date(data.birthdate) },
             idealBodyWeight: idealBodyWeight, // Pass the correctly calculated value.
-            height: { value: data.height, unit: data.units }
+            height: { 
+                value: data.height, 
+                unit: data.units === 'imperial' ? 'in' : 'cm' 
+            }
         };
 
         // This function now receives an object with the correct idealBodyWeight.

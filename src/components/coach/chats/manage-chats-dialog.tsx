@@ -204,7 +204,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     const handleDelete = async () => {
         if (!deleteAlertState.chat || !user) return;
         setIsDeleting(true);
-        const result = await deleteChatAction({ chatId: deleteAlertState.chat.id });
+        const result = await deleteChatAction({ chatId: deleteAlertState.chat.id, userId: user.uid });
         if (result.success) {
             toast({ title: "Success", description: "The chat has been deleted." });
             fetchChats();

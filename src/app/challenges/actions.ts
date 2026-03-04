@@ -1,27 +1,39 @@
-
 'use server';
 
 import { db as adminDb } from '@/lib/firebaseAdmin';
-import type { Challenge } from '@/services/firestore';
+import type { Challenge } from '@/types';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
-function serializeTimestamps(docData: any) {
-    if (!docData) return docData;
-    const newObject: { [key: string]: any } = { ...docData };
-    for (const key in newObject) {
-      if (newObject[key] && typeof newObject[key].toDate === 'function') {
-        newObject[key] = newObject[key].toDate().toISOString();
-      } else if (key === 'dates' && newObject.dates) {
-            newObject.dates = {
-                from: newObject.dates.from.toDate().toISOString(),
-                to: newObject.dates.to.toDate().toISOString(),
-            }
-      } else if (typeof newObject[key] === 'object' && newObject[key] !== null && !Array.isArray(newObject[key])) {
-          newObject[key] = serializeTimestamps(newObject[key]);
-      }
+/**
+ * Recursively traverses an object or array and converts all Firestore Timestamp
+ * objects to ISO 8601 date strings. This is a safe and robust way to serialize
+ * data for sending from Server Actions to Client Components.
+ */
+function serializeTimestamps(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+        return obj;
     }
-    return newObject;
+
+    // Handle Firestore Timestamps
+    if (obj.toDate && typeof obj.toDate === 'function') {
+        return obj.toDate().toISOString();
+    }
+
+    // Handle arrays by recursively serializing each item
+    if (Array.isArray(obj)) {
+        return obj.map(serializeTimestamps);
+    }
+
+    // Handle objects by recursively serializing each value
+    const newObj: { [key: string]: any } = {};
+    for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            newObj[key] = serializeTimestamps(obj[key]);
+        }
+    }
+    return newObj;
 }
+
 
 /**
  * Fetches all challenges for a client using the Admin SDK to bypass security rules.
@@ -38,6 +50,7 @@ export async function getChallengesForClient(): Promise<{ success: boolean; data
 
     } catch (error: any) {
         console.error("Error fetching challenges for client (admin): ", error);
+        // Return a serializable error object
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
     }
 }
@@ -65,6 +78,7 @@ export async function getLatestChallengeForClient(): Promise<{ success: boolean;
 
     } catch (error: any) {
         console.error("Error fetching latest challenge for client (admin): ", error);
+        // Return a serializable error object
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
     }
 }
@@ -91,7 +105,10 @@ export async function joinChallengeAction(challengeId: string, userId: string): 
                 return;
             }
             
-            if (challengeData.participantCount >= challengeData.maxParticipants) {
+            const currentCount = challengeData.participantCount || 0;
+            const maxParticipants = (challengeData as any).maxParticipants || 999;
+
+            if (currentCount >= maxParticipants) {
                 throw new Error("This challenge is already full.");
             }
 

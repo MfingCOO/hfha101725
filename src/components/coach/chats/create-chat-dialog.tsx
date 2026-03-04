@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -25,10 +24,10 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Loader2, Users, Lock, X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { getChatsAndClientsForCoach, createChatAction } from '@/app/chats/actions';
+import { createChatAction } from '@/app/chats/actions';
 import type { ClientProfile } from '@/types';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Combobox } from '@/components/ui/combobox';
@@ -74,10 +73,21 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated, clients }:
   });
 
   const onSubmit = async (values: z.infer<typeof chatFormSchema>) => {
-    if (!user) return;
+    if (!user) {
+        toast({ variant: 'destructive', title: 'Error', description: 'User not found.' });
+        return;
+    }
     setIsLoading(true);
     try {
-        const result = await createChatAction({ ...values, requesterId: user.uid });
+        // Corrected: Passing ownerId and ensuring the spread matches the action's expected type
+        const result = await createChatAction({ 
+            name: values.name,
+            type: values.type as any,
+            description: values.description,
+            participants: values.participantIds || [],
+            ownerId: user.uid 
+        });
+
         if (result.success) {
             toast({ title: 'Chat Created!', description: `${values.name} is now live.` });
             onChatCreated();
@@ -157,13 +167,13 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated, clients }:
                               <FormControl>
                                 <RadioGroupItem value="open" />
                               </FormControl>
-                              <FormLabel className="font-normal flex items-center gap-2"><Users />Open to All Premium+</FormLabel>
+                              <FormLabel className="font-normal flex items-center gap-2"><Users className="h-4 w-4" />Open to All</FormLabel>
                             </FormItem>
                             <FormItem className="flex items-center space-x-3 space-y-0">
                               <FormControl>
                                 <RadioGroupItem value="private_group" />
                               </FormControl>
-                              <FormLabel className="font-normal flex items-center gap-2"><Lock />Private Group</FormLabel>
+                              <FormLabel className="font-normal flex items-center gap-2"><Lock className="h-4 w-4" />Private Group</FormLabel>
                             </FormItem>
                           </RadioGroup>
                         </FormControl>
@@ -180,9 +190,9 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated, clients }:
                         <FormItem>
                             <FormLabel>Chat Rules</FormLabel>
                             <FormControl>
-                                <Textarea placeholder="e.g., 1. Be supportive and respectful.&#10;2. No medical advice.&#10;3. Share wins and struggles." {...field} rows={4}/>
+                                <Textarea placeholder="e.g., 1. Be supportive.&#10;2. No medical advice." {...field} rows={4}/>
                             </FormControl>
-                             <FormDescription>Users must agree to these rules before joining.</FormDescription>
+                             <FormDescription>Users must agree to rules before joining.</FormDescription>
                             <FormMessage />
                         </FormItem>
                         )}
@@ -198,7 +208,7 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated, clients }:
                             <FormLabel>Add Participants</FormLabel>
                              <Combobox
                                 options={clientOptions}
-                                placeholder="Select a client to add..."
+                                placeholder="Select a client..."
                                 searchPlaceholder='Search clients...'
                                 onChange={(value) => {
                                     if(value && !field.value?.includes(value)) {
@@ -212,7 +222,7 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated, clients }:
                     />
                 )}
 
-                 {chatType === 'private_group' && form.getValues('participantIds') && form.getValues('participantIds')!.length > 0 && (
+                 {chatType === 'private_group' && (form.watch('participantIds')?.length ?? 0) > 0 && (
                      <div className="space-y-2">
                         <h4 className="text-sm font-medium">Selected Participants</h4>
                          <div className="flex flex-wrap gap-2">
@@ -227,7 +237,8 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated, clients }:
                                             size="icon"
                                             className="h-5 w-5"
                                             onClick={() => {
-                                                const newIds = form.getValues('participantIds')?.filter(pId => pId !== id);
+                                                const currentIds = form.getValues('participantIds') || [];
+                                                const newIds = currentIds.filter(pId => pId !== id);
                                                 form.setValue('participantIds', newIds);
                                             }}
                                         >
@@ -245,11 +256,15 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated, clients }:
             </div>
           </ScrollArea>
         </div>
-        <DialogFooter>
+        <DialogFooter className="p-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="submit" form="create-chat-form" disabled={isLoading || !form.formState.isValid} onClick={form.handleSubmit(onSubmit)}>
+          <Button 
+            type="submit" 
+            form="create-chat-form" 
+            disabled={isLoading}
+          >
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create Chat
           </Button>

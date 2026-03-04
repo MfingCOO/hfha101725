@@ -1,3 +1,5 @@
+'use client';
+
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex flex-col items-center justify-center min-h-screen p-4 sm:p-6 lg:p-8">

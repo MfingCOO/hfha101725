@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  DialogFooter,
+    DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,7 @@ import { TIER_ACCESS, UserProfile } from '@/types';
 import { getAllAppUsers } from '@/app/coach/dashboard/actions';
 import { Combobox } from '@/components/ui/combobox';
 import { BaseModal } from '@/components/ui/base-modal';
+import { useAuth } from '@/components/auth/auth-provider'; // Added import
 
 const popupSchema = z.object({
     id: z.string().optional(),
@@ -58,6 +59,7 @@ interface CreatePopupDialogProps {
 
 export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialData }: CreatePopupDialogProps) {
     const { toast } = useToast();
+    const { user } = useAuth(); // Extracting user to get coachId
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [clients, setClients] = useState<UserProfile[]>([]);
     
@@ -81,7 +83,11 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
 
     useEffect(() => {
         const fetchAllUsers = async () => {
-            const result = await getAllAppUsers();
+            if (!user?.uid) return; // Guard clause
+
+            // FIX: Passed user.uid (coachId) to getAllAppUsers
+            const result = await getAllAppUsers(user.uid); 
+            
             if (result.success && result.users) {
                 setClients(result.users);
             } else {
@@ -90,7 +96,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
             }
         };
 
-        if (open) {
+        if (open && user?.uid) {
             fetchAllUsers();
 
             const defaultValues = {
@@ -108,7 +114,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
             form.reset(defaultValues);
             setImagePreview(initialData?.imageUrl || null);
         }
-    }, [open, initialData, form, toast]);
+    }, [open, initialData, form, toast, user?.uid]);
 
     const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];

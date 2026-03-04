@@ -1,100 +1,61 @@
-/**
- * Copyright 2018 Google Inc. All Rights Reserved.
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *     http://www.apache.org/licenses/LICENSE-2.0
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Import the config and the Firebase libraries
+importScripts('/firebase-config.js');
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-// If the loader is already loaded, just stop.
-if (!self.define) {
-  let registry = {};
+// Initialize Firebase in the service worker
+firebase.initializeApp(firebaseConfig);
+const messaging = firebase.messaging();
 
-  // Used for `eval` and `importScripts` where we can't get script URL by other means.
-  // In both cases, it's safe to use a global var because those functions are synchronous.
-  let nextDefineUri;
-
-  const singleRequire = (uri, parentUri) => {
-    uri = new URL(uri + ".js", parentUri).href;
-    return registry[uri] || (
-      
-        new Promise(resolve => {
-          if ("document" in self) {
-            const script = document.createElement("script");
-            script.src = uri;
-            script.onload = resolve;
-            document.head.appendChild(script);
-          } else {
-            nextDefineUri = uri;
-            importScripts(uri);
-            resolve();
-          }
-        })
-      
-      .then(() => {
-        let promise = registry[uri];
-        if (!promise) {
-          throw new Error(`Module ${uri} didn’t register its module`);
-        }
-        return promise;
-      })
-    );
+// Handler for background messages (when the app is not in the foreground)
+// This is responsible for showing the system notification.
+messaging.onBackgroundMessage((payload) => {
+  console.log('[sw.js] Received background message: ', payload);
+  const notificationTitle = payload.data.title;
+  const notificationOptions = {
+    body: payload.data.body,
+    icon: '/favicon.ico',
+    // Store all the data from the push payload into the notification's data attribute
+    data: payload.data
   };
 
-  self.define = (depsNames, factory) => {
-    const uri = nextDefineUri || ("document" in self ? document.currentScript.src : "") || location.href;
-    if (registry[uri]) {
-      // Module is already loading or loaded.
-      return;
+  return self.registration.showNotification(notificationTitle, notificationOptions);
+});
+
+// Handler for when the user clicks the notification
+self.addEventListener('notificationclick', (event) => {
+  console.log('[sw.js] Notification click received.', event.notification.data);
+  event.notification.close();
+
+  const data = event.notification.data;
+  const urlToOpen = new URL(self.location.origin);
+
+  // Dynamically add all data properties as search parameters
+  for (const key in data) {
+    if (data.hasOwnProperty(key)) {
+      urlToOpen.searchParams.append(key, data[key]);
     }
-    let exports = {};
-    const require = depUri => singleRequire(depUri, uri);
-    const specialDeps = {
-      module: { uri },
-      exports,
-      require
-    };
-    registry[uri] = Promise.all(depsNames.map(
-      depName => specialDeps[depName] || require(depName)
-    )).then(deps => {
-      factory(...deps);
-      return exports;
-    });
-  };
-}
-define(['./workbox-e43f5367'], (function (workbox) { 'use strict';
+  }
 
-  importScripts();
-  self.skipWaiting();
-  workbox.clientsClaim();
-  workbox.registerRoute("/", new workbox.NetworkFirst({
-    "cacheName": "start-url",
-    plugins: [{
-      cacheWillUpdate: async ({
-        request,
-        response,
-        event,
-        state
-      }) => {
-        if (response && response.type === 'opaqueredirect') {
-          return new Response(response.body, {
-            status: 200,
-            statusText: 'OK',
-            headers: response.headers
-          });
+  // This will open a URL like: https://site.com/?notificationType=chat&chatId=123...
+  event.waitUntil(
+    clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true
+    }).then(clientList => {
+      // If a window for the app is already open, focus it and navigate it to the new URL
+      if (clientList.length > 0) {
+        let client = clientList[0];
+        for (let i = 0; i < clientList.length; i++) {
+          if (clientList[i].focused) {
+            client = clientList[i];
+          }
         }
-        return response;
+        client.focus();
+        return client.navigate(urlToOpen.href);
       }
-    }]
-  }), 'GET');
-  workbox.registerRoute(/.*/i, new workbox.NetworkOnly({
-    "cacheName": "dev",
-    plugins: []
-  }), 'GET');
-
-}));
+      // Otherwise, open a new window
+      return clients.openWindow(urlToOpen.href);
+    })
+  );
+});

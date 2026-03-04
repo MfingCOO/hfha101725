@@ -45,6 +45,8 @@
   ],
   "exclude": [
     "node_modules",
-    "functions"
+    "functions",
+    "next.config.ts",
+    "worker"
   ]
 }

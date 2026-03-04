@@ -1,59 +1,35 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { Loader2, Lightbulb, Sparkles, CheckCircle, BrainCircuit, X, TrendingUp, Heart, HeartCrack, ShieldAlert, Apple, Zap, Scale } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Loader2, Lightbulb, Sparkles, CheckCircle, X, TrendingUp, HeartCrack, Scale } from 'lucide-react';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogDescription, 
+  DialogClose 
+} from '@/components/ui/dialog';
 import { useAuth } from '@/components/auth/auth-provider';
-import { UpgradeModal } from '../modals/upgrade-modal';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from '@/components/ui/dialog';
-import Image from 'next/image';
-import { getAssetLibrary } from '@/services/assets';
-import { WeightTrendChartDialog } from './weight-trend-chart';
-import { WthrTrendChartDialog } from './wthr-trend-chart';
-import { Separator } from '@/components/ui/separator';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { HabitHighlightsDisplay } from './habit-highlights';
-import type { LucideIcon } from 'lucide-react';
 import { getHighWtHRClients, generatePopulationInsights, PopulationInsight } from "@/app/coach/insights/actions";
 import { ClientProfile } from '@/types';
-import { ClientDetailModal } from '../clients/client-detail-modal';
+import { ClientDetailModal } from '@/components/coach/clients/client-detail-modal';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertTitle } from '@/components/ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-
-interface InsightsDialogProps {
-  isOpen: boolean;
+interface ManageInsightsDialogProps {
+  open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-interface SpotlightInsight {
-    icon: string;
-    title: string;
-    message: string;
-}
-
-const spotlightIcons: Record<string, LucideIcon> = {
-    HeartCrack,
-    ShieldAlert,
-    Apple,
-    Zap
-};
-
-export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDialogProps) {
-    const { toast } = useToast();
-    const { user, userProfile } = useAuth();
+export function ManageInsightsDialog({ open, onOpenChange }: ManageInsightsDialogProps) {
+    const { user } = useAuth();
     
     const [highWtHR, setHighWtHR] = useState<ClientProfile[]>([]);
     const [populationInsight, setPopulationInsight] = useState<PopulationInsight | null>(null);
@@ -63,6 +39,8 @@ export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDi
     const [highWtHRFilter, setHighWtHRFilter] = useState('all');
 
     const fetchData = useCallback(async () => {
+        if (!user?.uid) return;
+        
         setIsLoading(true);
         setIsLoadingInsight(true);
         try {
@@ -80,7 +58,7 @@ export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDi
             setIsLoading(false);
             setIsLoadingInsight(false);
         }
-    }, []);
+    }, [user?.uid]);
 
     useEffect(() => {
         if(open) {
@@ -93,17 +71,16 @@ export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDi
         return highWtHR.filter(client => client.tier === highWtHRFilter);
     }, [highWtHR, highWtHRFilter]);
 
-
     return (
         <>
-        <Dialog open={open} onOpenChange={onClose}>
+        <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="w-[90vw] max-w-4xl max-h-[85dvh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>Insights Dashboard</DialogTitle>
                      <DialogDescription>
                         Review AI-powered population trends and identify at-risk clients.
                     </DialogDescription>
-                    <DialogClose className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+                    <DialogClose className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100">
                         <X className="h-4 w-4" />
                         <span className="sr-only">Close</span>
                     </DialogClose>
@@ -120,9 +97,9 @@ export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDi
                                 <AccordionTrigger className="p-4 hover:no-underline">
                                     <div className="flex items-center gap-3">
                                         <TrendingUp className="h-5 w-5 text-primary" />
-                                        <div>
-                                            <h3 className="font-semibold text-base text-left">AI Population Insight</h3>
-                                            <p className="text-sm text-muted-foreground text-left">An AI-powered insight based on data from all paying users.</p>
+                                        <div className="text-left">
+                                            <h3 className="font-semibold text-base">AI Population Insight</h3>
+                                            <p className="text-sm text-muted-foreground">AI-powered trends across your client base.</p>
                                         </div>
                                     </div>
                                 </AccordionTrigger>
@@ -132,7 +109,6 @@ export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDi
                                          <div className="flex flex-col items-center justify-center p-8 rounded-lg bg-background/20 text-center">
                                             <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
                                             <p className="text-sm font-semibold">Generating population insight...</p>
-                                            <p className="text-xs text-muted-foreground">This can take up to 20 seconds.</p>
                                         </div>
                                     ) : populationInsight ? (
                                          <div className="rounded-lg bg-background/50 p-4 space-y-3 animate-in fade-in-50">
@@ -152,8 +128,8 @@ export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDi
                                         </div>
                                     ) : (
                                         <div className="text-center text-muted-foreground p-12">
-                                            <p className="font-semibold text-lg">Could Not Generate Insight</p>
-                                            <p className="text-sm">There might not be enough recent data to generate a population insight.</p>
+                                            <p className="font-semibold text-lg">No Data Available</p>
+                                            <p className="text-sm">Not enough data to generate population insights yet.</p>
                                         </div>
                                     )}
                                     </ScrollArea>
@@ -164,9 +140,10 @@ export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDi
                                 <AccordionTrigger className="p-4 hover:no-underline">
                                     <div className="flex items-center gap-3">
                                         <Scale className="h-5 w-5 text-amber-500" />
-                                        <div>
-                                            <h3 className="font-semibold text-base text-left">High WtHR Clients</h3>
-                                            <p className="text-sm text-muted-foreground text-left">Clients with a Waist-to-Height Ratio over 0.5.</p>
+                                        <div className="text-left">
+                                            <h3 className="font-semibold text-base">High WtHR Clients</h3>
+                                            {/* THE FIX: Escaped the > symbol using &gt; */}
+                                            <p className="text-sm text-muted-foreground">Waist-to-Height Ratio risk alerts (&gt; 0.5).</p>
                                         </div>
                                     </div>
                                 </AccordionTrigger>
@@ -183,13 +160,17 @@ export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDi
                                         {filteredHighWtHR.length > 0 ? (
                                             filteredHighWtHR.map(client => (
                                                 <ClientListItem key={client.uid} client={client} onClick={() => setSelectedClient(client)}>
-                                                    {client.dailySummary?.currentWthr && <Badge variant="secondary" className="text-amber-600 bg-amber-100 border-amber-300">{client.dailySummary.currentWthr.toFixed(2)} WtHR</Badge>}
+                                                    {client.dailySummary?.currentWthr && (
+                                                        <Badge variant="secondary" className="text-amber-600 bg-amber-100 border-amber-300">
+                                                            {client.dailySummary.currentWthr.toFixed(2)} WtHR
+                                                        </Badge>
+                                                    )}
                                                 </ClientListItem>
                                             ))
                                         ) : (
                                             <div className="text-center text-muted-foreground p-8">
                                                 <HeartCrack className="h-8 w-8 mx-auto mb-2 text-green-500" />
-                                                <p className="text-sm">No clients have a high WtHR. Excellent!</p>
+                                                <p className="text-sm">No clients currently at risk levels. Great!</p>
                                             </div>
                                         )}
                                     </div>
@@ -201,13 +182,14 @@ export function ManageInsightsDialog({ open, onOpenChange: onClose }: InsightsDi
                 </div>
             </DialogContent>
         </Dialog>
-         {selectedClient && (
+
+        {selectedClient && (
             <ClientDetailModal
                 client={selectedClient}
                 isOpen={!!selectedClient}
                 onClose={() => {
                     setSelectedClient(null);
-                    fetchData(); // Refetch data when detail modal closes
+                    fetchData();
                 }}
             />
         )}
@@ -223,7 +205,7 @@ function ClientListItem({ client, children, onClick }: { client: ClientProfile, 
         )} onClick={onClick}>
              <div className="flex items-center gap-2 flex-1 min-w-0">
                 <Avatar className="h-8 w-8 border">
-                    <AvatarImage src={client.photoURL || `https://placehold.co/100x100.png`} alt={client.fullName} data-ai-hint="person portrait" />
+                    <AvatarImage src={client.photoURL || undefined} alt={client.fullName} />
                     <AvatarFallback>{client.fullName?.charAt(0).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div className="text-left flex-1 min-w-0">
@@ -232,9 +214,7 @@ function ClientListItem({ client, children, onClick }: { client: ClientProfile, 
             </div>
             <div className="flex items-center gap-2">
                 {children}
-                 <Button variant="secondary" size="sm" className="h-7">
-                    View
-                </Button>
+                 <Button variant="secondary" size="sm" className="h-7">View</Button>
             </div>
         </div>
     )

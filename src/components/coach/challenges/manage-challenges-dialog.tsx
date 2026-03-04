@@ -8,7 +8,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback, useMemo } from "react";
-import type { Challenge } from "@/services/firestore";
+import type { Challenge } from "@/types";
 import { Loader2, Users, Trophy, Calendar, MessageSquare, PlusCircle, MoreVertical, Edit, Trash2 } from "lucide-react";
 import Image from "next/image";
 import { format, formatDistanceToNowStrict, isPast, isFuture } from "date-fns";

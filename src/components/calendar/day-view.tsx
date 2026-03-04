@@ -18,7 +18,7 @@ import { WorkoutActionDialog } from './WorkoutActionDialog';
 import { EditWorkoutDialog } from './EditWorkoutDialog';
 import { getWorkoutByIdAction } from '@/app/workouts/actions';
 import { ActiveWorkoutDialog } from '../client/ActiveWorkoutDialog';
-import { FullWorkoutHistoryDialog } from '../client/FullWorkoutHistoryDialog'; // Surgical import
+import { FullWorkoutHistoryDialog } from '../client/FullWorkoutHistoryDialog';
 import type { Workout, Exercise } from '@/types/workout-program';
 
 const pillarColors: Record<string, string> = {
@@ -250,7 +250,7 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     const [isPreparingWorkout, setIsPreparingWorkout] = useState(false);
     const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
     const [activeWorkoutExercises, setActiveWorkoutExercises] = useState<Exercise[]>([]);
-    const [isHistoryOpen, setIsHistoryOpen] = useState(false); // Surgical Addition
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
     useEffect(() => {
         setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -482,7 +482,7 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                     setIsEditDialogOpen(true);
                     setIsActionDialogOpen(false);
                 }}
-                onViewHistory={() => { // Surgical Connection
+                onViewHistory={() => {
                     setIsHistoryOpen(true);
                     setIsActionDialogOpen(false);
                 }}
@@ -504,7 +504,7 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
             )}
             
             {activeWorkout && (
-                    <ActiveWorkoutDialog
+                <ActiveWorkoutDialog
                     isOpen={!!activeWorkout}
                     onClose={() => {
                         setActiveWorkout(null);

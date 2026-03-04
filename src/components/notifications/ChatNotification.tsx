@@ -1,14 +1,16 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { InAppMessage } from '@/contexts/NotificationContext';
+// This will now work because we added it to @/types
+import { InAppMessage } from '@/types'; 
 
 interface ChatNotificationProps {
-  notification: InAppMessage;
+  notification: InAppMessage | null;
   onClose: () => void;
 }
 
 export const ChatNotification: React.FC<ChatNotificationProps> = ({ notification, onClose }) => {
+  // Guard clause: if no notification, render nothing
   if (!notification) return null;
 
   // Auto-dismiss after 5 seconds
@@ -28,22 +30,31 @@ export const ChatNotification: React.FC<ChatNotificationProps> = ({ notification
 
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 transition-opacity duration-300"
+      className="fixed inset-0 bg-black/75 flex items-center justify-center z-[100] transition-opacity duration-300 animate-in fade-in"
       onClick={handleBackdropClick}
     >
       {/* --- Final, Polished Modal UI -- */}
-      <div className="bg-slate-900 text-white p-8 rounded-lg shadow-xl w-[90vw] max-w-md flex flex-col justify-center items-center text-center">
-        
-        <h2 className="text-2xl font-bold text-white mb-3">{notification.title}</h2>
+      <div 
+        className="bg-slate-900 text-white p-8 rounded-2xl shadow-2xl w-[90vw] max-w-md flex flex-col justify-center items-center text-center border border-slate-800 animate-in zoom-in-95 duration-200"
+      >
+        <h2 className="text-2xl font-bold text-white mb-2">{notification.title}</h2>
         
         {/* Display Chat Name, if available */}
         {notification.chatName && (
-          <p className="text-md text-slate-400 mb-5">in: {notification.chatName}</p>
+          <p className="text-sm font-medium text-primary mb-4">in: {notification.chatName}</p>
         )}
 
         {/* Display the message content - plain text */}
-        <p className="text-lg text-slate-200">{notification.message}</p>
+        <p className="text-lg text-slate-200 leading-relaxed italic">
+          "{notification.message}"
+        </p>
 
+        <button 
+          onClick={onClose}
+          className="mt-6 text-xs text-slate-500 hover:text-white transition-colors uppercase tracking-widest"
+        >
+          Tap to dismiss
+        </button>
       </div>
     </div>
   );

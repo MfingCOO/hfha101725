@@ -33,7 +33,7 @@ const parseDateString = (dateString: string) => {
 
 export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
   const { toast } = useToast();
-  const { user, userProfile } = useAuth();
+  const { user, profile } = useAuth();
   const [coaches, setCoaches] = useState<ClientProfile[]>([]);
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(addDays(new Date(), 2)));
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(addDays(new Date(), 2));
@@ -64,8 +64,6 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
     }
   }, [isOpen]);
 
-  // UNIFIED AVAILABILITY FIX: This hook now fetches all events for a day
-  // and does not re-run when the coach is switched.
   useEffect(() => {
     if (isOpen && selectedDate) {
       setIsLoading(true);
@@ -77,7 +75,6 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
       getCoachAvailabilityAndEvents(start, end).then(result => {
         if (result.success && result.data) {
           setAvailability(result.data.availability);
-          // Use all events for the day to block off slots, regardless of coach.
           setExistingEvents(result.data.events || []);
         } else {
           toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch coach availability.' });
@@ -99,7 +96,7 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
     const isBlockedForVacation = availability.vacationBlocks?.some(block => 
       areIntervalsOverlapping(
         { start: startOfDay(selectedDate), end: endOfDay(selectedDate) },
-        { start: parseDateString(block.start as string), end: endOfDay(parseDateString(block.end as string)) }
+        { start: parseDateString(block.from as string), end: endOfDay(parseDateString(block.to as string)) }
       )
     );
 
@@ -116,8 +113,10 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
 
     for (const slot of todaySettings.slots) {
       const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
-      const startString = `${selectedDateString}T${slot.start}:00`;
-      const endString = `${selectedDateString}T${slot.end}:00`;
+      
+      // FIX: Cast to any to access start/end properties safely from the slot object
+      const startString = `${selectedDateString}T${(slot as any).start}:00`;
+      const endString = `${selectedDateString}T${(slot as any).end}:00`;
       
       let currentSlotTime = convertToUTC(startString, coachTimezone);
       const endTime = convertToUTC(endString, coachTimezone);
@@ -144,22 +143,22 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
   }, [availability, selectedDate, existingEvents]);
 
   const handleBooking = async () => {
-    if (!selectedSlot || !user || !userProfile || !selectedCoachId) return;
+    if (!selectedSlot || !user || !profile || !selectedCoachId) return;
 
     setIsBooking(true);
     try {
         const selectedCoach = coaches.find(c => c.uid === selectedCoachId);
         const eventData = {
-            title: `Coaching: ${userProfile.fullName}`,
+            title: `Coaching: ${profile.fullName}`,
             start: selectedSlot,
             end: addMinutes(selectedSlot, 15),
             clientId: user.uid,
-            clientName: userProfile.fullName,
-            coachId: selectedCoach?.uid,
-            coachName: selectedCoach?.fullName,
+            clientName: profile.fullName || 'Client',
+            coachId: selectedCoach?.uid || '',
+            coachName: selectedCoach?.fullName || 'Coach',
             isPersonal: false,
             attachVideoLink: true,
-            isCoachBooking: false, // BUG FIX: Added missing property
+            isCoachBooking: false,
         };
         const result = await saveCalendarEvent(eventData);
         if(result.success) {

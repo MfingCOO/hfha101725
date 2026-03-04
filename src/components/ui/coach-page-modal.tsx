@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -37,7 +36,8 @@ export function CoachPageModal({
   return (
     <BaseModal
         isOpen={open}
-        onClose={onOpenChange}
+        // FIX: Wrap onOpenChange to match the expected () => void signature
+        onClose={() => onOpenChange(false)}
         title={title}
         description={description}
         className={className}

@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -11,7 +10,8 @@ import {
   DialogClose
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { deleteCalendarEvent } from '@/app/coach/calendar/actions';
+// Updated import to the consolidated events actions file
+import { deleteCalendarEventAction } from '@/app/coach/events/actions';
 import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
 import { Loader2, Trash2, Calendar, Clock, Info, Video, User } from 'lucide-react';
@@ -33,9 +33,14 @@ export function AppointmentDetailDialog({ isOpen, onClose, event }: AppointmentD
     if (!event?.id) return;
     setIsDeleting(true);
     try {
-      const result = await deleteCalendarEvent(event.id);
+      // Calling the action with the single required eventId argument
+      const result = await deleteCalendarEventAction(event.id);
+      
       if (result.success) {
-        toast({ title: 'Appointment Cancelled', description: 'The appointment has been removed from your calendar.' });
+        toast({ 
+          title: 'Appointment Cancelled', 
+          description: 'The appointment has been removed from your calendar.' 
+        });
         onClose(true); // Pass true to signal a deletion occurred
       } else {
         throw new Error(result.error || 'Failed to cancel appointment.');

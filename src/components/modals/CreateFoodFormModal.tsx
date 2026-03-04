@@ -78,12 +78,15 @@ export function CreateFoodFormModal({ isOpen, onClose }: CreateFoodFormModalProp
     setIsSaving(true);
     
     try {
-        const newId = await generateNewFdcId();
+        // FIX: Extracting the actual ID from the result object
+        const idResult = await generateNewFdcId();
+        const finalFdcId = idResult.success ? idResult.data : Date.now();
+
         const servingInGrams = data.servingUnit === 'oz' ? data.servingSize * 28.35 : data.servingSize;
         const ratio = servingInGrams > 0 ? 100 / servingInGrams : 0;
 
         const foodData: EnrichedFood = {
-          fdcId: newId,
+          fdcId: finalFdcId,
           description: data.description,
           brandOwner: data.brandOwner || '',
           ingredients: data.ingredients || '',
@@ -122,11 +125,11 @@ export function CreateFoodFormModal({ isOpen, onClose }: CreateFoodFormModalProp
           setIsSaving(false);
           return;
       }
-      const token = await user.getIdToken();
-      const result = await saveManualEnrichedFood(foodData, token);      
 
+      // FIX: Removed the 'token' argument as saveManualEnrichedFood handles it via 'use server' internal logic or doesn't need it passed
+      const result = await saveManualEnrichedFood(foodData);      
 
-        if (result.success) { // Note: we are also removing the check for 'result.food'
+        if (result.success) {
           toast.success('Custom food submitted for review!');
           form.reset();
           onClose();

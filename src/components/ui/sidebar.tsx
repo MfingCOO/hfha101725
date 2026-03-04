@@ -314,30 +314,36 @@ SidebarInput.displayName = "SidebarInput"
 const SidebarHeader = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div">
->(({ className, ...props }, ref) => {
+>(({ className, children, ...props }, ref) => {
     const { state, isMobile } = useSidebar();
     return (
         <div
-        ref={ref}
-        data-sidebar="header"
-        className={cn(
-            "flex h-16 items-center gap-2 p-4 border-b",
-            state === "collapsed" && !isMobile && "justify-center",
-            className
-        )}
-        {...props}
+            ref={ref}
+            data-sidebar="header"
+            className={cn(
+                "flex h-16 items-center gap-2 p-4 border-b",
+                state === "collapsed" && !isMobile && "justify-center",
+                className
+            )}
+            {...props}
         >
-        {React.Children.map(props.children, (child) => {
-            if (React.isValidElement(child) && typeof child.type !== 'string' && child.type.displayName === 'h1') {
-                return React.cloneElement(child as React.ReactElement, {
-                    className: cn("truncate transition-opacity duration-200", state === "collapsed" && !isMobile && "opacity-0 w-0")
-                });
-            }
-            return child;
-        })}
+            {React.Children.map(children, (child) => {
+                if (React.isValidElement(child)) {
+                    if (child.type === 'h1') {
+                        return React.cloneElement(child as React.ReactElement<{ className: string }>, {
+                            className: cn(
+                                child.props.className,
+                                "truncate transition-opacity duration-200",
+                                state === "collapsed" && !isMobile && "opacity-0 w-0"
+                            )
+                        });
+                    }
+                }
+                return child;
+            })}
         </div>
-    )
-})
+    );
+});
 SidebarHeader.displayName = "SidebarHeader"
 
 const SidebarFooter = React.forwardRef<
@@ -534,7 +540,7 @@ const SidebarMenuButton = React.forwardRef<
     const buttonContent = (
       <>
         {props.children && React.Children.map(props.children, (child) => {
-            if (React.isValidElement(child) && typeof child.type !== 'string' && child.type.displayName?.includes("Icon")) {
+            if (React.isValidElement(child) && typeof child.type !== 'string' && (child.type as any).displayName?.includes("Icon")) {
                 return React.cloneElement(child as React.ReactElement, {
                     className: "size-4 shrink-0"
                 });

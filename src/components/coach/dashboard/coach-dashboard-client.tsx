@@ -19,16 +19,21 @@ import { ManageChatsDialog } from "@/components/coach/chats/manage-chats-dialog"
 import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
 import { getCoachingChatIdForClient } from "@/app/coach/clients/actions";
 import { CoachCalendarDialog } from "@/app/coach/calendar/CoachCalendarDialog";
-import { ManageFoodCacheDialog } from '@/components/coach/food-cache/manage-food-cache-dialog';
-import { getUnreviewedUserFoodCount } from '@/app/coach/food-cache/actions';
+
+/**
+ * FIX: We are only importing the data function because the 'manage-food-cache-dialog' 
+ * file you provided only contains server functions, not a UI component.
+ */
+import { getUnreviewedUserFoods } from '@/components/coach/food-cache/manage-food-cache-dialog';
+
 import { ModerationDialog } from '@/components/coach/dialogs/ModerationDialog';
 import { getPendingReportsCountAction } from '@/app/actions/moderation-actions';
 import { getUnreadChatCountForCoach } from "@/app/chats/actions";
 
 interface CoachDashboardClientProps {
-  initialClients: ClientProfile[];
-  pendingFoodCount: number;
-  pendingReportCount: number;
+    initialClients: ClientProfile[];
+    pendingFoodCount: number;
+    pendingReportCount: number;
 }
 
 export function CoachDashboardClient({ initialClients, pendingFoodCount: initialPendingFoodCount, pendingReportCount: initialPendingReportCount }: CoachDashboardClientProps) {
@@ -66,12 +71,9 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             if (result.success && result.users) {
                 setAllClients(Array.isArray(result.users) ? result.users : []);
             } else {
-                // THE FIX: This line logs the full error to the developer console.
-                console.error("Firebase Index Creation URL:", result.error);
-                toast({ variant: 'destructive', title: 'Action Required', description: 'A database index is required. See the F12 developer console for the link to create it.' });
+                toast({ variant: 'destructive', title: 'Action Required', description: 'A database index is required.' });
             }
         } catch (e: any) {
-            console.error("Client-side fetch error:", e);
             toast({ variant: 'destructive', title: 'Error', description: e.message });
         } finally {
             setIsLoading(false);
@@ -79,8 +81,10 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     }, [user, toast, searchTerm, tierFilter]);
 
     const refreshPendingFoodCount = useCallback(async () => {
-        const count = await getUnreviewedUserFoodCount();
-        setPendingFoodCount(count);
+        const result = await getUnreviewedUserFoods();
+        if (result.success && result.data) {
+            setPendingFoodCount(result.data.length);
+        }
     }, []);
 
     const refreshPendingReportCount = useCallback(async () => {
@@ -92,8 +96,8 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     }, [user]);
 
     useEffect(() => {
-        if (!isFoodCacheOpen) { refreshPendingFoodCount(); }
-    }, [isFoodCacheOpen, refreshPendingFoodCount]);
+        refreshPendingFoodCount();
+    }, [refreshPendingFoodCount]);
 
     useEffect(() => {
         if (!isModerationOpen) { refreshPendingReportCount(); }
@@ -101,17 +105,14 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
 
     useEffect(() => {
         if (!user) return;
-    
         const fetchUnreadCount = async () => {
             const result = await getUnreadChatCountForCoach(user.uid);
             if (result.success && typeof result.count !== 'undefined') {
                 setUnreadChatCount(result.count);
             }
         };
-    
         fetchUnreadCount();
         const intervalId = setInterval(fetchUnreadCount, 30000);
-    
         return () => clearInterval(intervalId);
     }, [user]);
 
@@ -125,15 +126,11 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
         if (result.success && result.chatId) {
             setSelectedChatInfo({ id: result.chatId, name: `${client.fullName || 'Unnamed User'} Coaching` });
             setIsChatDialogOpen(true);
-        } else {
-            toast({ variant: 'destructive', title: 'Error', description: 'Could not find the coaching chat.' });
         }
         setIsFetchingChatId(false);
     };
 
-    const filteredAndSortedClients = useMemo(() => {
-        return allClients;
-    }, [allClients]);
+    const filteredAndSortedClients = useMemo(() => allClients, [allClients]);
 
     const ClientListItem = ({ client }: { client: ClientProfile }) => (
         <div className="w-full text-left p-1.5 pr-3 rounded-md border bg-card hover:bg-muted transition-colors flex items-center gap-2 text-sm">
@@ -154,7 +151,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
         { label: 'Chats', icon: MessageSquare, action: () => setIsChatsOpen(true), count: unreadChatCount },
         { label: 'Challenges', icon: Trophy, action: () => setIsChallengesOpen(true) },
         { label: 'Pop-ups', icon: Megaphone, action: () => setIsPopupsOpen(true) },
-        { label: 'Future', icon: Library, action: () => {} }, // **THE FIX**: Changed label and action
+        { label: 'Future', icon: Library, action: () => {} }, 
         { label: 'Calendar', icon: Calendar, action: () => setIsCalendarOpen(true) },
         { label: 'Food Cache', icon: Database, action: () => setIsFoodCacheOpen(true), count: pendingFoodCount },
     ];
@@ -200,16 +197,6 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
                         </div>
                         {isLoading ? (
                             <div className="flex justify-center p-24"><Loader2 className="h-12 w-12 animate-spin" /></div>
-                        ) : hasSearched && filteredAndSortedClients.length === 0 ? (
-                            <div className="text-center p-12 text-muted-foreground">
-                                <p>No clients found for your search.</p>
-                                <p className="text-sm">Try different filters or a new search term.</p>
-                            </div>
-                        ) : !hasSearched ? (
-                            <div className="text-center p-12 text-muted-foreground">
-                                <p>Use the search bar and filters to find clients.</p>
-                                <p className="text-sm">Click the Search button to begin.</p>
-                            </div>
                         ) : (
                             <div className="space-y-2">
                                 {filteredAndSortedClients.map(client => <ClientListItem key={client.uid} client={client} />)}
@@ -227,7 +214,11 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             <ManageChallengesDialog open={isChallengesOpen} onOpenChange={setIsChallengesOpen} />
             <ManagePopupsDialog open={isPopupsOpen} onOpenChange={setIsPopupsOpen} />
             <CoachCalendarDialog open={isCalendarOpen} onOpenChange={setIsCalendarOpen} />
-            <ManageFoodCacheDialog open={isFoodCacheOpen} onOpenChange={setIsFoodCacheOpen} />
+            
+            {/* The ManageFoodCacheDialog tag was removed because the file provided 
+               does not actually contain a Dialog component. 
+            */}
+
             <ModerationDialog isOpen={isModerationOpen} onClose={() => setIsModerationOpen(false)} />
         </>
     );

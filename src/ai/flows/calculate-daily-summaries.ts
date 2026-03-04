@@ -1,11 +1,7 @@
 'use server';
-/**
- * @fileOverview This flow calculates a 7-day rolling summary of key metrics for a client.
- * It is designed to be triggered after a new data entry is logged.
- */
 
-import { defineFlow, runFlow } from '@genkit-ai/flow';
-import { z } from 'zod';
+import { genkit, z } from 'genkit';
+import { googleAI } from '@genkit-ai/googleai';
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { getAllDataForPeriod } from '@/services/firestore';
@@ -13,7 +9,11 @@ import { format } from 'date-fns';
 import type { ClientProfile, DailySummary } from '@/types/index';
 import { sanitizeForFirestore } from '@/utils/data-sanitizer';
 
-// This interface now correctly reflects the mixed data stream from getAllDataForPeriod
+// Initialize Genkit 1.x instance
+const ai = genkit({
+  plugins: [googleAI()],
+});
+
 interface ClientLog {
     entryDate: any;
     pillar: string;
@@ -21,7 +21,6 @@ interface ClientLog {
     duration?: number;
     isNap?: boolean;
     amount?: number;
-    // These fields come from the special 'dailySummaries' log entries
     calories?: number;
     upf?: number;
 }
@@ -52,7 +51,7 @@ const safeToDate = (date: any): Date | null => {
     }
 };
 
-const calculateDailySummariesFlow = defineFlow(
+export const calculateDailySummariesFlow = ai.defineFlow(
   {
     name: 'calculateDailySummariesFlow',
     inputSchema: CalculateSummariesInputSchema,
@@ -69,7 +68,6 @@ const calculateDailySummariesFlow = defineFlow(
     const result = await getAllDataForPeriod(7, clientId);
     if (!result.success || !result.data) throw new Error(`Failed to fetch 7-day data for client ${clientId}.`);
     
-    // DEFINITIVE FIX: Replicating the exact, working logic from the `insights-dialog.tsx` component.
     const dailyData = new Map<string, any>();
     let totalStressEvents = 0;
     let totalCravings = 0;
@@ -98,9 +96,6 @@ const calculateDailySummariesFlow = defineFlow(
                     day.upf = log.upf;
                     day.hasData.add('upf');
                 }
-                break;
-            case 'nutrition':
-                // Intentionally empty. All nutrition is sourced from 'dailySummaries' to prevent double-counting.
                 break;
             case 'hydration':
                 if (typeof log.amount === 'number') { day.hydration += log.amount; day.hasData.add('hydration'); }
@@ -135,17 +130,24 @@ const calculateDailySummariesFlow = defineFlow(
         if (day.hasData.has('activity')) { sumActivity += day.activity; activityDays++; }
     }
 
-    // Calculate final averages
     const avgCalories = calorieDays > 0 ? sumCalories / calorieDays : 0;
     const avgUpfPercent = upfDays > 0 ? sumUpf / upfDays : 0;
     const avgHydration = hydrationDays > 0 ? sumHydration / hydrationDays : 0;
     const avgSleep = sleepDays > 0 ? sumSleep / sleepDays : 0;
     const avgActivity = activityDays > 0 ? sumActivity / activityDays : 0;
     
-    // Keep existing logic for measurements and profile info
     const measurementsQuery = await clientRef.collection('measurements').orderBy('entryDate', 'asc').get();
-    const weightData = measurementsQuery.docs.map(d => { const data = d.data(); const date = safeToDate(data.entryDate); return date ? { weight: data.weight, date } : null; }).filter((d): d is { weight: number; date: Date } => d !== null && d.weight !== null);
-    const waistData = measurementsQuery.docs.map(d => { const data = d.data(); const date = safeToDate(data.entryDate); return date ? { waist: data.waist, date } : null; }).filter((d): d is { waist: number; date: Date } => d !== null && d.waist !== null);
+    const weightData = measurementsQuery.docs.map(d => { 
+        const data = d.data(); 
+        const date = safeToDate(data.entryDate); 
+        return date ? { weight: data.weight, date } : null; 
+    }).filter((d): d is { weight: number; date: Date } => d !== null && d.weight !== null);
+    
+    const waistData = measurementsQuery.docs.map(d => { 
+        const data = d.data(); 
+        const date = safeToDate(data.entryDate); 
+        return date ? { waist: data.waist, date } : null; 
+    }).filter((d): d is { waist: number; date: Date } => d !== null && d.waist !== null);
     
     const firstWeightEntry = weightData[0] || null;
     const lastWeightEntry = weightData[weightData.length - 1] || null;
@@ -161,6 +163,7 @@ const calculateDailySummariesFlow = defineFlow(
     const summary: DailySummary = {
         lastUpdated: Timestamp.now(),
         dob: dob,
+        // Now valid since we updated types/index.ts
         sex: clientData.onboarding?.sex || null,
         unit: clientData.onboarding?.units === 'metric' ? 'kg' : 'lbs',
         startWeight: firstWeightEntry?.weight || null,
@@ -176,7 +179,6 @@ const calculateDailySummariesFlow = defineFlow(
         binges: totalBinges,
         stressEvents: totalStressEvents,
         avgUpf: avgUpfPercent,
-        // SAFE IMPLEMENTATION: Adheres to the optional DailySummary type.
         avgNutrients: {
             Energy: avgCalories,
         },
@@ -200,5 +202,7 @@ const calculateDailySummariesFlow = defineFlow(
 );
 
 export async function calculateDailySummaries(input: CalculateSummariesInput): Promise<CalculateSummariesOutput> {
-    return await runFlow(calculateDailySummariesFlow, input);
+    // In Genkit 1.x, flows are directly executable. 
+    // No need for ai.run or runFlow.
+    return await calculateDailySummariesFlow(input);
 }

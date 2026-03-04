@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react';
 import { getUpcomingLiveEvent } from '@/app/coach/events/actions';
 import { AllEventsDialog } from './AllEventsDialog';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, CalendarPlus } from 'lucide-react';
 import type { LiveEvent, UserProfile, ClientProfile } from '@/types';
 
 interface UpcomingEventWidgetProps {
-  userProfile: UserProfile | null;
+  // Made optional (?) so DashboardClient doesn't complain about it being missing
+  userProfile?: UserProfile | null;
   clientProfile: ClientProfile | null;
   onOpenUpgradeModal: () => void;
 }
@@ -19,24 +20,38 @@ export function UpcomingEventWidget({ userProfile, clientProfile, onOpenUpgradeM
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   useEffect(() => {
-    getUpcomingLiveEvent()
+    /**
+     * Logic Fix: We check for a UID in either profile. 
+     * This ensures the widget works in the Dashboard using the clientProfile.
+     */
+    const userId = userProfile?.uid || clientProfile?.uid;
+
+    if (!userId) {
+      setIsLoading(false);
+      return;
+    }
+
+    getUpcomingLiveEvent(userId)
       .then(result => {
         if (result.success && result.data) {
           setEvent(result.data);
         }
       })
+      .catch((err) => {
+        console.error("Error fetching live event:", err);
+      })
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [userProfile?.uid, clientProfile?.uid]);
 
   if (isLoading) {
     return (
-        <Card>
-            <CardContent className="flex justify-center items-center p-4">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </CardContent>
-        </Card>
+      <Card>
+        <CardContent className="flex justify-center items-center p-4">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
     );
-}
+  }
 
   if (!event) {
     return null;
@@ -49,21 +64,22 @@ export function UpcomingEventWidget({ userProfile, clientProfile, onOpenUpgradeM
         onClick={() => setIsDialogOpen(true)}
       >
         <CardContent className="p-4 flex items-center gap-4">
-            <CalendarPlus className="h-8 w-8 text-primary flex-shrink-0" />
-            <div className="flex-1">
-                <p className="font-semibold leading-tight">{event.title}</p>
-                <p className="text-sm text-muted-foreground leading-tight">
-                    {new Date(event.eventTimestamp).toLocaleString([], { month: 'long', day: 'numeric' })}
-                    &nbsp;&middot;&nbsp;Click to see more
-                </p>
-            </div>
+          <CalendarPlus className="h-8 w-8 text-primary flex-shrink-0" />
+          <div className="flex-1">
+            <p className="font-semibold leading-tight">{event.title}</p>
+            <p className="text-sm text-muted-foreground leading-tight">
+              {new Date(event.eventTimestamp).toLocaleString([], { month: 'long', day: 'numeric' })}
+              &nbsp;&middot;&nbsp;Click to see more
+            </p>
+          </div>
         </CardContent>
       </Card>
       
       <AllEventsDialog 
         open={isDialogOpen} 
         onClose={() => setIsDialogOpen(false)} 
-        userProfile={userProfile}
+        // We ensure the dialog gets a profile object even if userProfile is undefined
+        userProfile={userProfile || (clientProfile as unknown as UserProfile)}
         clientProfile={clientProfile}
         onOpenUpgradeModal={onOpenUpgradeModal}
       />

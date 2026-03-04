@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -11,7 +10,7 @@ import { useAuth } from './auth-provider';
 import { useDashboardActions } from '@/contexts/DashboardActionsContext';
 
 export function UserNav() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth(); // Correctly get the profile object
   const { onOpenSettings } = useDashboardActions();
 
   if (!user) {
@@ -34,8 +33,9 @@ export function UserNav() {
         onClick={onOpenSettings}
     >
         <Avatar className="h-10 w-10 border">
-        <AvatarImage src={user.photoURL || `https://placehold.co/100x100.png`} alt={user.displayName || 'User'} data-ai-hint="person portrait" />
-        <AvatarFallback>{getInitials(user.displayName)}</AvatarFallback>
+        {/* Correctly use the profile object for display information */}
+        <AvatarImage src={profile?.photoURL || `https://placehold.co/100x100.png`} alt={profile?.fullName || 'User'} data-ai-hint="person portrait" />
+        <AvatarFallback>{getInitials(profile?.fullName)}</AvatarFallback>
         </Avatar>
     </Button>
   );

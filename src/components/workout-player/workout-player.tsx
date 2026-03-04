@@ -100,7 +100,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
             workoutId: workout.id,
             startTime: engine.startTime ? new Date(engine.startTime) : new Date(),
             // --- FIX: Use the coach-defined duration for the calendar activity log ---
-            duration: workout.duration, 
+            duration: workout.duration || 0, 
             performanceLog: performanceLog,
             programId: programId,
             calendarEventId: calendarEventId,

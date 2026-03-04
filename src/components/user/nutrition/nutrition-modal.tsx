@@ -20,7 +20,7 @@ import { ManualBarcodeInput } from '@/components/user/nutrition/manual-barcode-i
 import { Button } from '@/components/ui/button';
 import { FoodItemRow } from './food-item-row';
 import { toggleFavoriteFood, getFavoriteFoods } from '@/app/actions/nutrition-actions';
-import { getEnrichedFood, getOrEnrichFoodForUser, saveManualEnrichedFood, generateNewFdcId } from '@/app/coach/food-cache/actions';
+import { getEnrichedFood, saveManualEnrichedFood, generateNewFdcId } from '@/app/coach/food-cache/actions';
 import { useSearchStore } from '@/store/search-store';
 import { toast } from 'sonner';
 
@@ -152,35 +152,30 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
   }, [isOpen, fetchFavorites, resetSearchStore]);
 
   const handleFoodSelected = async (food: SimpleFood | EnrichedFood) => {
-    console.log(`[NutritionModal] Handling selection for ${food.fdcId}. Fetching full details from server.`);
+    console.log(`[NutritionModal] Selecting FDCID: ${food.fdcId}`);
     setIsAnalyzing(true);
-    setActiveView('tabs');
     setSelectedFood(null);
+    setActiveView('tabs');
 
     try {
-      // ALWAYS fetch the definitive record from the server.
-      // The getOrEnrichFoodForUser action is the single source of truth and handles all cases.
-      const enrichedFood = await getOrEnrichFoodForUser(food.fdcId);
+      const response = await getEnrichedFood(food.fdcId);
 
-      if (enrichedFood) {
-        // We use our Zod schema to validate the data from the server. This is a safeguard.
-        const validation = EnrichedFoodSchema.safeParse(enrichedFood);
+      if (response.success && response.data) {
+        const validation = EnrichedFoodSchema.safeParse(response.data);
         if (validation.success) {
-            console.log(`[NutritionModal] Analysis and validation complete for ${food.fdcId}.`);
             setSelectedFood(validation.data);
         } else {
-            console.error(`[NutritionModal] Data validation failed for fdcId: ${food.fdcId}`, validation.error.flatten());
-            toast.error("Food data from server is invalid.");
+            console.error("Validation failed", validation.error.flatten());
+            toast.error("Format error in food data from server.");
         }
       } else {
-        console.error(`[NutritionModal] Server failed to return food details for fdcId: ${food.fdcId}.`);
-        toast.error("Could not load food details.");
+        console.error(`[NutritionModal] Server failed to return food details for fdcId: ${food.fdcId}.`, response.error);
+        toast.error(response.error || "Could not analyze food.");
       }
     } catch (error) {
-      console.error("[NutritionModal] CRITICAL: An error occurred during food analysis:", error);
+      console.error("Critical Analysis Error:", error);
       toast.error("An error occurred while analyzing the food.");
     } finally {
-      console.log(`[NutritionModal] Analysis process finished for ${food.fdcId}.`);
       setIsAnalyzing(false);
     }
   };

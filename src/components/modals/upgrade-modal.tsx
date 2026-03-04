@@ -40,7 +40,7 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
         
         setIsRedirecting(true);
         try {
-            const { url, error } = await createStripeCheckoutSession(user.uid, requiredTier, 'monthly');
+            const { url, error } = await createStripeCheckoutSession(user.uid, requiredTier as any, 'monthly');
             if (url) {
                 window.location.href = url;
             } else {

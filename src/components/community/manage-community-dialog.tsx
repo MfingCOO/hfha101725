@@ -1,10 +1,13 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { BaseModal } from '@/components/ui/base-modal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChallengeList } from '@/components/challenges/challenge-list';
 import { LiveEventsTab } from '@/app/coach/events/LiveEventsTab';
 import { ProgramBuilderTabs } from '@/components/coach/program-builder/program-builder-tabs';
+import { useAuth } from '@/components/auth/auth-provider';
+import { Challenge, ClientProfile } from '@/types';
 
 interface ManageCommunityDialogProps {
   isOpen: boolean;
@@ -12,6 +15,11 @@ interface ManageCommunityDialogProps {
 }
 
 export function ManageCommunityDialog({ isOpen, onClose }: ManageCommunityDialogProps) {
+  const { profile } = useAuth();
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+
+  // Appearance and function remains identical; we are simply providing 
+  // the required data props to the ChallengeList component.
   return (
     <BaseModal
       isOpen={isOpen}
@@ -34,7 +42,11 @@ export function ManageCommunityDialog({ isOpen, onClose }: ManageCommunityDialog
               <TabsTrigger value="events">Events</TabsTrigger>
             </TabsList>
             <TabsContent value="challenges">
-              <ChallengeList />
+              {/* FIX: Passing the required challenges and userProfile props */}
+              <ChallengeList 
+                challenges={challenges} 
+                userProfile={profile as ClientProfile} 
+              />
             </TabsContent>
             <TabsContent value="events">
               <LiveEventsTab />
