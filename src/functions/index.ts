@@ -38,6 +38,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     const senderId = message.userId;
     const messageText = message.text || 'You received a new attachment';
     const imageUrl = message.imageUrl || null;
+    const now = Timestamp.now(); // Get now here
 
     console.log(`onNewMessage: Processing new message in chat ${chatId} from sender ${senderId}.`);
 
@@ -69,7 +70,8 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     const promises = recipients.map((recipientId: string) => {
         const isRecipientCoach = recipientId === chatData.coachUid;
         const dashboardUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
-        const ctaUrl = `${dashboardUrl}?notificationType=chat&entityId=${chatId}`;
+        // Ensure entityId is always a string when used in ctaUrl
+        const ctaUrl = `${dashboardUrl}?notificationType=chat&entityId=${String(chatId)}`; 
 
         const notificationData = {
             userId: recipientId,
@@ -77,9 +79,9 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
             message: body,
             ctaUrl: ctaUrl,
             notificationType: 'chat',
-            entityId: chatId,
-            imageUrl: imageUrl,
-            sendTime: Timestamp.now(),
+            entityId: String(chatId), // Store as string
+            imageUrl: imageUrl, // Store imageUrl in Firestore
+            sendTime: String(now.toDate().getTime()), // Store as string (milliseconds)
             processed: false,
         };
 
@@ -92,7 +94,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
 });
 
 // CORRECTED FUNCTION
-async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, sentTime?: Timestamp, imageUrl?: string) {
+async function sendPushNotification(userId: string, title: string, message: string, ctaUrl?: string, sendTimeStr?: string, imageUrl?: string) { // Renamed sentTime to sendTimeStr
     let userDoc = await db.collection('clients').doc(userId).get();
     if (!userDoc.exists) {
         console.log(`sendPushNotification: User ${userId} not found in 'clients', trying 'coaches'.`);
@@ -116,23 +118,39 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
     }
 
-    // This is the specific flat payload structure that sw.js is expecting.
-    const url = new URL(ctaUrl || '/', 'https://hunger-free-and-happy-app.web.app'); // Assuming this is your canonical URL
+    const url = new URL(ctaUrl || '/', 'https://hunger-free-and-happy-app.web.app');
     const searchParams = url.searchParams;
 
-    const dataPayload = {
+    const dataPayload: { [key: string]: string } = { // Explicitly define as string-only values
         title: title,
         body: message,
         url: ctaUrl || '/',
-        // Add all original query params to the top-level payload
-        ...(Object.fromEntries(searchParams.entries())),
-        // Only include imageUrl if it exists, otherwise the key should be absent.
-        ...(imageUrl && { imageUrl: imageUrl }),
+        // Add all original query params to the top-level payload, ensuring they are strings
+        // This handles notificationType, entityId, etc.
+        ...(Object.fromEntries(Array.from(searchParams.entries()).map(([key, value]) => [key, String(value)]))),
     };
+
+    // Explicitly add imageUrl and sendTime if they exist, as strings
+    if (imageUrl) {
+        dataPayload.imageUrl = imageUrl;
+    }
+    if (sendTimeStr) {
+        dataPayload.sendTime = sendTimeStr; // Use the already stringified value
+    }
+    // Added for potential 'google.sent_time' ClassCastException if implicitly generated
+    dataPayload['google.sent_time'] = String(Date.now()); // Ensure this is always a string
+    dataPayload['google.ttl'] = "3600"; // Default TTL as string
+    // This will correctly reflect the isCoach logic embedded in ctaUrl
+    dataPayload.isCoach = String(ctaUrl?.includes('/coach/dashboard')); 
 
     const payload = { 
         tokens: tokens,
-        data: dataPayload,
+        notification: { // Include a 'notification' key for automatic display when app is background/closed
+            title: title,
+            body: message,
+            imageUrl: imageUrl || undefined, // Include imageUrl in notification payload for banner image
+        },
+        data: dataPayload, // ALL VALUES HERE ARE NOW EXPLICITLY STRINGS
         apns: {
             payload: {
                 aps: {
@@ -192,7 +210,7 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
                 ctaUrl: `/client/dashboard?notificationType=hydration`,
                 notificationType: 'hydration',
                 entityId: 'hydration', 
-                sendTime: now,
+                sendTime: String(now.toDate().getTime()), // Store as string (milliseconds)
                 processed: false,
             };
             await db.collection('notifications').add(notificationData);
@@ -238,6 +256,7 @@ export const appointmentReminderEngine = onSchedule('every 1 minutes', async (ev
         const appointmentId = doc.id;
         const clientId = appointment.clientId;
         const coachId = appointment.coachId;
+        const currentTimestamp = Timestamp.now();
 
         const clientName = await getUserName(clientId);
         const coachName = await getUserName(coachId);
@@ -249,7 +268,8 @@ export const appointmentReminderEngine = onSchedule('every 1 minutes', async (ev
             const title = 'Upcoming Appointment';
             const message = `Your appointment with ${isCoach ? (clientName || 'your client') : (coachName || 'your coach')} is in 10 minutes.`;
             const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
-            const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&entityId=${appointmentId}`;
+            // Ensure entityId is always a string when used in ctaUrl
+            const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&entityId=${String(appointmentId)}`;
 
             const notificationData = {
                 userId: userId,
@@ -257,8 +277,8 @@ export const appointmentReminderEngine = onSchedule('every 1 minutes', async (ev
                 message: message,
                 ctaUrl: ctaUrl,
                 notificationType: 'appointment_reminder',
-                entityId: appointmentId,
-                sendTime: Timestamp.now(),
+                entityId: String(appointmentId), // Store as string
+                sendTime: String(currentTimestamp.toDate().getTime()), // Store as string (milliseconds)
                 processed: false,
             };
 
@@ -298,15 +318,16 @@ export const workoutReminderEngine = onSchedule('every 1 minutes', async (event)
         const workoutId = workout.workoutId;
         const userId = workout.userId;
         const workoutName = workout.workoutName || 'your workout';
+        const currentTimestamp = Timestamp.now();
 
         const notificationData = {
             userId: userId,
             title: 'Workout Reminder',
             message: `Your scheduled workout, "${workoutName}," is in 10 minutes!`,
-            ctaUrl: `/client/dashboard?notificationType=workout_reminder&entityId=${workoutId}`,
+            ctaUrl: `/client/dashboard?notificationType=workout_reminder&entityId=${String(workoutId)}`, // Ensure entityId is string
             notificationType: 'workout_reminder',
-            entityId: workoutId,
-            sendTime: Timestamp.now(),
+            entityId: String(workoutId), // Store as string
+            sendTime: String(currentTimestamp.toDate().getTime()), // Store as string (milliseconds)
             processed: false,
         };
 
@@ -320,7 +341,8 @@ export const workoutReminderEngine = onSchedule('every 1 minutes', async (event)
 
 export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (event) => {
   const now = Timestamp.now();
-  const query = db.collection('notifications').where('processed', '==', false).where('sendTime', '<=', now);
+  // Query against string representation of sendTime for consistency
+  const query = db.collection('notifications').where('processed', '==', false).where('sendTime', '<=', String(now.toDate().getTime())); 
   const snapshot = await query.get();
   if (snapshot.empty) {
     return;
@@ -330,10 +352,12 @@ export const unifiedNotificationEngine = onSchedule('every 1 minutes', async (ev
     const notification = doc.data();
     await doc.ref.update({ processed: true });
     console.log(`unifiedNotificationEngine: Processing notification ${doc.id} for user ${notification.userId}`);
-    await sendPushNotification(notification.userId, notification.title, notification.message, notification.ctaUrl, notification.sendTime, notification.imageUrl);
+    // Pass sendTime as a string as it's stored that way, and imageUrl
+    await sendPushNotification(notification.userId, notification.title, notification.message, notification.ctaUrl, notification.sendTime as string, notification.imageUrl as string | undefined);
   });
   await Promise.all(promises);
 });
 
 export { saveFcmToken } from './saveFcmToken';
 export { removeFcmToken } from './removeFcmToken';
+ 
