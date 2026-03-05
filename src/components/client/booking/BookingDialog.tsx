@@ -26,7 +26,10 @@ interface BookingDialogProps {
   onClose: () => void;
 }
 
-const parseDateString = (dateString: string) => {
+const parseDateString = (dateString: string | undefined | null) => {
+    if (!dateString) {
+        return new Date(0); // Return an invalid or epoch date
+    }
     const [year, month, day] = dateString.split('-').map(Number);
     return new Date(year, month - 1, day);
 };
@@ -52,6 +55,7 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
         const filteredCoaches = result.data.filter(coach => 
           coach.fullName?.includes('Crystal') || coach.fullName?.includes('Alan')
         );
+        filteredCoaches.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
         setCoaches(filteredCoaches);
         if (filteredCoaches.length > 0) {
           setSelectedCoachId(filteredCoaches[0].uid);
@@ -114,7 +118,6 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
     for (const slot of todaySettings.slots) {
       const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
       
-      // FIX: Cast to any to access start/end properties safely from the slot object
       const startString = `${selectedDateString}T${(slot as any).start}:00`;
       const endString = `${selectedDateString}T${(slot as any).end}:00`;
       
@@ -199,8 +202,7 @@ export function BookingDialog({ isOpen, onClose }: BookingDialogProps) {
         
         <div className="flex-1 flex flex-col min-h-0 p-4 space-y-4">
             {coaches.length > 0 && (
-                 <div className="space-y-2">
-                    <Label>Select Coach</Label>
+                 <div>
                     <div className="flex gap-2">
                         {coaches.map(coach => (
                             <Button 

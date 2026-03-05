@@ -18,8 +18,6 @@ export function ManageCommunityDialog({ isOpen, onClose }: ManageCommunityDialog
   const { profile } = useAuth();
   const [challenges, setChallenges] = useState<Challenge[]>([]);
 
-  // Appearance and function remains identical; we are simply providing 
-  // the required data props to the ChallengeList component.
   return (
     <BaseModal
       isOpen={isOpen}
@@ -28,36 +26,37 @@ export function ManageCommunityDialog({ isOpen, onClose }: ManageCommunityDialog
       description="Engage your community and build your comprehensive fitness programs."
       className="max-w-4xl"
     >
-      <Tabs defaultValue="community" className="w-full pt-2">
+      <Tabs defaultValue="community" className="w-full h-full flex flex-col">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="community">Community</TabsTrigger>
           <TabsTrigger value="program-builder">Program Builder</TabsTrigger>
         </TabsList>
         
-        {/* Community Tab Content */}
-        <TabsContent value="community">
-          <Tabs defaultValue="challenges" className="w-full mt-2">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="challenges">Challenges</TabsTrigger>
-              <TabsTrigger value="events">Events</TabsTrigger>
-            </TabsList>
-            <TabsContent value="challenges">
-              {/* FIX: Passing the required challenges and userProfile props */}
-              <ChallengeList 
-                challenges={challenges} 
-                userProfile={profile as ClientProfile} 
-              />
+        <div className="flex-1 min-h-0">
+            <TabsContent value="community" className="p-4 h-full flex flex-col">
+              <Tabs defaultValue="challenges" className="w-full h-full flex flex-col">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="challenges">Challenges</TabsTrigger>
+                  <TabsTrigger value="events">Events</TabsTrigger>
+                </TabsList>
+                <div className="flex-1 min-h-0 overflow-y-auto pt-4">
+                    <TabsContent value="challenges" className="m-0">
+                      <ChallengeList 
+                        challenges={challenges} 
+                        userProfile={profile as ClientProfile} 
+                      />
+                    </TabsContent>
+                    <TabsContent value="events" className="m-0">
+                      <LiveEventsTab />
+                    </TabsContent>
+                </div>
+              </Tabs>
             </TabsContent>
-            <TabsContent value="events">
-              <LiveEventsTab />
-            </TabsContent>
-          </Tabs>
-        </TabsContent>
 
-        {/* Program Builder Tab Content */}
-        <TabsContent value="program-builder">
-          <ProgramBuilderTabs />
-        </TabsContent>
+            <TabsContent value="program-builder" className="p-4 h-full overflow-y-auto">
+              <ProgramBuilderTabs />
+            </TabsContent>
+        </div>
       </Tabs>
     </BaseModal>
   );

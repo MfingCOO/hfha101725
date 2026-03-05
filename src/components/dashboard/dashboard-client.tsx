@@ -37,7 +37,7 @@ import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
 import { UpgradeModal } from '../modals/upgrade-modal';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
-import { ProgramWidget } from '@/components/client/ProgramWidget'; 
+import { ProgramWidget } from '@/components/client/ProgramWidget';
 import { ProgramListDialog } from '@/components/programs/program-list-dialog';
 import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
 
@@ -79,7 +79,7 @@ const safeNewDate = (dateSource: any): Date | null => {
 
 export function DashboardClient() {
   const { onOpenChallenges, onOpenCalendar, isSettingsOpen, onCloseSettings } = useDashboardActions();
-  const { user, isCoach, loading } = useAuth(); 
+  const { user, isCoach, loading } = useAuth();
   const { toast } = useToast();
   const { modalType, closeModal } = useDataEntryModal();
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
@@ -286,15 +286,15 @@ export function DashboardClient() {
           key={pillar.id}
           onClick={() => handlePillarClick(pillar)}
           className={cn(
-            "group relative flex flex-col items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full text-center transition-all shadow-sm btn-3d",
+            "group relative flex flex-col items-center justify-center w-14 h-14 sm:w-20 sm:h-20 rounded-full text-center transition-all shadow-sm btn-3d",
             pillar.bgColor,
             pillar.color,
             pillar.borderColor
           )}
         >
           {isLocked && <div className="absolute inset-0 bg-black/50 rounded-full" />}
-          <Icon className={cn("h-8 w-8 sm:h-10 transition-transform group-hover:scale-110", isLocked && "opacity-50")} />
-          {isLocked && <Lock className="h-4 w-4 absolute top-2 right-2 sm:top-3 sm:right-3 text-white/70" />}
+          <Icon className={cn("h-7 w-7 sm:h-10 transition-transform group-hover:scale-110", isLocked && "opacity-50")} />
+          {isLocked && <Lock className="h-4 w-4 absolute top-1 right-1 sm:top-3 sm:right-3 text-white/70" />}
         </button>
       )
   }
@@ -382,8 +382,8 @@ export function DashboardClient() {
   return (
     <div className="space-y-6 pb-10">
         <div>
-            <h2 className="text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2>
-            <p className="text-lg text-muted-foreground">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2>
+            <p className="text-base sm:text-lg text-muted-foreground">
             &ldquo;{quoteOfTheDay}&rdquo; 
             </p>
         </div>
@@ -392,23 +392,22 @@ export function DashboardClient() {
         {topRowButtons.map(renderPillarButton)}
       </div>
 
-      <div className="flex justify-around">
+      <div className="flex justify-around mt-4">
         {bottomRowButtons.map(renderPillarButton)}
       </div>
       
       {renderChallengeSection()}
 
-      {/* FIX: Cleaned up redundant/incorrect props */}
-      <ProgramWidget 
-        clientProfile={clientProfile as ClientProfile}
+      <ProgramWidget
+        clientProfile={clientProfile}
         onOpenProgramList={handleOpenProgramList}
         onOpenCurrentProgram={handleOpenCurrentProgram}
       />
 
-<UpcomingEventWidget 
-  clientProfile={clientProfile}
-  onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
-/>
+      <UpcomingEventWidget 
+        clientProfile={clientProfile} 
+        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)} 
+      />
       
       {isLoadingIndulgences ? (
           <Skeleton className="h-24 w-full" />
@@ -432,6 +431,7 @@ export function DashboardClient() {
                    <p className="font-medium">{plan.plannedIndulgence}</p>
                    <p className="text-muted-foreground">{format(indulgenceDate, 'MMM d')}</p>
                   </div>
+
                 )
               })}
             </div>

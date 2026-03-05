@@ -38,9 +38,8 @@ export function LiveEventsTab() {
   const fetchEvents = async () => {
     setIsLoading(true);
     try {
-      // FIX 1: getLiveEvents now expects the coachId as an argument
-      // Replace 'CURRENT_COACH_ID' with your actual coach context/auth ID
-      const result = await getLiveEvents('CURRENT_COACH_ID'); 
+      // CORRECTED: getLiveEvents now expects no arguments.
+      const result = await getLiveEvents(); 
       
       if (result.success) {
         setEvents((result.data as LiveEventWithAttendees[]) || []);
@@ -61,8 +60,8 @@ export function LiveEventsTab() {
   const handleDeleteEvent = async () => {
     if (!deleteAlertState.eventId) return;
     try {
-        // FIX 2: deleteLiveEvent expects a string ID, not an object
-        const result = await deleteLiveEvent(deleteAlertState.eventId);
+        // CORRECTED: deleteLiveEvent expects an object with the eventId.
+        const result = await deleteLiveEvent({ eventId: deleteAlertState.eventId });
         
         if (result.success) {
             toast({ title: 'Success', description: 'Event deleted successfully.' });

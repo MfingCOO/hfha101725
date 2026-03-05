@@ -191,7 +191,7 @@ export function ClientChatList() {
     return (
         <>
         <div className="space-y-8">
-            <div className="flex justify-between items-center">
+             <div className="flex justify-center items-center gap-4">
                 <h2 className="text-2xl font-bold tracking-tight">My Chats</h2>
                  {userProfile?.tier === 'coaching' && (
                     <Button onClick={() => setIsBookingOpen(true)} size="sm" variant="outline">

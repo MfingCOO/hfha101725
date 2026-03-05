@@ -49,19 +49,19 @@ interface AggregatedSummaryData {
 }
 
 const DataCard = ({ icon: Icon, title, value, unit, context }: { icon: LucideIcon, title: string, value: string, unit: string, context: string }) => (
-    <div className="bg-neutral-800/80 border border-neutral-700/60 rounded-lg p-3 flex flex-col aspect-square justify-between shadow-md">
-        <div className="h-[40px]">
+    <div className="bg-neutral-800/80 border border-neutral-700/60 rounded-lg p-2 flex flex-col aspect-square justify-between shadow-md">
+        <div>
             <div className="flex justify-between items-start">
-                <span className="text-sm font-medium text-neutral-400 whitespace-pre-wrap">{title}</span>
+                <span className="text-[11px] leading-tight font-medium text-neutral-400 whitespace-normal">{title}</span>
                 <Icon className="h-4 w-4 text-neutral-500 shrink-0" />
             </div>
         </div>
         <div>
-        <p className="text-2xl font-bold text-white tracking-tighter">
+            <p className="text-lg font-bold text-white tracking-tighter leading-none">
                 {value}
-                <span className="text-lg font-medium text-neutral-300 ml-1">{unit}</span>
+                <span className="text-xs font-medium text-neutral-300 ml-0.5">{unit}</span>
             </p>
-            <p className="text-xs text-neutral-500 -mt-1">{context}</p>
+            <p className="text-[10px] text-neutral-500">{context}</p>
         </div>
     </div>
 );
@@ -223,13 +223,13 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
     return (
         <>
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="w-[95vw] sm:max-w-sm p-0 flex flex-col bg-neutral-900 border-neutral-800">
-                <DialogHeader className="p-4 pt-5 flex-shrink-0 text-center">
+             <DialogContent className="w-[95vw] sm:max-w-sm p-0 grid grid-rows-[auto_auto_1fr_auto] max-h-[90dvh] bg-neutral-900 border-neutral-800">
+                <DialogHeader className="p-4 pt-5 text-center">
                     <DialogTitle className="text-lg font-bold tracking-tight text-white">Data Insights</DialogTitle>
                     <DialogDescription className="text-neutral-400 text-xs">Your algorithmic data summary.</DialogDescription>
                 </DialogHeader>
 
-                <div className="px-4 py-2 flex-shrink-0">
+                <div className="px-4 py-2">
                      <Select onValueChange={(v) => setInsightPeriod(parseInt(v))} defaultValue="7">
                         <SelectTrigger className="w-full bg-neutral-800 border-neutral-700 text-white focus:ring-1 focus:ring-offset-0 focus:ring-offset-neutral-800 focus:ring-neutral-600">
                             <SelectValue placeholder="Select time period" />
@@ -243,25 +243,23 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
                     </Select>
                 </div>
 
-                <div className="flex-1 min-h-0">
-                    <ScrollArea className="h-full">
-                        <div className="p-4">
-                            {isLoading ? (
-                                <div className="flex items-center justify-center p-12">
-                                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                                </div>
-                            ) : summary ? (
-                                <div className="grid grid-cols-3 gap-3">
-                                    {metricCards.map(card => <DataCard key={card.title} {...card} />)}
-                                </div>
-                            ) : (
-                                <p className="text-center text-sm text-neutral-500 p-12">Select a time period to see your data.</p>
-                            )}
-                        </div>
-                    </ScrollArea>
-                </div>
+                <ScrollArea className="h-full overflow-y-auto">
+                    <div className="p-4 pt-0">
+                        {isLoading ? (
+                            <div className="flex items-center justify-center p-12">
+                                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                            </div>
+                        ) : summary ? (
+                            <div className="grid grid-cols-3 gap-3">
+                                {metricCards.map(card => <DataCard key={card.title} {...card} />)}
+                            </div>
+                        ) : (
+                            <p className="text-center text-sm text-neutral-500 p-12">Select a time period to see your data.</p>
+                        )}
+                    </div>
+                </ScrollArea>
                 
-                <div className="p-4 border-t border-neutral-800 space-y-2 flex-shrink-0">
+                <div className="p-4 border-t border-neutral-800 space-y-2">
                     <Button variant="outline" className="w-full bg-transparent text-white border-neutral-700 hover:bg-neutral-800 hover:text-white" onClick={() => setIsWeightChartOpen(true)}>
                         <TrendingUp className="mr-2 h-4 w-4" />
                         Analyze Weight Trend

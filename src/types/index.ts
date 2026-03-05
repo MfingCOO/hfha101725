@@ -280,7 +280,6 @@ export interface LiveEvent {
 // --- CHALLENGES ---
 export interface Challenge {
     id: string;
-    title: string;
     name: string; 
     description: string;
     type: 'habit' | 'weight' | 'community';
@@ -311,7 +310,6 @@ export interface Challenge {
 // --- HABITS ---
 export interface Habit {
     id: string;
-    title: string;
     name: string; 
     description: string;
     icon?: string;

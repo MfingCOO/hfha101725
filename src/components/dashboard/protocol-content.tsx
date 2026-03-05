@@ -9,12 +9,15 @@ import { Textarea } from '../ui/textarea';
 import { Pause, Play, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useProtocolTimerStore } from '@/store/protocol-timer-store';
+import { cn } from '@/lib/utils';
 
+// --- PROPS ---
 interface ContentProps {
     onFormStateChange: (newState: any) => void;
     formState?: any;
 }
 
+// --- HELPERS ---
 const numberScale = (start: number, end: number) => Array.from({ length: end - start + 1 }, (_, i) => start + i);
 
 const hungerLevels = [
@@ -31,15 +34,29 @@ const hungerLevels = [
     { value: 10, label: '10 - Starving' }
 ];
 
-const HungerScaleDropdown = ({ value, onValueChange, label = "Hunger Level (0-10)" }: { value: number, onValueChange: (value: number) => void, label?: string }) => {
+// --- SUB-COMPONENTS ---
+
+const Fieldset = ({ legend, children, className }: { legend: string, children: React.ReactNode, className?: string }) => (
+    <div className={cn("relative rounded-md border border-neutral-700/60 p-4 pt-6", className)}>
+        <legend className="absolute -top-2.5 left-3 bg-neutral-900 px-1 text-xs font-medium text-neutral-400">
+            {legend}
+        </legend>
+        <div className="grid grid-cols-2 gap-4">
+            {children}
+        </div>
+    </div>
+);
+
+
+const HungerScaleDropdown = ({ value, onValueChange, label }: { value: number, onValueChange: (value: number) => void, label: string }) => {
     return (
-        <div className="space-y-1">
-            <Label>{label}</Label>
+        <div className="space-y-1.5">
+            <Label className="text-sm font-medium text-neutral-300">{label}</Label>
             <Select value={String(value)} onValueChange={(v) => onValueChange(Number(v))}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full bg-neutral-800 border-neutral-700 text-white focus:ring-1 focus:ring-offset-0 focus:ring-offset-neutral-800 focus:ring-neutral-600">
                     <SelectValue placeholder="Select level" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-neutral-800 border-neutral-700 text-white">
                     {hungerLevels.map(i => <SelectItem key={i.value} value={String(i.value)}>{i.label}</SelectItem>)}
                 </SelectContent>
             </Select>
@@ -51,41 +68,30 @@ const TOTAL_TIMER_SECONDS = 1200; // 20 minutes
 
 const TwentyMinuteTimer = () => {
     const { isActive, startTime, pausedElapsed, start, pause, reset } = useProtocolTimerStore();
-    const [, setTick] = useState(0); // A dummy state to force re-renders
+    const [, setTick] = useState(0);
 
     useEffect(() => {
         let interval: NodeJS.Timeout | null = null;
         if (isActive) {
-            // If the timer is active, set up an interval to re-render the component every second.
-            interval = setInterval(() => {
-                setTick(t => t + 1);
-            }, 1000);
+            interval = setInterval(() => setTick(t => t + 1), 1000);
         }
-        // Clean up the interval when the component unmounts or isActive changes.
         return () => {
             if (interval) clearInterval(interval);
         };
     }, [isActive]);
 
-    // This function calculates the remaining time on every single render.
-    // This is the core of the fix: the UI is always derived from the persistent store state.
     const getSecondsLeft = () => {
         if (isActive && startTime) {
-            // Timer is currently running.
             const elapsedSinceStart = (Date.now() - startTime) / 1000;
             return Math.max(0, TOTAL_TIMER_SECONDS - (pausedElapsed + elapsedSinceStart));
         }
-        // Timer is paused or in its initial state.
         return Math.max(0, TOTAL_TIMER_SECONDS - pausedElapsed);
     };
 
     const secondsLeft = getSecondsLeft();
 
-    // This effect runs when secondsLeft changes.
     useEffect(() => {
         if (secondsLeft <= 0 && isActive) {
-            // When the timer hits zero, automatically pause it.
-            // You could also add a sound effect here.
             pause();
         }
     }, [secondsLeft, isActive, pause]);
@@ -96,27 +102,31 @@ const TwentyMinuteTimer = () => {
         return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     };
 
-    // The buttons are now connected to the global store's actions.
     return (
-        <div className="rounded-lg bg-muted p-2 flex items-center justify-between gap-2">
-            <p className="font-mono text-3xl font-bold tracking-widest">{formatTime(secondsLeft)}</p>
-            <div className="flex gap-2">
-                <Button onClick={isActive ? pause : start} variant="secondary" size="sm" className="h-8 w-[90px]">
-                    {isActive ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
-                    {isActive ? 'Pause' : (pausedElapsed > 0 ? 'Resume' : 'Start')}
-                </Button>
-                <Button onClick={reset} variant="destructive" size="sm" className="h-8">
-                    <RotateCcw className="mr-2 h-4 w-4" />
-                    Reset
-                </Button>
+        <div className="rounded-lg bg-neutral-800/70 border border-neutral-700/60 p-4 space-y-3">
+             <div className="flex items-center justify-between gap-4">
+                <p className="font-mono text-5xl font-bold text-white tracking-tighter flex-grow">{formatTime(secondsLeft)}</p>
+                <div className="flex gap-2">
+                    <Button onClick={isActive ? pause : start} variant="ghost" size="icon" className="h-10 w-10 text-neutral-300 hover:text-white hover:bg-neutral-700">
+                        {isActive ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6" />}
+                    </Button>
+                    <Button onClick={reset} variant="ghost" size="icon" className="h-10 w-10 text-neutral-300 hover:text-white hover:bg-neutral-700">
+                        <RotateCcw className="h-5 w-5" />
+                    </Button>
+                </div>
             </div>
+            <p className="text-xs text-center text-neutral-400 px-2">
+                Start the timer after eating 75% of your meal and drinking 20oz of water.
+            </p>
         </div>
     );
 };
 
-export const ProtocolContent = ({ onFormStateChange, formState }: Omit<ContentProps, 'pillar' | 'entryDate' | 'clientProfile'>) => {
+// --- MAIN COMPONENT ---
+
+export const ProtocolContent = ({ onFormStateChange, formState }: ContentProps) => {
     const handleChange = (field: string, value: any) => {
-        onFormStateChange({ [field]: value });
+        onFormStateChange({ [field]: value,  });
     };
 
     const {
@@ -129,36 +139,66 @@ export const ProtocolContent = ({ onFormStateChange, formState }: Omit<ContentPr
     } = formState || {};
 
     return (
-        <div className="space-y-4">
-            <Input value={mealDescription} onChange={e => handleChange('mealDescription', e.target.value)} placeholder="Meal Description" />
-
-            <div className="grid grid-cols-2 gap-4">
-                <HungerScaleDropdown value={preMealHunger} onValueChange={(v) => handleChange('preMealHunger', v)} label="Pre-Meal Hunger" />
-                <div className="space-y-1">
-                    <Label>Pre-Meal Stress</Label>
-                    <Select value={String(preMealStress)} onValueChange={(v) => handleChange('preMealStress', Number(v))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>{numberScale(1, 10).map(i => <SelectItem key={i} value={String(i)}>{i}</SelectItem>)}</SelectContent>
-                    </Select>
-                </div>
+        <div className="space-y-5 p-1">
+            <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-neutral-300">Meal Description</Label>
+                <Input 
+                    value={mealDescription} 
+                    onChange={e => handleChange('mealDescription', e.target.value)} 
+                    placeholder="e.g., Grilled chicken salad"
+                    className="bg-neutral-800 border-neutral-700 text-white" 
+                />
             </div>
 
-            <p className="text-xs text-center text-muted-foreground pt-2">Start Timer After Eating 75% of Your Plated Portion and Then Drinking 20 oz of Water</p>
+            <Fieldset legend="Pre-Meal">
+                <HungerScaleDropdown 
+                    value={preMealHunger} 
+                    onValueChange={(v) => handleChange('preMealHunger', v)} 
+                    label="Hunger" 
+                />
+                <div className="space-y-1.5">
+                    <Label className="text-sm font-medium text-neutral-300">Stress</Label>
+                    <Select value={String(preMealStress)} onValueChange={(v) => handleChange('preMealStress', Number(v))}>
+                        <SelectTrigger className="w-full bg-neutral-800 border-neutral-700 text-white focus:ring-1 focus:ring-offset-0 focus:ring-offset-neutral-800 focus:ring-neutral-600">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-neutral-800 border-neutral-700 text-white">
+                            {numberScale(1, 10).map(i => <SelectItem key={i} value={String(i)}>{i}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                </div>
+            </Fieldset>
 
             <TwentyMinuteTimer />
 
-            <div className="grid grid-cols-2 gap-4">
-                <HungerScaleDropdown value={postMealHunger} onValueChange={(v) => handleChange('postMealHunger', v)} label="Post-Meal Hunger" />
-                <div className="space-y-1">
-                    <Label>Total % Eaten</Label>
+            <Fieldset legend="Post-Meal">
+                <HungerScaleDropdown 
+                    value={postMealHunger} 
+                    onValueChange={(v) => handleChange('postMealHunger', v)} 
+                    label="Hunger" 
+                />
+                <div className="space-y-1.5">
+                    <Label className="text-sm font-medium text-neutral-300">Total % Eaten</Label>
                     <Select value={String(percentageEaten)} onValueChange={(v) => handleChange('percentageEaten', Number(v))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>{[25, 50, 75, 100].map(i => <SelectItem key={i} value={String(i)}>{i}%</SelectItem>)}</SelectContent>
+                        <SelectTrigger className="w-full bg-neutral-800 border-neutral-700 text-white focus:ring-1 focus:ring-offset-0 focus:ring-offset-neutral-800 focus:ring-neutral-600">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-neutral-800 border-neutral-700 text-white">
+                            {[25, 50, 75, 100].map(i => <SelectItem key={i} value={String(i)}>{`${i}%`}</SelectItem>)}
+                        </SelectContent>
                     </Select>
                 </div>
-            </div>
+            </Fieldset>
 
-            <Textarea value={notes} onChange={e => handleChange('notes', e.target.value)} placeholder="Notes"/>
+            <div className="space-y-1.5">
+                <Label className="text-sm font-medium text-neutral-300">Notes</Label>
+                <Textarea 
+                    value={notes} 
+                    onChange={e => handleChange('notes', e.target.value)} 
+                    placeholder="Any reflections on the meal or how you feel?"
+                    className="bg-neutral-800 border-neutral-700 text-white"
+                />
+            </div>
         </div>
     );
 }

@@ -579,7 +579,6 @@ export function DataEntryDialog({
     };
 
     const CurrentContent = contentMap[pillar.id];
-    const isLongForm = ['nutrition', 'hydration', 'protocol', 'planner', 'cravings', 'stress'].includes(pillar.id);
 
     const dialogTitle = `${logId ? 'Edit' : 'Log'} ${pillar.label}`;
     const dialogDescription = randomQuote || undefined;
@@ -626,7 +625,6 @@ export function DataEntryDialog({
             onClose={() => onOpenChange(false)}
             title={dialogTitle}
             description={dialogDescription}
-            className={cn("sm:max-w-lg", isLongForm ? 'h-[90dvh]' : 'h-auto')}
             footer={dialogFooter}
         >
              <div className="space-y-1">

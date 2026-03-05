@@ -25,7 +25,7 @@ export async function getCustomHabitsAction(): Promise<{ success: boolean; data?
             const data = doc.data();
             return {
                 id: doc.id,
-                title: data.name, // Mapping 'name' from DB to 'title' in Type
+                name: data.name,
                 description: data.description,
                 frequency: data.frequency || 'daily',
                 coachId: data.coachId || 'system',

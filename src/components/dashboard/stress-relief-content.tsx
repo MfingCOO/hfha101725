@@ -1,4 +1,3 @@
-
 'use client';
 
 import * as React from 'react';
@@ -29,7 +28,7 @@ const hungerLevels = [
     { value: 10, label: '10 - Starving' }
 ];
 
-const HungerScaleDropdown = ({ value, onValueChange, label = "Hunger Level (0-10)" }: { value: number, onValueChange: (value: number) => void, label?: string }) => {
+const HungerScaleDropdown = ({ value, onValueChange, label = "Hunger Level" }: { value: number, onValueChange: (value: number) => void, label?: string }) => {
     return (
         <div className="space-y-1">
             <Label>{label}</Label>
@@ -64,15 +63,15 @@ export const StressReliefContent = ({ formState, onFormStateChange }: Omit<Conte
     } = formState || {};
 
     const sharedFields = (
-        <div className="space-y-3 pt-3">
-            <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-4 pt-3">
+            <div className="grid grid-cols-2 gap-4 items-end">
                 <div className="space-y-1">
-                    <Label>Sleep Last Night (hrs)</Label>
-                    <Input type="number" value={manualSleep} onChange={e => handleChange('manualSleep', e.target.value)} placeholder={"e.g., 8"} />
+                    <Label>Sleep Last Night</Label>
+                    <Input type="number" value={manualSleep} onChange={e => handleChange('manualSleep', e.target.value)} placeholder={"e.g., 8 hrs"} />
                 </div>
                 <div className="space-y-1">
-                    <Label>Hydration Today (oz)</Label>
-                    <Input type="number" value={manualHydration} onChange={e => handleChange('manualHydration', e.target.value)} placeholder={"e.g., 64"} />
+                    <Label>Hydration Today</Label>
+                    <Input type="number" value={manualHydration} onChange={e => handleChange('manualHydration', e.target.value)} placeholder={"e.g., 64 oz"} />
                 </div>
             </div>
              <div className="space-y-1">
@@ -87,32 +86,32 @@ export const StressReliefContent = ({ formState, onFormStateChange }: Omit<Conte
                 <TabsTrigger value="event">Log Stress Event</TabsTrigger>
                 <TabsTrigger value="relief">Log Stress Relief</TabsTrigger>
             </TabsList>
-            <TabsContent value="event" className="space-y-3 p-1 pt-4">
-                <div className="grid grid-cols-2 gap-4">
+            <TabsContent value="event" className="space-y-4 p-1 pt-4">
+                <div className="grid grid-cols-2 gap-4 items-end">
                      <div className="space-y-1">
-                        <Label>Stress Level (1-10)</Label>
+                        <Label>Stress Level</Label>
                         <Select value={String(stressLevel)} onValueChange={(v) => handleChange('stressLevel', Number(v))}>
-                            <SelectTrigger><SelectValue/></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="1-10"/></SelectTrigger>
                             <SelectContent>
                                 {numberScale(1, 10).map(i => <SelectItem key={i} value={String(i)}>{i}</SelectItem>)}
                             </SelectContent>
                         </Select>
                     </div>
-                    <HungerScaleDropdown value={hungerLevel} onValueChange={(v) => handleChange('hungerLevel', v)} />
+                    <HungerScaleDropdown label="Hunger Level" value={hungerLevel} onValueChange={(v) => handleChange('hungerLevel', v)} />
                 </div>
                 <Textarea value={trigger} onChange={(e) => handleChange('trigger', e.target.value)} placeholder="Trigger" />
                 {sharedFields}
             </TabsContent>
-            <TabsContent value="relief" className="space-y-3 p-1 pt-4">
+            <TabsContent value="relief" className="space-y-4 p-1 pt-4">
                 <div className="space-y-1">
                     <Label>Relief Strategy</Label>
                     <Input value={strategy} onChange={(e) => handleChange('strategy', e.target.value)} placeholder="e.g., meditation, walk, hobby" />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 items-end">
                     <div className="space-y-1">
                         <Label>Stress Before</Label>
                         <Select value={String(stressLevelBefore)} onValueChange={(v) => handleChange('stressLevelBefore', Number(v))}>
-                            <SelectTrigger><SelectValue/></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="1-10"/></SelectTrigger>
                             <SelectContent>
                                 {numberScale(1, 10).map(i => <SelectItem key={i} value={String(i)}>{i}</SelectItem>)}
                             </SelectContent>
@@ -121,7 +120,7 @@ export const StressReliefContent = ({ formState, onFormStateChange }: Omit<Conte
                     <div className="space-y-1">
                         <Label>Stress After</Label>
                         <Select value={String(stressLevelAfter)} onValueChange={(v) => handleChange('stressLevelAfter', Number(v))}>
-                            <SelectTrigger><SelectValue/></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="1-10"/></SelectTrigger>
                             <SelectContent>
                                 {numberScale(1, 10).map(i => <SelectItem key={i} value={String(i)}>{i}</SelectItem>)}
                             </SelectContent>

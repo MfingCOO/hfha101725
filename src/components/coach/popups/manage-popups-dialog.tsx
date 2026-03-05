@@ -199,7 +199,7 @@ export function ManagePopupsDialog({ open, onOpenChange }: ManagePopupsDialogPro
                             <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
                             <TabsTrigger value="past">Past</TabsTrigger>
                         </TabsList>
-                        <div className="flex-1 min-h-0 mt-2">
+                        <div className="flex-1 min-h-0 mt-2 overflow-y-auto">
                              <TabsContent value="active" className="h-full m-0"><PopupList list={active} /></TabsContent>
                              <TabsContent value="scheduled" className="h-full m-0"><PopupList list={scheduled} /></TabsContent>
                              <TabsContent value="past" className="h-full m-0"><PopupList list={past} /></TabsContent>

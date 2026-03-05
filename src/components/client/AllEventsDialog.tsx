@@ -11,8 +11,7 @@ import type { LiveEvent, UserProfile, ClientProfile } from '@/types';
 interface AllEventsDialogProps {
   open: boolean;
   onClose: () => void;
-  // Make userProfile optional to match the widget
-  userProfile?: UserProfile | null;
+  userProfile: UserProfile | null; // This is retained for type consistency, but clientProfile will be used.
   clientProfile: ClientProfile | null;
   onOpenUpgradeModal: () => void;
 }
@@ -23,17 +22,13 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
   const [isSigningUp, setIsSigningUp] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Helper to get the actual user ID from whichever profile is available
-  const currentUserId = userProfile?.uid || clientProfile?.uid;
-
   useEffect(() => {
-    const coachId = clientProfile?.coachId;
-
-    if (open && coachId) {
+    if (open) {
       const fetchEvents = async () => {
         setIsLoading(true);
         try {
-          const result = await getLiveEvents(coachId);
+          // This function fetches ALL upcoming events, as you correctly stated.
+          const result = await getLiveEvents();
           if (result.success) {
             setEvents(result.data || []);
           } else {
@@ -41,26 +36,28 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
           }
         } catch (error: any) {
           toast({ title: 'Error', description: error.message, variant: 'destructive' });
-        } finally {
-          setIsLoading(false);
         }
+        setIsLoading(false);
       };
       fetchEvents();
     }
-  }, [open, toast, clientProfile?.coachId]);
+  }, [open, toast]);
 
   const handleSignUp = async (eventId: string) => {
-    // Use the helper ID here
-    if (!currentUserId) return;
-    
+    // This now correctly uses the clientProfile passed from the dashboard.
+    if (!clientProfile?.uid) {
+      toast({ title: 'Error', description: 'Could not identify user.', variant: 'destructive' });
+      return;
+    }
     setIsSigningUp(eventId);
     try {
-      const result = await signUpForEvent({ eventId, userId: currentUserId });
+      const input = { eventId, userId: clientProfile.uid };
+      const result = await signUpForEvent(input);
 
       if (result.success) {
         toast({ title: 'Success!', description: "You've been registered for the event." });
         setEvents(prevEvents => prevEvents.map(e => 
-            e.id === eventId ? { ...e, attendees: [...(e.attendees || []), currentUserId] } : e
+            e.id === eventId ? { ...e, attendees: [...e.attendees, clientProfile.uid] } : e
         ));
       } else {
         throw new Error(result.error || 'Could not sign you up for the event.');
@@ -72,12 +69,11 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
     }
   };
 
-  // Modern check for tier - handles both string comparison or specific Enum if applicable
-  const userTier = clientProfile?.tier?.toLowerCase();
+  const userTier = clientProfile?.tier;
   const canJoin = userTier === 'premium' || userTier === 'coaching';
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+    <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Upcoming Live Events</DialogTitle>
@@ -92,9 +88,8 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
             <p className="text-center text-muted-foreground py-10">No upcoming events scheduled. Check back soon!</p>
           ) : (
             events.map(event => {
-              // Check registration using the consolidated ID
-              const isRegistered = currentUserId && event.attendees?.includes(currentUserId);
-              
+              // This now correctly uses the clientProfile to determine if the user is registered.
+              const isRegistered = clientProfile && event.attendees.includes(clientProfile.uid);
               return (
                 <div key={event.id} className="p-4 border rounded-lg">
                   <h3 className="font-semibold text-md">{event.title}</h3>
@@ -105,7 +100,7 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
                   {canJoin ? (
                     <Button 
                         onClick={() => handleSignUp(event.id)}
-                        disabled={!!isRegistered || isSigningUp === event.id}
+                        disabled={isRegistered || isSigningUp === event.id}
                         className="w-full"
                     >
                       {isSigningUp === event.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

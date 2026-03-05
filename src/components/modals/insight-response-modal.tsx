@@ -1,14 +1,6 @@
-
-
 'use client';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter
-} from '@/components/ui/dialog';
+
+import { BaseModal } from '@/components/ui/base-modal';
 import { Button } from '@/components/ui/button';
 import { Lightbulb, Sparkles, CheckCircle, Salad, CloudSun } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
@@ -29,8 +21,6 @@ interface InsightResponseModalProps {
 export function InsightResponseModal({ isOpen, onClose, insight }: InsightResponseModalProps) {
   if (!insight) return null;
 
-  // For now, these buttons just close the modal.
-  // In a future step, they could open the relevant data entry dialog.
   const handleActionClick = () => {
       onClose();
   }
@@ -58,19 +48,25 @@ export function InsightResponseModal({ isOpen, onClose, insight }: InsightRespon
     }
     return <Button onClick={onClose} className="w-full">Got it, thanks!</Button>;
   }
+  
+  const titleComponent = (
+     <div className="flex items-center justify-center gap-2 text-xl font-bold">
+        <Lightbulb className="text-yellow-500 h-6 w-6" />
+        {insight.title}
+    </div>
+  );
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[90vw] max-w-lg h-auto max-h-[85vh] flex flex-col p-0 bg-gradient-to-br from-amber-50/95 to-green-50/95 text-foreground">
-        <DialogHeader className="p-6 pb-2 text-center">
-          <DialogTitle className="flex items-center justify-center gap-2 text-xl font-bold">
-            <Lightbulb className="text-yellow-500 h-6 w-6" />
-            {insight.title}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="flex-1 min-h-0">
+    <BaseModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={titleComponent}
+      footer={<div className="flex flex-row gap-2 w-full">{renderFooter()}</div>}
+      className="w-[90vw] max-w-lg"
+    >
+        <div className="max-h-[60vh]">
             <ScrollArea className="h-full">
-                <div className="px-6 space-y-4">
+                <div className="space-y-4">
                     <div className="rounded-lg bg-background/50 p-4 space-y-3 animate-in fade-in-50">
                         <div>
                             <h4 className="font-semibold flex items-center gap-2 text-sm text-yellow-400"><Sparkles className="h-4 w-4" /> The "Why"</h4>
@@ -85,10 +81,6 @@ export function InsightResponseModal({ isOpen, onClose, insight }: InsightRespon
                 </div>
             </ScrollArea>
         </div>
-        <DialogFooter className="p-4 border-t mt-auto flex-row gap-2">
-          {renderFooter()}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </BaseModal>
   );
 }

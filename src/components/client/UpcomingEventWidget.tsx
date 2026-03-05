@@ -5,54 +5,44 @@ import { getUpcomingLiveEvent } from '@/app/coach/events/actions';
 import { AllEventsDialog } from './AllEventsDialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, CalendarPlus } from 'lucide-react';
-import type { LiveEvent, UserProfile, ClientProfile } from '@/types';
+import type { LiveEvent, ClientProfile } from '@/types';
 
 interface UpcomingEventWidgetProps {
-  // Made optional (?) so DashboardClient doesn't complain about it being missing
-  userProfile?: UserProfile | null;
   clientProfile: ClientProfile | null;
   onOpenUpgradeModal: () => void;
 }
 
-export function UpcomingEventWidget({ userProfile, clientProfile, onOpenUpgradeModal }: UpcomingEventWidgetProps) {
+export function UpcomingEventWidget({ clientProfile, onOpenUpgradeModal }: UpcomingEventWidgetProps) {
   const [event, setEvent] = useState<LiveEvent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   useEffect(() => {
-    /**
-     * Logic Fix: We check for a UID in either profile. 
-     * This ensures the widget works in the Dashboard using the clientProfile.
-     */
-    const userId = userProfile?.uid || clientProfile?.uid;
-
-    if (!userId) {
-      setIsLoading(false);
-      return;
-    }
-
-    getUpcomingLiveEvent(userId)
+    // FINAL FIX: Calling the corrected server action which no longer requires a userId.
+    getUpcomingLiveEvent()
       .then(result => {
         if (result.success && result.data) {
-          setEvent(result.data);
+          setEvent(result.data as any);
+        } else if (result.error) {
+            console.error("Server error fetching event:", result.error);
         }
       })
-      .catch((err) => {
-        console.error("Error fetching live event:", err);
-      })
+      .catch(err => console.error("Client error fetching live event:", err))
       .finally(() => setIsLoading(false));
-  }, [userProfile?.uid, clientProfile?.uid]);
+
+  }, [clientProfile]); // Dependency retained to refetch if the user context changes.
 
   if (isLoading) {
     return (
-      <Card>
-        <CardContent className="flex justify-center items-center p-4">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
+        <Card>
+            <CardContent className="flex justify-center items-center p-4">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </CardContent>
+        </Card>
     );
   }
 
+  // If no event is found, render nothing, as per the original requirement.
   if (!event) {
     return null;
   }
@@ -64,22 +54,21 @@ export function UpcomingEventWidget({ userProfile, clientProfile, onOpenUpgradeM
         onClick={() => setIsDialogOpen(true)}
       >
         <CardContent className="p-4 flex items-center gap-4">
-          <CalendarPlus className="h-8 w-8 text-primary flex-shrink-0" />
-          <div className="flex-1">
-            <p className="font-semibold leading-tight">{event.title}</p>
-            <p className="text-sm text-muted-foreground leading-tight">
-              {new Date(event.eventTimestamp).toLocaleString([], { month: 'long', day: 'numeric' })}
-              &nbsp;&middot;&nbsp;Click to see more
-            </p>
-          </div>
+            <CalendarPlus className="h-8 w-8 text-primary flex-shrink-0" />
+            <div className="flex-1">
+                <p className="font-semibold leading-tight">{event.title}</p>
+                <p className="text-sm text-muted-foreground leading-tight">
+                    {new Date((event as any).start).toLocaleString([], { month: 'long', day: 'numeric' })}
+                    &nbsp;&middot;&nbsp;Click to see more
+                </p>
+            </div>
         </CardContent>
       </Card>
       
       <AllEventsDialog 
         open={isDialogOpen} 
         onClose={() => setIsDialogOpen(false)} 
-        // We ensure the dialog gets a profile object even if userProfile is undefined
-        userProfile={userProfile || (clientProfile as unknown as UserProfile)}
+        userProfile={null}
         clientProfile={clientProfile}
         onOpenUpgradeModal={onOpenUpgradeModal}
       />

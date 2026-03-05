@@ -266,8 +266,8 @@ export function ChatView({ chatId }: ChatViewProps) {
                                         <AvatarFallback className="text-xs">{getInitials(msg.userName)}</AvatarFallback>
                                     </Avatar>
                                 )}
-                                <div className={cn("max-w-[80%] rounded-lg px-2 py-1 min-w-0", isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
-                                    <div className="text-xs break-words"><LinkifiedText text={msg.text || ''} /></div>
+                                <div className={cn("max-w-[80%] rounded-lg px-2 py-1 min-w-0 overflow-hidden", isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
+                                    <div className="text-xs break-all"><LinkifiedText text={msg.text || ''} /></div>
                                     {msg.fileUrl && (
                                         <div className="mt-1">
                                             {msg.fileName?.match(/\.pdf$/i) ? (

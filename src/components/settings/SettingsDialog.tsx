@@ -1,32 +1,11 @@
-
 'use client';
 
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, User, Bell, SlidersHorizontal, Settings as SettingsIcon, CreditCard, LogOut, Trash2, Camera, Target, Undo2, BrainCircuit, RefreshCw, HelpCircle, FileText, ShieldCheck } from 'lucide-react';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/components/auth/auth-provider';
 import { signOut } from 'firebase/auth';
 import { auth as clientAuth } from '@/lib/firebase';
@@ -39,20 +18,26 @@ import {
   } from '@/app/client/settings/actions';
 import { getSiteSettingsAction, updateSiteSettingsAction } from '@/app/coach/site-settings/actions';
 import type { TrackingSettings, ClientProfile, NutritionalGoals } from '@/types';
+import { getClientByIdAction } from '@/app/coach/clients/actions';
+import { calculateNutritionalGoals, AllGoalSets } from '@/services/goals';
+import { cn } from '@/lib/utils';
+import Link from 'next/link';
+
+// UI IMPORTS
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Switch } from '../ui/switch';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Separator } from '../ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
-import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getClientByIdAction } from '@/app/coach/clients/actions';
-import { calculateNutritionalGoals, AllGoalSets } from '@/services/goals';
 import { AppNumberInput } from '../ui/number-input';
 import { Slider } from '../ui/slider';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
-import Link from 'next/link';
+import { BaseModal } from '../ui/base-modal';
 
 
 interface SettingsDialogProps {
@@ -251,6 +236,7 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
     const result = await updateUserProfileAction(user.uid, data);
     if (result.success) {
       toast({ title: 'Account Updated' });
+      await fetchClientData();
     } else {
       toast({ variant: 'destructive', title: 'Error', description: result.error });
     }
@@ -274,14 +260,16 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
    const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && user) {
+        setIsSaving(true);
         const reader = new FileReader();
         reader.onloadend = async () => {
             const dataUrl = reader.result as string;
-            setIsSaving(true);
             const result = await updateUserProfileAction(user.uid, { photoURL: dataUrl });
             if(result.success) {
                 toast({ title: "Profile picture updated!" });
-                await user.reload(); 
+                // Manually update user and clientData state to force re-render with new image
+                 await user.reload();
+                 await fetchClientData();
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: result.error });
             }
@@ -372,38 +360,39 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
 
 
   const renderAccountTabContent = () => (
-    <div className="space-y-4">
-        <div className="flex items-center gap-4">
-            <div className="relative">
-                <Avatar className="h-20 w-20 border-2 border-primary">
-                    <AvatarImage src={user?.photoURL || ''} />
-                    <AvatarFallback className="text-3xl">{clientData?.fullName?.charAt(0) || user?.displayName?.charAt(0)}</AvatarFallback>
-                </Avatar>
-                <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*"/>
-                <Button size="icon" variant="secondary" className="absolute -bottom-2 -right-2 h-8 w-8 rounded-full border-2 border-background" onClick={() => fileInputRef.current?.click()}>
-                    <Camera className="h-4 w-4"/>
+    <div className="space-y-6">
+        <Form {...accountForm}>
+            <form id="account-form" onSubmit={accountForm.handleSubmit(onUpdateAccount)} className="space-y-4">
+                <FormField control={accountForm.control} name="fullName" render={({ field }) => (
+                    <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                )}/>
+                <FormField control={accountForm.control} name="email" render={({ field }) => (
+                    <FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" {...field} /></FormControl><FormMessage /></FormItem>
+                )}/>
+                <FormItem>
+                    <FormLabel>Profile Picture</FormLabel>
+                    <FormControl>
+                        <div>
+                           <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*"/>
+                           <Button type="button" variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isSaving}>
+                               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Camera className="mr-2 h-4 w-4"/>}
+                               Change Picture
+                           </Button>
+                        </div>
+                    </FormControl>
+                </FormItem>
+                <Button type="submit" size="sm" disabled={isSaving}>
+                    {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
+                    Update Profile
                 </Button>
-            </div>
-            <div className="flex-1">
-                <Form {...accountForm}>
-                    <form id="account-form" onSubmit={accountForm.handleSubmit(onUpdateAccount)} className="space-y-3">
-                        <FormField control={accountForm.control} name="fullName" render={({ field }) => (
-                            <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-                        )}/>
-                        <FormField control={accountForm.control} name="email" render={({ field }) => (
-                            <FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" {...field} /></FormControl><FormMessage /></FormItem>
-                        )}/>
-                    </form>
-                </Form>
-            </div>
-        </div>
-        <Button type="submit" form="account-form" size="sm" disabled={isSaving}>
-            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-            Update Profile
-        </Button>
-        <Separator className="my-3"/>
+            </form>
+        </Form>
+
+        <Separator />
+
         <Form {...passwordForm}>
-            <form onSubmit={passwordForm.handleSubmit(onUpdatePassword)} className="space-y-3">
+            <form onSubmit={passwordForm.handleSubmit(onUpdatePassword)} className="space-y-4">
+                 <h3 className="text-lg font-medium">Change Password</h3>
                 <FormField control={passwordForm.control} name="newPassword" render={({ field }) => (
                     <FormItem><FormLabel>New Password</FormLabel><FormControl><Input type="password" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
@@ -411,23 +400,20 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
                     <FormItem><FormLabel>Confirm New Password</FormLabel><FormControl><Input type="password" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
                 <Button type="submit" size="sm" variant="secondary" disabled={isSaving}>
-                {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                    {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
                     Update Password
                 </Button>
             </form>
         </Form>
-        <Separator className="my-3"/>
-        <div className="flex flex-col gap-2">
-            <Button variant="outline" className="w-full" asChild>
-                <Link href="/support" target="_blank"><HelpCircle className="mr-2"/> Help & Support</Link>
-            </Button>
-            <Button variant="outline" className="w-full" asChild>
-                <Link href="/tos" target="_blank"><FileText className="mr-2"/> Terms of Service</Link>
-            </Button>
-            <Button variant="outline" className="w-full" asChild>
-                <Link href="/privacy" target="_blank"><ShieldCheck className="mr-2"/> Privacy Policy</Link>
-            </Button>
-            <Button variant="outline" className="w-full" onClick={handleLogout}><LogOut className="mr-2"/> Log Out</Button>
+
+        <Separator />
+
+        <div className="space-y-2">
+            <h3 className="text-lg font-medium">More</h3>
+            <Button variant="outline" className="w-full justify-start" asChild><Link href="/support" target="_blank"><HelpCircle className="mr-2 h-4 w-4"/> Help & Support</Link></Button>
+            <Button variant="outline" className="w-full justify-start" asChild><Link href="/tos" target="_blank"><FileText className="mr-2 h-4 w-4"/> Terms of Service</Link></Button>
+            <Button variant="outline" className="w-full justify-start" asChild><Link href="/privacy" target="_blank"><ShieldCheck className="mr-2 h-4 w-4"/> Privacy Policy</Link></Button>
+            <Button variant="destructive" className="w-full justify-start" onClick={handleLogout}><LogOut className="mr-2 h-4 w-4"/> Log Out</Button>
         </div>
     </div>
   );
@@ -438,7 +424,7 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
             <TabsTrigger value="account">My Account</TabsTrigger>
             <TabsTrigger value="site">Site Settings</TabsTrigger>
         </TabsList>
-        <div className="flex-1 min-h-0 py-4">
+        <div className="flex-1 min-h-0">
             <TabsContent value="account" className="mt-0">
                 {renderAccountTabContent()}
             </TabsContent>
@@ -500,7 +486,7 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
             <TabsTrigger value="account">My Account</TabsTrigger>
             <TabsTrigger value="subscription">Subscription</TabsTrigger>
         </TabsList>
-         <div className="flex-1 min-h-0 py-4">
+         <div className="flex-1 min-h-0">
             <TabsContent value="account" className="mt-0">
                 <Accordion type="single" collapsible className="w-full space-y-2" defaultValue={defaultAccordion || "goals"}>
                     <AccordionItem value="goals" className="border rounded-lg overflow-hidden">
@@ -662,28 +648,24 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
     </Tabs>
   );
 
+  const profileData = {
+      photoURL: user?.photoURL,
+      displayName: clientData?.fullName || user?.displayName,
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[90vw] max-w-lg h-[80vh] flex flex-col p-0">
-        <DialogHeader className="p-4 border-b">
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Manage your account and app preferences.</DialogDescription>
-        </DialogHeader>
-        
-        <div className="flex-1 min-h-0">
-            <ScrollArea className="h-full">
-                <div className="p-2 sm:p-4">
-                    {isLoading ? (
-                         <div className="flex items-center justify-center h-64">
-                            <Loader2 className="h-8 w-8 animate-spin" />
-                        </div>
-                    ) : isCoach ? renderCoachSettings() : renderClientSettings()}
-                </div>
-            </ScrollArea>
-        </div>
-      </DialogContent>
-    </Dialog>
+      <BaseModal
+          isOpen={open}
+          onClose={() => onOpenChange(false)}
+          title="Settings"
+          description={isCoach ? "Manage account and site settings." : "Manage account and app preferences."}
+          profile={profileData}
+      >
+        {isLoading ? (
+              <div className="flex items-center justify-center h-64">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+          ) : isCoach ? renderCoachSettings() : renderClientSettings()}
+      </BaseModal>
   );
 }
-
-    

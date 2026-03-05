@@ -50,7 +50,14 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
     };
 
     const handleAction = () => {
-        if (reminder.pillarId) {
+        // If the reminder has a URL, treat it as the primary action, even for non-custom popups.
+        // This makes the component more robust to mis-configured reminder data.
+        if (reminder.data?.ctaUrl) {
+            window.open(reminder.data.ctaUrl, '_blank');
+            handleDismiss();
+        } 
+        // Otherwise, fall back to data entry if a pillar is specified.
+        else if (reminder.pillarId) {
             setIsDataEntryOpen(true);
         }
     };

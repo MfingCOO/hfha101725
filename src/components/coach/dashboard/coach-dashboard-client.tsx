@@ -159,14 +159,13 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     return (
         <>
             <div className="w-full max-w-4xl mx-auto space-y-4 p-4">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-6 gap-2">
                     {managementButtons.map(({ label, icon: Icon, action, count }) => (
                         <div key={label} className="relative">
-                            <Button variant='outline' className="w-full" onClick={action}>
-                                <Icon className="mr-2 h-4 w-4" />
-                                {label}
+                            <Button variant='outline' size="icon" className="w-full h-12" onClick={action} title={label}>
+                                <Icon className="h-5 w-5" />
                             </Button>
-                            {count !== undefined && count > 0 && <Badge variant="destructive" className="absolute -top-2 -right-2">{count}</Badge>}
+                            {count !== undefined && count > 0 && <Badge variant="destructive" className="absolute -top-1 -right-1">{count}</Badge>}
                         </div>
                     ))}
                 </div>

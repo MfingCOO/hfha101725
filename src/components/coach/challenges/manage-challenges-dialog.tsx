@@ -226,7 +226,7 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
                                 <TabsTrigger value="past">Past</TabsTrigger>
                                 <TabsTrigger value="events">Events</TabsTrigger>
                             </TabsList>
-                            <div className="flex-1 min-h-0 mt-2">
+                            <div className="flex-1 min-h-0 mt-2 overflow-y-auto">
                                 <TabsContent value="active" className="h-full m-0"><ChallengeList list={active} /></TabsContent>
                                 <TabsContent value="upcoming" className="h-full m-0"><ChallengeList list={upcoming} /></TabsContent>
                                 <TabsContent value="past" className="h-full m-0"><ChallengeList list={past} /></TabsContent>
@@ -235,8 +235,8 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
                         </Tabs>
                     )}
                 </TabsContent>
-                <TabsContent value="program" className="flex-1 min-h-0">
-                <ProgramBuilderTabs />
+                <TabsContent value="program" className="flex-1 min-h-0 overflow-y-auto">
+                    <ProgramBuilderTabs />
                 </TabsContent>
             </Tabs>
         </CoachPageModal>

@@ -3,14 +3,13 @@ import { useEffect, useState, useMemo } from 'react';
 import { ResponsiveContainer, Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts"
 import { getWeightData, WeightDataPoint } from '@/services/firestore';
 import { format, formatDistance, subMonths } from 'date-fns';
-import { Loader2, TrendingDown, TrendingUp, Minus, X } from 'lucide-react';
+import { Loader2, TrendingDown, TrendingUp, Minus } from 'lucide-react';
 import { Skeleton } from '../ui/skeleton';
 import { useAuth } from '../auth/auth-provider';
 import { cn } from '@/lib/utils';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from '../ui/dialog';
+import { BaseModal } from '../ui/base-modal';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
-
 
 interface WeightTrendChartDialogProps {
   isOpen: boolean;
@@ -59,7 +58,6 @@ export function WeightTrendChartDialog({ isOpen, onClose }: WeightTrendChartDial
                 return data;
         }
     }, [data, timeframe]);
-
 
     const { stats, domain } = useMemo(() => {
         if (filteredData.length < 2) return { stats: null, domain: [100, 200] };
@@ -131,123 +129,119 @@ export function WeightTrendChartDialog({ isOpen, onClose }: WeightTrendChartDial
     );
 
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="w-[90vw] max-w-2xl">
-                 <DialogHeader>
-                    <DialogTitle>Weight Trend Analysis</DialogTitle>
-                     <DialogClose className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
-                        <X className="h-4 w-4" />
-                        <span className="sr-only">Close</span>
-                    </DialogClose>
-                </DialogHeader>
+        <BaseModal 
+            isOpen={isOpen} 
+            onClose={onClose}
+            title="Weight Trend Analysis"
+            description="Visualize your weight changes over time."
+            className="max-w-2xl"
+        >
+            <div className="space-y-4">
+                {stats && (
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                            <p className="text-xs text-muted-foreground">Start</p>
+                            <p className="font-bold text-lg">{stats.start}</p>
+                            <p className="text-xs text-muted-foreground">{stats.startDate}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-muted-foreground">Current</p>
+                            <p className="font-bold text-lg">{stats.current}</p>
+                            <p className="text-xs text-muted-foreground">{stats.currentDate}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-muted-foreground">Change</p>
+                            <p className={cn("font-bold text-lg flex items-center justify-center gap-1",
+                                stats.changeType === 'decrease' && 'text-green-400',
+                                stats.changeType === 'increase' && 'text-red-400'
+                            )}>
+                                {stats.changeType === 'decrease' ? <TrendingDown className="h-4 w-4" /> : stats.changeType === 'increase' ? <TrendingUp className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
+                                {stats.change}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{stats.duration}</p>
+                        </div>
+                    </div>
+                )}
                 
-                <div className="space-y-4">
-                    {stats && (
-                        <div className="grid grid-cols-3 gap-2 text-center">
-                            <div>
-                                <p className="text-xs text-muted-foreground">Start</p>
-                                <p className="font-bold text-lg">{stats.start}</p>
-                                <p className="text-xs text-muted-foreground">{stats.startDate}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground">Current</p>
-                                <p className="font-bold text-lg">{stats.current}</p>
-                                <p className="text-xs text-muted-foreground">{stats.currentDate}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground">Change</p>
-                                <p className={cn("font-bold text-lg flex items-center justify-center gap-1",
-                                    stats.changeType === 'decrease' && 'text-green-400',
-                                    stats.changeType === 'increase' && 'text-red-400'
-                                )}>
-                                    {stats.changeType === 'decrease' ? <TrendingDown className="h-4 w-4" /> : stats.changeType === 'increase' ? <TrendingUp className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
-                                    {stats.change}
-                                </p>
-                                <p className="text-xs text-muted-foreground">{stats.duration}</p>
-                            </div>
+                {!isMounted || isLoading ? (
+                    <div className="h-[250px] w-full flex items-center justify-center">
+                        <Skeleton className="h-full w-full" />
+                    </div>
+                ) : filteredData.length > 1 ? (
+                    <div className="h-[250px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart
+                                data={filteredData}
+                                margin={{
+                                    top: 5,
+                                    right: 10,
+                                    left: 0,
+                                    bottom: 0,
+                                }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.5)" />
+                                <YAxis 
+                                    tickLine={false} 
+                                    axisLine={false} 
+                                    tickMargin={8} 
+                                    domain={domain}
+                                    tick={{ fontSize: '0.75rem' }}
+                                />
+                                <XAxis
+                                    dataKey="date"
+                                    tickLine={false}
+                                    axisLine={false}
+                                    tickMargin={8}
+                                    tickFormatter={(value) => value.slice(0, 3)}
+                                    tick={{ fontSize: '0.75rem' }}
+                                />
+                                <Tooltip content={<CustomTooltip />} />
+                                <defs>
+                                    <linearGradient id="fillWeight" x1="0" y1="0" x2="0" y2="1">
+                                        <stop
+                                        offset="5%"
+                                        stopColor="hsl(var(--primary))"
+                                        stopOpacity={0.8}
+                                        />
+                                        <stop
+                                        offset="95%"
+                                        stopColor="hsl(var(--primary))"
+                                        stopOpacity={0.1}
+                                        />
+                                    </linearGradient>
+                                </defs>
+                                <Area
+                                    dataKey="weight"
+                                    type="natural"
+                                    fill="url(#fillWeight)"
+                                    stroke="hsl(var(--primary))"
+                                    stackId="a"
+                                    strokeWidth={2}
+                                />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                ) : (
+                    <div className="h-[250px] w-full flex flex-col items-center justify-center text-center text-muted-foreground">
+                        <p className="font-semibold">Not enough data to build a trend.</p>
+                        <p className="text-sm">Log at least two measurements to see your chart.</p>
+                    </div>
+                )}
+                <TimeframeButtons />
+                
+                {filteredData.length > 0 && (
+                    <ScrollArea className="h-24 w-full rounded-md border p-2">
+                         <div className="space-y-1">
+                            {filteredData.slice().reverse().map((entry, index) => (
+                                <div key={index} className="flex justify-between items-center text-sm p-1 rounded-md hover:bg-muted">
+                                    <span className="text-muted-foreground">{format(new Date(entry.entryDate), 'MMM d, yyyy')}</span>
+                                    <span className="font-semibold">{entry.weight.toFixed(1)} {userProfile?.onboarding?.units === 'metric' ? 'kg' : 'lbs'}</span>
+                                </div>
+                            ))}
                         </div>
-                    )}
-                    
-                    {!isMounted || isLoading ? (
-                        <div className="h-[250px] w-full flex items-center justify-center">
-                            <Skeleton className="h-full w-full" />
-                        </div>
-                    ) : filteredData.length > 1 ? (
-                        <div className="h-[250px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart
-                                    data={filteredData}
-                                    margin={{
-                                        top: 5,
-                                        right: 10,
-                                        left: 0,
-                                        bottom: 0,
-                                    }}
-                                >
-                                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.5)" />
-                                    <YAxis 
-                                        tickLine={false} 
-                                        axisLine={false} 
-                                        tickMargin={8} 
-                                        domain={domain}
-                                        tick={{ fontSize: '0.75rem' }}
-                                    />
-                                    <XAxis
-                                        dataKey="date"
-                                        tickLine={false}
-                                        axisLine={false}
-                                        tickMargin={8}
-                                        tickFormatter={(value) => value.slice(0, 3)}
-                                        tick={{ fontSize: '0.75rem' }}
-                                    />
-                                    <Tooltip content={<CustomTooltip />} />
-                                    <defs>
-                                        <linearGradient id="fillWeight" x1="0" y1="0" x2="0" y2="1">
-                                            <stop
-                                            offset="5%"
-                                            stopColor="hsl(var(--primary))"
-                                            stopOpacity={0.8}
-                                            />
-                                            <stop
-                                            offset="95%"
-                                            stopColor="hsl(var(--primary))"
-                                            stopOpacity={0.1}
-                                            />
-                                        </linearGradient>
-                                    </defs>
-                                    <Area
-                                        dataKey="weight"
-                                        type="natural"
-                                        fill="url(#fillWeight)"
-                                        stroke="hsl(var(--primary))"
-                                        stackId="a"
-                                        strokeWidth={2}
-                                    />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        </div>
-                    ) : (
-                        <div className="h-[250px] w-full flex flex-col items-center justify-center text-center text-muted-foreground">
-                            <p className="font-semibold">Not enough data to build a trend.</p>
-                            <p className="text-sm">Log at least two measurements to see your chart.</p>
-                        </div>
-                    )}
-                    <TimeframeButtons />
-                    
-                    {filteredData.length > 0 && (
-                        <ScrollArea className="h-24 w-full rounded-md border p-2">
-                             <div className="space-y-1">
-                                {filteredData.slice().reverse().map((entry, index) => (
-                                    <div key={index} className="flex justify-between items-center text-sm p-1 rounded-md hover:bg-muted">
-                                        <span className="text-muted-foreground">{format(new Date(entry.entryDate), 'MMM d, yyyy')}</span>
-                                        <span className="font-semibold">{entry.weight.toFixed(1)} {userProfile?.onboarding?.units === 'metric' ? 'kg' : 'lbs'}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </ScrollArea>
-                    )}
-                </div>
-            </DialogContent>
-        </Dialog>
+                    </ScrollArea>
+                )}
+            </div>
+        </BaseModal>
     )
 }

@@ -69,9 +69,9 @@ const TimePicker = ({ time, onTimeChange }: { time: string, onTimeChange: (newTi
     const minutes = ['00', '15', '30', '45'];
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 grow">
             <Select value={hour} onValueChange={handleHourChange}>
-                <SelectTrigger className="w-[80px]">
+                <SelectTrigger className="min-w-0">
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -79,7 +79,7 @@ const TimePicker = ({ time, onTimeChange }: { time: string, onTimeChange: (newTi
                 </SelectContent>
             </Select>
             <Select value={minute} onValueChange={handleMinuteChange}>
-                <SelectTrigger className="w-[80px]">
+                <SelectTrigger className="min-w-0">
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -87,7 +87,7 @@ const TimePicker = ({ time, onTimeChange }: { time: string, onTimeChange: (newTi
                 </SelectContent>
             </Select>
             <Select value={ampm} onValueChange={handleAmPmChange}>
-                <SelectTrigger className="w-[80px]">
+                <SelectTrigger className="min-w-0">
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -177,9 +177,10 @@ export function HydrationContent({ clientProfile, formState, onFormStateChange, 
                         <AppNumberInput
                             value={formState.amount || ''}
                             onChange={value => handleFieldChange('amount', value === '' ? 0 : Number(value))}
+                            className="w-24"
                         />
                          <Select value={formState.unit || 'oz'} onValueChange={value => handleFieldChange('unit', value)}>
-                            <SelectTrigger className="w-[80px]">
+                            <SelectTrigger className="w-auto">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -251,12 +252,12 @@ export function HydrationContent({ clientProfile, formState, onFormStateChange, 
                                             time={time} 
                                             onTimeChange={value => updateReminderTime(index, value)} 
                                         />
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeReminderTime(index)}>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => removeReminderTime(index)}>
                                             <X className="h-4 w-4"/>
                                         </Button>
                                     </div>
                                 ))}
-                                <div className="flex items-center gap-2 pt-2">
+                                <div className="flex flex-col sm:flex-row items-center gap-2 pt-2">
     <Button variant="outline" size="sm" className="w-full" onClick={addReminderTime}>
         <PlusCircle className="mr-2 h-4 w-4" /> Add Reminder
     </Button>
