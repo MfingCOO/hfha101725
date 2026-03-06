@@ -11,7 +11,7 @@
     "build:functions": "tsc --project src/functions/tsconfig.json"
   },
   "engines": {
-    "node": "20.x"
+    "node": "20"
   },
   "dependencies": {
     "@capacitor-community/admob": "^5.3.1",
@@ -62,7 +62,7 @@
     "embla-carousel-react": "^8.6.0",
     "file-saver": "^2.0.5",
     "firebase": "^11.10.0",
-    "firebase-functions": "^5.1.1",
+    "firebase-functions": "^7.1.0",
     "framer-motion": "^11.2.12",
     "genkit": "^1.24.0",
     "lucide-react": "^0.475.0",
