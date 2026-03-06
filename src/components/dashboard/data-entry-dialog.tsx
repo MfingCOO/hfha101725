@@ -582,7 +582,7 @@ export function DataEntryDialog({
 
     const dialogTitle = `${logId ? 'Edit' : 'Log'} ${pillar.label}`;
     const dialogDescription = randomQuote || undefined;
-    const pillarUsesTime = !['measurements'].includes(pillar.id);
+    const pillarUsesTime = ![' '].includes(pillar.id);
 
     const buttonText = logId 
     ? 'Update Entry' 
