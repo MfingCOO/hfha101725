@@ -236,7 +236,9 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
                 const nextScheduledAt = new Timestamp(reminder.scheduledAt.seconds + (24 * 60 * 60), reminder.scheduledAt.nanoseconds);
                 await doc.ref.update({ scheduledAt: nextScheduledAt });
                 console.log(`Rescheduled recurring reminder ${reminderId} for user ${userId}.`);
-            } else {
+            }
+            // Moved else block outside if to ensure it's always executed if not recurring
+            else {
                 await doc.ref.update({ status: 'completed' });
                 console.log(`Marked one-time reminder ${reminderId} as completed for user ${userId}.`);
             }
