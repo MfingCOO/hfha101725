@@ -3,11 +3,24 @@
   "appName": "Hunger Free & Happy",
   "webDir": "out",
   "server": {
+    "url": "https://hungerfreeandhappy.app",
+    "cleartext": true,
     "androidScheme": "https"
   },
   "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "launchAutoHide": false,
+      "backgroundColor": "#000000",
+      "showSpinner": false,
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP"
+    },
     "PushNotifications": {
       "presentationOptions": ["badge", "sound", "alert"]
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_notification"
     }
   }
 }

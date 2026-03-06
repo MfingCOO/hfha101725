@@ -4,4 +4,5 @@
     <string name="title_activity_main">Hunger Free and Happy</string>
     <string name="package_name">app.hungerfreeandhappy.mobile</string>
     <string name="custom_url_scheme">app.hungerfreeandhappy.mobile</string>
+    <string name="default_notification_channel_id">default_channel</string> <!-- Added for Firebase Notifications -->
 </resources>
