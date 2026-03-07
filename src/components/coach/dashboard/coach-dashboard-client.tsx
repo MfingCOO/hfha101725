@@ -19,13 +19,8 @@ import { ManageChatsDialog } from "@/components/coach/chats/manage-chats-dialog"
 import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
 import { getCoachingChatIdForClient } from "@/app/coach/clients/actions";
 import { CoachCalendarDialog } from "@/app/coach/calendar/CoachCalendarDialog";
-
-/**
- * FIX: We are only importing the data function because the 'manage-food-cache-dialog' 
- * file you provided only contains server functions, not a UI component.
- */
-import { getUnreviewedUserFoods } from '@/components/coach/food-cache/manage-food-cache-dialog';
-
+import { ManageFoodCacheDialog } from '@/components/coach/food-cache/manage-food-cache-dialog';
+import { getUnreviewedUserFoods } from '@/app/coach/food-cache/actions';
 import { ModerationDialog } from '@/components/coach/dialogs/ModerationDialog';
 import { getPendingReportsCountAction } from '@/app/actions/moderation-actions';
 import { getUnreadChatCountForCoach } from "@/app/chats/actions";
@@ -81,10 +76,8 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     }, [user, toast, searchTerm, tierFilter]);
 
     const refreshPendingFoodCount = useCallback(async () => {
-        const result = await getUnreviewedUserFoods();
-        if (result.success && result.data) {
-            setPendingFoodCount(result.data.length);
-        }
+        const unreviewedFoods = await getUnreviewedUserFoods();
+        setPendingFoodCount(unreviewedFoods.length);
     }, []);
 
     const refreshPendingReportCount = useCallback(async () => {
@@ -213,11 +206,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             <ManageChallengesDialog open={isChallengesOpen} onOpenChange={setIsChallengesOpen} />
             <ManagePopupsDialog open={isPopupsOpen} onOpenChange={setIsPopupsOpen} />
             <CoachCalendarDialog open={isCalendarOpen} onOpenChange={setIsCalendarOpen} />
-            
-            {/* The ManageFoodCacheDialog tag was removed because the file provided 
-               does not actually contain a Dialog component. 
-            */}
-
+            <ManageFoodCacheDialog open={isFoodCacheOpen} onOpenChange={setIsFoodCacheOpen} />
             <ModerationDialog isOpen={isModerationOpen} onClose={() => setIsModerationOpen(false)} />
         </>
     );

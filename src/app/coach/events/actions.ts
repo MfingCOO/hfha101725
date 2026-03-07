@@ -69,6 +69,7 @@ export async function createLiveEvent(input: LiveEventInput): Promise<{ success:
 
     const calendarEventData = {
         coachId,
+        liveEventId: liveEventRef.id, // This links the calendar event to the live event
         title: `[Live Event] ${title}`,
         start: Timestamp.fromDate(utcEventDate),
         entryDate: Timestamp.fromDate(startOfDayUTC),

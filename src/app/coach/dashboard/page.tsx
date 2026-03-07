@@ -31,7 +31,7 @@ export default async function CoachDashboardPage() {
     ]);
 
     // Safely access the counts from the different return structures
-    const pendingFoodCount = unreviewedFoodsResult.data?.length || 0;
+    const pendingFoodCount = unreviewedFoodsResult.length || 0;
     const pendingReportCount = pendingReportsResult.count || 0;
 
     return (

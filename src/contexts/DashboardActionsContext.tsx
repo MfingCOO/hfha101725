@@ -3,9 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { Chat } from '@/types';
 import { useAuth } from '@/components/auth/auth-provider';
-import { getChatsForClient, getChatMetadataForUser, addFcmTokenAction } from '@/app/chats/actions';
-import { PushNotifications, Token, ActionPerformed } from '@capacitor/push-notifications';
-import { Capacitor } from '@capacitor/core';
+import { getChatsForClient, getChatMetadataForUser } from '@/app/chats/actions';
 
 interface ChatDialogContextType {
   isChatOpen: boolean;
@@ -21,13 +19,11 @@ interface ChatDialogContextType {
 const ChatDialogContext = createContext<ChatDialogContextType | undefined>(undefined);
 
 export const ChatDialogProvider = ({ children }: { children: React.ReactNode }) => {
-    const { isCoach, loading, user } = useAuth();
+    const { isCoach } = useAuth();
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isCoachChatOpen, setIsCoachChatOpen] = useState(false);
     const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
 
-    // THE DEFINITIVE FIX: Use a ref to track the user's role.
-    // This ensures the notification listener always has the latest value and avoids race conditions.
     const isCoachRef = useRef(isCoach);
     useEffect(() => {
         isCoachRef.current = isCoach;
@@ -44,58 +40,6 @@ export const ChatDialogProvider = ({ children }: { children: React.ReactNode }) 
         setIsCoachChatOpen(false);
         setSelectedChatId(null);
     };
-
-    useEffect(() => {
-        if (loading || !user) return;
-
-        const initPushNotifications = async () => {
-            if (Capacitor.getPlatform() === 'web') return;
-
-            await PushNotifications.removeAllListeners();
-
-            await PushNotifications.addListener('registration', async (token: Token) => {
-                try {
-                    await addFcmTokenAction({ userId: user.uid, token: token.value });
-                } catch (error) {
-                    console.error('Failed to save FCM token:', error);
-                }
-            });
-
-            await PushNotifications.addListener('registrationError', (error: any) => {
-                console.error('Error on push registration:', error);
-            });
-
-            await PushNotifications.addListener('pushNotificationActionPerformed', (event: ActionPerformed) => {
-                const chatId = event.notification.data?.chatId as string;
-                if (chatId) {
-                    // Use the ref to get the LATEST role, breaking the race condition.
-                    setSelectedChatId(chatId);
-                    if (isCoachRef.current) {
-                        openCoachChat();
-                    } else {
-                        openChat();
-                    }
-                }
-            });
-
-            let permStatus = await PushNotifications.checkPermissions();
-            if (permStatus.receive === 'prompt') {
-                permStatus = await PushNotifications.requestPermissions();
-            }
-            if (permStatus.receive !== 'granted') {
-                return;
-            }
-
-            await PushNotifications.register();
-        };
-
-        initPushNotifications();
-
-        return () => {
-            PushNotifications.removeAllListeners();
-        };
-
-    }, [loading, user]);
 
     const value = useMemo(() => ({
          isChatOpen, 

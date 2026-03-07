@@ -76,11 +76,14 @@ export function CreateFoodFormModal({ isOpen, onClose }: CreateFoodFormModalProp
 
   const handleSave = async (data: FormValues) => {
     setIsSaving(true);
+    if (!user) {
+        toast.error("Authentication error. Please log in again.");
+        setIsSaving(false);
+        return;
+    }
     
     try {
-        // FIX: Extracting the actual ID from the result object
-        const idResult = await generateNewFdcId();
-        const finalFdcId = idResult.success ? idResult.data : Date.now();
+        const finalFdcId = await generateNewFdcId();
 
         const servingInGrams = data.servingUnit === 'oz' ? data.servingSize * 28.35 : data.servingSize;
         const ratio = servingInGrams > 0 ? 100 / servingInGrams : 0;
@@ -120,14 +123,8 @@ export function CreateFoodFormModal({ isOpen, onClose }: CreateFoodFormModalProp
           status: 'pending_review',
         };
 
-        if (!user) {
-          toast.error("Authentication error. Please log in again.");
-          setIsSaving(false);
-          return;
-      }
-
-      // FIX: Removed the 'token' argument as saveManualEnrichedFood handles it via 'use server' internal logic or doesn't need it passed
-      const result = await saveManualEnrichedFood(foodData);      
+      const idToken = await user.getIdToken();
+      const result = await saveManualEnrichedFood(foodData, idToken);      
 
         if (result.success) {
           toast.success('Custom food submitted for review!');
