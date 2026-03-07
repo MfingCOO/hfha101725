@@ -1,16 +1,16 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { ActionPerformed, PushNotifications, Token, PushNotificationSchema } from '@capacitor/push-notifications';
-import { LocalNotifications } from '@capacitor/local-notifications';
+import { LocalNotifications, ScheduleOptions } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useNotificationStore } from '@/store/notification-store';
 import { addFcmTokenAction } from '@/app/chats/actions';
 import { messaging } from '@/lib/firebase';
 import { getToken, isSupported, onMessage } from 'firebase/messaging';
-import { toast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 
 const log = (message: string, ...data: any[]) => console.log(`[PushProvider] ${message}`, ...data);
@@ -32,147 +32,201 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const { user, isCoach, loading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toast } = useToast();
   const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
   const listenersAttachedForUser = useRef<string | null>(null);
 
-  const handleNotificationAction = (context: string, data: { [key: string]: any }) => {
+  const handleNotificationAction = useCallback((context: string, data: { [key: string]: any }) => {
     log(`[${context}] Handling action. Data:`, data);
-    const { notificationType, chatId, workoutId, appointmentId, link, isCoach: isRecipientCoachStr } = data;
+    const { notificationType, chatId, workoutId, appointmentId, link } = data;
 
-    // Determine the base dashboard URL based on the recipient type from the payload
-    const isRecipientCoach = isRecipientCoachStr === 'true'; // Convert string boolean back to boolean
-    const dashboardBaseUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
+    const dashboardBaseUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
 
-    // Handle different notification types and open appropriate pop-ups
     if (notificationType === 'chat' && chatId) {
         setNotificationChatId(String(chatId));
-        router.push(`${dashboardBaseUrl}?openChatId=${String(chatId)}`); // Navigate to dashboard, then open chat popup
-    } else if (notificationType === 'workout_reminder' && workoutId) { // Changed to workout_reminder to match function payload
+        router.push(`${dashboardBaseUrl}?openChatId=${String(chatId)}`);
+    } else if (notificationType === 'workout_reminder' && workoutId) {
         setNotificationWorkoutId(String(workoutId));
-        router.push(`${dashboardBaseUrl}?openWorkoutId=${String(workoutId)}`); // Navigate to dashboard, then open workout popup
+        router.push(`${dashboardBaseUrl}?openWorkoutId=${String(workoutId)}`);
     } else if (['appointment_reminder', 'appointment_booked'].includes(String(notificationType)) && appointmentId) {
         setNotificationAppointmentId(String(appointmentId));
-        router.push(`${dashboardBaseUrl}?openAppointmentId=${String(appointmentId)}`); // Navigate to dashboard, then open appointment popup
+        router.push(`${dashboardBaseUrl}?openAppointmentId=${String(appointmentId)}`);
     } else if (notificationType === 'hydration') {
         setTriggerHydrationModal(true);
-        router.push(`${dashboardBaseUrl}?openHydration=true`); // Navigate to dashboard, then open hydration popup
+        router.push(`${dashboardBaseUrl}?openHydration=true`);
     } else if (link) {
-        router.push(String(link)); // Fallback for generic links
+        router.push(String(link));
     } else {
         logError(`Unknown notification action. No specific handler found.`, data);
-        router.push(dashboardBaseUrl); // Default to dashboard
+        router.push(dashboardBaseUrl);
     }
-  };
-
-  // Memoize showInAppNotification to avoid re-creating it, which helps with useEffect dependencies
-  // This ensures handleNotificationAction always has the latest state/router
-  const showInAppNotification = useRef((title: string, body: string, data: { [key: string]: any }) => {
-    toast({
-      title,
-      description: body,
-      action: (
-        <ToastAction
-          altText="Open"
-          onClick={() => handleNotificationAction('Foreground Click', data)}
-        >
-          Open
-        </ToastAction>
-      ),
-    });
-  }).current;
-
+  }, [isCoach, router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
 
   useEffect(() => {
-    if (searchParams?.get('notificationType')) {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('notificationType')) {
         log("PWA: Detected notification in URL.");
-        // We need to parse all search params as data for handleNotificationAction
-        handleNotificationAction('PWA URL', Object.fromEntries(searchParams.entries()));
-        // Clear search params to prevent re-triggering on subsequent renders
-        // CORRECTED: Use window.location.pathname as router.pathname is not available in AppRouterInstance
+        const data = Object.fromEntries(urlParams.entries());
+        handleNotificationAction('PWA URL', data);
         router.replace(window.location.pathname, { scroll: false });
     }
-  }, [searchParams, router, isCoach, handleNotificationAction]); // Added handleNotificationAction to dependencies
+  }, [router, handleNotificationAction]);
 
   useEffect(() => {
-    // Only proceed if user is loaded and not null, and platform is native
-    if (loading || !user || !Capacitor.isNativePlatform()) {
-      // Clean up listeners if conditions are not met, or if switching users/platforms
+    if (Capacitor.isNativePlatform()) return;
+
+    const handleSWMessage = (event: MessageEvent) => {
+        if (event.data && event.data.type === 'notification_clicked') {
+            log('Received notification click event from Service Worker.');
+            handleNotificationAction('SW Click', event.data.data);
+        }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleSWMessage);
+    log('PWA: Attached service worker message listener.');
+
+    return () => {
+        navigator.serviceWorker.removeEventListener('message', handleSWMessage);
+        log('PWA: Cleaned up service worker message listener.');
+    };
+  }, [handleNotificationAction]);
+
+  useEffect(() => {
+    if (loading || !user) {
       if (listenersAttachedForUser.current) {
-        log(`Cleaning up listeners for old user/platform: ${listenersAttachedForUser.current}`);
-        PushNotifications.removeAllListeners();
+        log(`User logged out or loading. Cleaning up listeners for ${listenersAttachedForUser.current}`);
+        if (Capacitor.isNativePlatform()) {
+          PushNotifications.removeAllListeners();
+        }
         listenersAttachedForUser.current = null;
       }
       return;
     }
-
-    // Attach listeners only once per user session
+    
     if (listenersAttachedForUser.current === user.uid) {
-        log(`Listeners already attached for user: ${user.uid}. Skipping re-attachment.`);
-        return;
+      log(`Listeners already attached for user: ${user.uid}. Skipping.`);
+      return;
     }
 
     log(`Attaching NEW listeners for user: ${user.uid}`);
-    listenersAttachedForUser.current = user.uid; // Mark listeners as attached for this user
+    listenersAttachedForUser.current = user.uid;
 
-    const setupListeners = async () => {
-      try {
-        await createNotificationChannels();
-        const permissionStatus = await PushNotifications.requestPermissions();
-        if (permissionStatus.receive === 'granted') {
-          log('Native push permission granted.');
-          await PushNotifications.register();
-        } else {
-          logError('Native push permission NOT granted:', permissionStatus.receive);
-          // You might want to prompt the user to enable permissions here if needed
+    let cleanupFunction: (() => void) | null = null;
+
+    const setupNotifications = async () => {
+      if (Capacitor.isNativePlatform()) {
+        log('Setting up NATIVE push notifications...');
+        try {
+          await createNotificationChannels();
+          const permissionStatus = await PushNotifications.requestPermissions();
+          if (permissionStatus.receive === 'granted') {
+            log('Native push permission granted.');
+            await PushNotifications.register();
+          } else {
+            logError('Native push permission NOT granted.');
+          }
+
+          PushNotifications.addListener('registration', async (token: Token) => {
+            log('Native registration success, token:', token.value.substring(0, 10));
+            await addFcmTokenAction({ userId: user.uid, token: token.value });
+            log('Native token saved to backend.');
+          });
+
+          PushNotifications.addListener('registrationError', (error: any) => logError('Native registration error:', error));
+          
+          PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+            log('Native foreground notification received.', notification);
+            LocalNotifications.schedule({
+                notifications: [{
+                    id: new Date().getTime(),
+                    title: notification.title || 'New Message',
+                    body: notification.body || '',
+                    channelId: notification.data?.notificationType === 'chat' ? 'chat_messages' : 'reminders',
+                    extra: notification.data,
+                    smallIcon: 'ic_stat_icon_config_sample',
+                    largeIcon: notification.data?.imageUrl,
+                    group: notification.data?.chatId, 
+                }]
+            });
+          });
+
+          PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+            log('Native notification action performed.', action);
+            handleNotificationAction('Native Action', action.notification.data);
+          });
+
+        } catch (error) {
+          logError('Error setting up native push listeners:', error);
+        }
+        cleanupFunction = () => {
+            log(`Cleaning up NATIVE push listeners for user: ${user.uid}`);
+            PushNotifications.removeAllListeners();
+        };
+
+      } else {
+        log('Setting up PWA push notifications...');
+        const isFCMSupported = await isSupported();
+        if (!isFCMSupported || !messaging) {
+          logError('PWA notifications not supported or Firebase messaging not available in this browser.');
+          return;
         }
 
-        // Listener for registration token (always active when registered)
-        PushNotifications.addListener('registration', async (token: Token) => {
-            log('Native registration success, token:', token.value.substring(0,10));
-            // Ensure userId is available before sending token
-            if (user?.uid) {
-              await addFcmTokenAction({ userId: user.uid, token: token.value });
-              log('Native token saved to backend.');
+        try {
+          const permission = await Notification.requestPermission();
+          if (permission === 'granted') {
+            log('PWA permission granted. Registering for token...');
+            const fcmToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY });
+            if (fcmToken) {
+              log('PWA: Got token, saving to backend...', fcmToken.substring(0, 10));
+              await addFcmTokenAction({ userId: user.uid, token: fcmToken });
             } else {
-              logError('User not available to save native token.');
+              logError('PWA: Failed to retrieve FCM token.');
             }
-        });
+          } else {
+            logError(`PWA permission not granted. Status: ${permission}`);
+          }
+        
+          const unsubscribe = onMessage(messaging, (payload) => {
+            log('PWA: Foreground message received.', payload);
+            const { notification, data } = payload;
+            if (notification) {
+                toast({
+                    title: notification.title || 'New Message',
+                    description: notification.body || '',
+                    action: (
+                        <ToastAction
+                          altText="Open"
+                          onClick={() => handleNotificationAction('Foreground Click', data || {})}
+                        >
+                          Open
+                        </ToastAction>
+                    ),
+                });
+            }
+          });
+          
+          log('PWA: Foreground message listener attached.');
+          cleanupFunction = () => {
+              log(`Cleaning up PWA message listener for user: ${user.uid}`);
+              unsubscribe();
+          };
 
-        // Listener for registration errors
-        PushNotifications.addListener('registrationError', (error: any) => {
-            logError('Native registration error:', error);
-        });
-
-        // Listener for foreground push notifications
-        PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-            log('Native foreground notification received:', notification);
-            const { title, body, data } = notification;
-            showInAppNotification(title || 'New Message', body || '', data); // Use the memoized function
-        });
-
-        // Listener for when a notification is tapped
-        PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-            log('Native notification action performed:', action);
-            handleNotificationAction('Native Action', action.notification.data);
-        });
-
-      } catch (error) {
-        logError('Error setting up native push notification listeners:', error);
+        } catch (error) {
+          logError('PWA: Error during notification setup:', error);
+        }
       }
     };
 
-    setupListeners();
+    setupNotifications();
 
-    // Cleanup function: remove all listeners when the component unmounts or user changes
     return () => {
-      log(`Cleaning up ALL native push listeners for user: ${listenersAttachedForUser.current}`);
-      PushNotifications.removeAllListeners();
+      if (cleanupFunction) {
+        cleanupFunction();
+      }
       listenersAttachedForUser.current = null;
     };
 
-  }, [user, loading, isCoach, router, showInAppNotification, handleNotificationAction]);
-  // Added handleNotificationAction to dependencies to ensure it's up-to-date
-
+  }, [user, loading, handleNotificationAction, toast]);
 
   return <>{children}</>;
 };

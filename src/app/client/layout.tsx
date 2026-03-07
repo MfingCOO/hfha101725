@@ -18,6 +18,7 @@ import { Loader2 } from 'lucide-react';
 import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
 import { useNotificationStore } from '@/store/notification-store';
 import { getChallengesForClient } from '@/app/challenges/actions';
+import { Toaster } from '@/components/ui/toaster';
 
 // --- NO CHANGES TO ERRORBOUNDARY ---
 interface ErrorBoundaryProps {
@@ -192,6 +193,7 @@ export default function ClientLayout({
             <BottomNavBar />
           </SidebarInset>
           <DialogManager />
+          <Toaster />
       </SidebarProvider>
     </DashboardProvider>
   )

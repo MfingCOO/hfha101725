@@ -31,12 +31,11 @@ const getUserName = async (userId: string): Promise<string | null> => {
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl: string, notificationType: string, entityId: string, imageUrl?: string, sendTimeStr?: string) {
     let userDoc = await db.collection('clients').doc(userId).get();
     if (!userDoc.exists) {
-        console.log(`sendPushNotification: User ${userId} not found in 'clients', trying 'coaches'.`);
         userDoc = await db.collection('coaches').doc(userId).get();
     }
 
     if (!userDoc.exists) {
-        console.log(`sendPushNotification: User profile ${userId} not found in 'clients' or 'coaches'.`);
+        console.log(`sendPushNotification: User profile ${userId} not found.`);
         return;
     }
 
@@ -52,48 +51,31 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
     }
 
-    const url = new URL(ctaUrl || '/', 'https://hunger-free-and-happy.app'); // Use your canonical PWA URL
-    const searchParams = url.searchParams;
+    // ANDROID CHANNEL LOGIC
+    let channelId = 'reminders'; // Default channel for reminders, appointments, etc.
+    if (notificationType === 'chat') {
+        channelId = 'chat_messages';
+    }
 
     const dataPayload: { [key: string]: string } = {
-        // Essential data for your app's logic, ALL AS STRINGS
         notificationType: notificationType,
-        entityId: entityId, 
-        url: ctaUrl || '/', 
-        
-        // Include properties from the original notification document, ensuring string conversion
+        entityId: entityId,
+        url: ctaUrl || '/',
         title: title,
         body: message,
-        
-        // Pass relevant URL query parameters, ensuring they are strings
-        // This is crucial for your PWA to open the correct dashboard and popup
-        ...(Object.fromEntries(Array.from(searchParams.entries()).map(([key, value]) => [key, String(value)]))),
-
-        // Add imageUrl if it exists, explicitly as a string
+        isCoach: String(ctaUrl.includes('/coach/dashboard')),
         ...(imageUrl && { imageUrl: imageUrl }),
-
-        // Add sendTime as a string
         ...(sendTimeStr && { sendTime: sendTimeStr }),
-
-        // Add other Firebase-specific keys if needed, ensuring string conversion
-        'google.sent_time': String(Date.now()), 
-        'google.ttl': '3600' 
     };
-    
-    // Determine if the recipient is a coach for deep-linking in the PWA
-    const isRecipientCoach = ctaUrl.includes('/coach/dashboard');
-    dataPayload.isCoach = String(isRecipientCoach);
-
 
     const payload = { 
         tokens: tokens,
         notification: {
             title: title,
             body: message,
-            imageUrl: imageUrl || undefined, 
-            sound: 'default' 
+            imageUrl: imageUrl || undefined,
         },
-        data: dataPayload, 
+        data: dataPayload,
         apns: {
             payload: {
                 aps: {
@@ -106,16 +88,15 @@ async function sendPushNotification(userId: string, title: string, message: stri
         android: {
             priority: 'high',
             notification: {
-                channelId: 'default_channel', 
+                channelId: channelId, // DYNAMICALLY SET CHANNEL ID
                 imageUrl: imageUrl || undefined, 
             }
         }
     };
 
     try {
-        console.log(`sendPushNotification: Sending corrected payload to user ${userId}:`, JSON.stringify(payload, null, 2));
+        console.log(`sendPushNotification: Sending corrected payload to user ${userId} on channel ${channelId}:`, JSON.stringify(payload, null, 2));
         await messaging.sendEachForMulticast(payload as any);
-        console.log(`sendPushNotification: Successfully sent notification to user ${userId}.`);
     } catch (error) {
         console.error(`sendPushNotification: Error sending push notification to user ${userId}:`, error);
     }
@@ -251,62 +232,80 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
 
 export const appointmentReminderEngine = onSchedule('every 1 minutes', async (event) => {
     const now = new Date();
-    const tenMinutesFromNow = new Date(now.getTime() + 10 * 60 * 1000);
-    const elevenMinutesFromNow = new Date(now.getTime() + 11 * 60 * 1000);
-
-    const tenMinutesFromNowTimestamp = Timestamp.fromDate(tenMinutesFromNow);
-    const elevenMinutesFromNowTimestamp = Timestamp.fromDate(elevenMinutesFromNow);
-    const nowMsString = String(Timestamp.now().toDate().getTime());
+    const tenMinutesFromNow = Timestamp.fromDate(new Date(now.getTime() + 10 * 60 * 1000));
+    const elevenMinutesFromNow = Timestamp.fromDate(new Date(now.getTime() + 11 * 60 * 1000));
+    const nowMsString = String(now.getTime());
 
     const query = db.collection('coachCalendar')
-        .where('start', '>=', tenMinutesFromNowTimestamp)
-        .where('start', '<', elevenMinutesFromNowTimestamp)
-        .where('type', '==', 'one_on_one');
-
+        .where('start', '>=', tenMinutesFromNow)
+        .where('start', '<', elevenMinutesFromNow);
     const snapshot = await query.get();
+    if (snapshot.empty) return;
 
-    if (snapshot.empty) {
-        return;
-    }
-
-    console.log(`Found ${snapshot.docs.length} upcoming appointments for reminders.`);
+    console.log(`Found ${snapshot.docs.length} upcoming appointments/events for reminders.`);
 
     const promises = snapshot.docs.map(async (doc) => {
         const appointment = doc.data();
         const appointmentId = doc.id;
-        const clientId = appointment.clientId;
-        const coachId = appointment.coachId;
 
-        const clientName = await getUserName(clientId);
-        const coachName = await getUserName(coachId);
+        if (appointment.type === 'one_on_one') {
+            const clientId = appointment.clientId;
+            const coachId = appointment.coachId;
+            const clientName = await getUserName(clientId);
+            const coachName = await getUserName(coachId);
 
-        const notificationPromises = [clientId, coachId].map(userId => {
-            if (!userId) return Promise.resolve();
+            const notificationPromises = [clientId, coachId].map(userId => {
+                if (!userId) return Promise.resolve();
+                const isCoach = userId === coachId;
+                const title = 'Upcoming Appointment';
+                const message = `Your appointment with ${isCoach ? (clientName || 'your client') : (coachName || 'your coach')} is in 10 minutes.`;
+                const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
+                const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&entityId=${appointmentId}`;
 
-            const isCoach = userId === coachId;
-            const title = 'Upcoming Appointment';
-            const message = `Your appointment with ${isCoach ? (clientName || 'your client') : (coachName || 'your coach')} is in 10 minutes.`;
-            const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
-            const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&entityId=${String(appointmentId)}`;
+                return db.collection('notifications').add({
+                    userId: userId,
+                    title: title,
+                    message: message,
+                    ctaUrl: ctaUrl,
+                    notificationType: 'appointment_reminder',
+                    entityId: appointmentId,
+                    sendTime: nowMsString,
+                    processed: false,
+                });
+            });
+            return Promise.all(notificationPromises);
 
-            const notificationData = {
-                userId: userId,
-                title: title,
-                message: message,
-                ctaUrl: ctaUrl,
-                notificationType: 'appointment_reminder',
-                entityId: String(appointmentId), 
-                sendTime: nowMsString, 
-                processed: false,
-            };
+        } else if (appointment.liveEventId) {
+            // This is a Live Event
+            const liveEventDoc = await db.collection('live-events').doc(appointment.liveEventId).get();
+            if (!liveEventDoc.exists) return;
 
-            console.log(`Creating appointment reminder for ${userId} for appointment ${appointmentId}`);
-            return db.collection('notifications').add(notificationData);
-        });
+            const liveEvent = liveEventDoc.data()!;
+            const attendees = liveEvent.attendees || [];
+            if (attendees.length === 0) return;
+            
+            const eventTitle = liveEvent.title || 'your live event';
 
-        return Promise.all(notificationPromises);
+            console.log(`Found ${attendees.length} attendees for live event ${eventTitle}.`);
+
+            const eventNotificationPromises = attendees.map((userId: string) => {
+                // All live event attendees are clients
+                const ctaUrl = `/client/dashboard?notificationType=appointment_reminder&entityId=${appointmentId}`;
+                return db.collection('notifications').add({
+                    userId: userId,
+                    title: 'Live Event Starting Soon',
+                    message: `The event \\"${eventTitle}\\" is starting in 10 minutes!`,
+                    ctaUrl: ctaUrl,
+                    notificationType: 'appointment_reminder',
+                    entityId: appointmentId,
+                    sendTime: nowMsString,
+                    processed: false,
+                });
+            });
+            return Promise.all(eventNotificationPromises);
+        }
+        return Promise.resolve();
     });
-
     await Promise.all(promises);
 });
 
