@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -85,8 +84,8 @@ export function EventDialog({ isOpen, onClose, event }: EventDialogProps) {
   useEffect(() => {
     if (isOpen && user) {
       getAllAppUsers(user.uid).then(result => {
-        if (result.success && result.users) {
-          setClients(result.users);
+        if (result.success && result.clients) {
+          setClients(result.clients);
         }
       });
       

@@ -72,7 +72,7 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
 }
 
 async function getTargetUserIds(targetType: string, targetValue?: string): Promise<string[]> {
-    const usersRef = adminDb.collection('users');
+    const usersRef = adminDb.collection('clients');
     let querySnapshot;
 
     switch (targetType) {

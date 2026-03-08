@@ -88,8 +88,8 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
             // FIX: Passed user.uid (coachId) to getAllAppUsers
             const result = await getAllAppUsers(user.uid); 
             
-            if (result.success && result.users) {
-                setClients(result.users);
+            if (result.success && result.clients) {
+                setClients(result.clients);
             } else {
                 setClients([]);
                 toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch user list.' });

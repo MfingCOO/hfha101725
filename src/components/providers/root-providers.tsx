@@ -8,6 +8,8 @@ import QueryProvider from "@/components/providers/QueryProvider";
 import { DataEntryModalProvider } from '@/contexts/DataEntryModalContext';
 import AdBannerProvider from "@/components/providers/AdBannerProvider";
 import { initializeFirebasePersistence } from '@/lib/firebase';
+import { DashboardProvider } from '@/contexts/DashboardActionsContext'; // FIX: Corrected the import path
+import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 
 export function RootProviders({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -23,7 +25,10 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
       <AuthProvider>
         <AppCheckProvider>
           <DataEntryModalProvider>
-            {children}
+            <DashboardProvider>
+              {children}
+              <NotificationsDialog />
+            </DashboardProvider>
             <Toaster />
           </DataEntryModalProvider>
         </AppCheckProvider>

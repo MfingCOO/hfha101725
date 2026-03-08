@@ -1,21 +1,28 @@
 'use client';
-import { Home, Calendar, MessageSquare, Trophy, User } from "lucide-react";
+import { Home, Calendar, MessageSquare, Trophy, Bell } from "lucide-react";
 import Link from "next/link";
-import { useDashboardState, useDashboardActions } from "@/contexts/DashboardActionsContext";
+import { useDashboardActions, useDashboardState } from "@/contexts/DashboardActionsContext";
 import { useChatModalStore } from "@/store/ui-store";
+import { useNotificationStore } from "@/store/notification-store";
 
 interface NavItem {
     href: string;
     label: string;
     icon: React.ElementType;
     notificationCount?: number;
+    hasNotification?: boolean; 
     onClick?: () => void;
 }
 
 export default function BottomNavBar() {
     const { unreadChatCount } = useDashboardState();
-    const { onOpenCalendar, onOpenChallenges, isCalendarOpen, isChallengesOpen, onCloseCalendar, onCloseChallenges, onOpenSettings } = useDashboardActions();
-    const { openModal: openChatModal, isOpen: isChatOpen, closeModal: closeChatModal } = useChatModalStore();
+    const { 
+        onOpenCalendar, 
+        onOpenChallenges, 
+        setIsNotificationsOpen 
+    } = useDashboardActions();
+    const { hasUnreadNotifications } = useNotificationStore();
+    const { openModal: openChatModal } = useChatModalStore();
 
     const navItems: NavItem[] = [
         { href: "/client/dashboard", label: "Home", icon: Home },
@@ -23,22 +30,28 @@ export default function BottomNavBar() {
             href: "#", 
             label: "Calendar", 
             icon: Calendar, 
-            onClick: () => isCalendarOpen ? onCloseCalendar() : onOpenCalendar()
+            onClick: onOpenCalendar
         },
         {
             href: "#",
             label: "Chats",
             icon: MessageSquare,
             notificationCount: unreadChatCount,
-            onClick: () => isChatOpen ? closeChatModal() : openChatModal()
+            onClick: () => openChatModal()
         },
         { 
             href: "#", 
             label: "Challenges", 
             icon: Trophy, 
-            onClick: () => isChallengesOpen ? onCloseChallenges() : onOpenChallenges() 
+            onClick: onOpenChallenges 
         },
-        { href: "#", label: "Profile", icon: User, onClick: onOpenSettings },
+        {
+            href: "#",
+            label: "Notifications",
+            icon: Bell,
+            hasNotification: hasUnreadNotifications,
+            onClick: () => setIsNotificationsOpen(true)
+        },
     ];
 
     if (typeof window === 'undefined') {
@@ -51,16 +64,18 @@ export default function BottomNavBar() {
                 {navItems.map((item) => {
                     const isLink = item.href !== "#";
                     const commonProps = {
-                        className: "relative flex flex-col items-center justify-center text-gray-500 hover:text-primary transition-colors w-full h-full pt-1",
+                        className: "relative flex items-center justify-center text-gray-500 hover:text-primary transition-colors w-full h-full",
                         onClick: item.onClick,
                     };
 
                     const content = (
                         <>
                             <item.icon className="h-6 w-6" />
-                            <span className="text-xs font-medium">{item.label}</span>
+                            {item.hasNotification && (
+                                <div className="absolute top-3 right-[calc(50%-1rem)] h-2 w-2 rounded-full bg-red-500"></div>
+                            )}
                             {item.notificationCount != null && item.notificationCount > 0 && (
-                                <div className="absolute top-1 right-[calc(50%-2.2rem)] -translate-y-1/2 translate-x-1/2 h-5 w-5 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">
+                                <div className="absolute top-2 right-[calc(50%-1.5rem)] h-5 w-5 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">
                                     {item.notificationCount}
                                 </div>
                             )}
