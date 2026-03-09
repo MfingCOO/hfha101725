@@ -36,35 +36,52 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
 
   const handleNotificationAction = useCallback((context: string, data: { [key: string]: any }) => {
-    log(`[${context}] Handling action. Data:`, data);
-    const { notificationType, chatId, workoutId, appointmentId, link, isCoach: isRecipientCoachStr } = data;
+    log(`[${context}] Handling action. Full Data:`, JSON.stringify(data, null, 2)); // Enhanced logging for full data
+    const notificationType = String(data.notificationType || '');
+    const chatId = String(data.chatId || '');
+    const workoutId = String(data.workoutId || '');
+    const appointmentId = String(data.appointmentId || '');
+    const link = String(data.link || '');
+    const isRecipientCoachStr = String(data.isCoach || 'false'); // Ensure isCoach is a string
 
     const isRecipientCoach = isRecipientCoachStr === 'true';
     const dashboardBaseUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
 
     let targetUrl = dashboardBaseUrl; // Default to dashboard
+    const queryParams = new URLSearchParams();
+    queryParams.set('notificationType', notificationType);
+    queryParams.set('isCoach', isRecipientCoachStr); // Pass isCoach for routing
 
     if (notificationType === 'chat' && chatId) {
-        setNotificationChatId(String(chatId));
-        targetUrl = `${dashboardBaseUrl}?openChatId=${String(chatId)}`;
+        setNotificationChatId(chatId);
+        queryParams.set('openChatId', chatId);
+        queryParams.set('entityId', chatId);
     } else if (notificationType === 'workout_reminder' && workoutId) {
-        setNotificationWorkoutId(String(workoutId));
-        targetUrl = `${dashboardBaseUrl}?openWorkoutId=${String(workoutId)}`;
-    } else if (['appointment_reminder', 'appointment_booked'].includes(String(notificationType)) && appointmentId) {
-        setNotificationAppointmentId(String(appointmentId));
-        targetUrl = `${dashboardBaseUrl}?openAppointmentId=${String(appointmentId)}`;
+        setNotificationWorkoutId(workoutId);
+        queryParams.set('openWorkoutId', workoutId);
+        queryParams.set('entityId', workoutId);
+    } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && appointmentId) {
+        setNotificationAppointmentId(appointmentId);
+        queryParams.set('openAppointmentId', appointmentId);
+        queryParams.set('entityId', appointmentId);
     } else if (notificationType === 'hydration') {
         setTriggerHydrationModal(true);
-        targetUrl = `${dashboardBaseUrl}?openHydration=true`;
+        queryParams.set('openHydration', 'true');
+        queryParams.set('entityId', 'hydration');
     } else if (link) {
-        targetUrl = String(link);
+        targetUrl = link;
+        log(`[${context}] Direct link navigation to: ${targetUrl}`);
+        router.push(targetUrl);
+        return; // Exit after direct link push
     }
 
-    log(`[${context}] Navigating to: ${targetUrl}`);
+    targetUrl = `${dashboardBaseUrl}?${queryParams.toString()}`;
+    log(`[${context}] Final Navigating URL: ${targetUrl}. IsRecipientCoach: ${isRecipientCoach}`);
     router.push(targetUrl);
   }, [isUserCoachFromAuth, router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
 
   const showInAppNotification = useCallback((title: string | undefined, body: string | undefined, data: { [key: string]: any }) => {
+    log(`[PushProvider] Showing in-app toast. Title: ${title}, Body: ${body}, Data:`, data);
     toast({
       title: title || 'New Notification',
       description: body || '',
@@ -86,32 +103,42 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         log("PWA: Detected notification in URL. Parsing...");
         const data = Object.fromEntries(urlParams.entries());
         // The isCoach param in URL takes precedence for initial navigation
-        const isCoachInUrl = urlParams.get('isCoach') === 'true';
+        const isCoachInUrl = urlParams.get('isCoach') === 'true'; // Ensure it's read as boolean
         const dashboardBaseUrl = isCoachInUrl ? '/coach/dashboard' : '/client/dashboard';
 
         let targetUrl = dashboardBaseUrl;
         const notificationType = urlParams.get('notificationType');
-        const entityId = urlParams.get('entityId');
         const openChatId = urlParams.get('openChatId');
         const openWorkoutId = urlParams.get('openWorkoutId');
         const openAppointmentId = urlParams.get('openAppointmentId');
         const openHydration = urlParams.get('openHydration');
+        const entityId = urlParams.get('entityId'); // Also get entityId from URL
+
+        const queryParams = new URLSearchParams();
+        if (notificationType) queryParams.set('notificationType', notificationType);
+        queryParams.set('isCoach', String(isCoachInUrl));
+        if (entityId) queryParams.set('entityId', entityId);
 
         if (notificationType === 'chat' && openChatId) {
             setNotificationChatId(openChatId);
-            targetUrl = `${dashboardBaseUrl}?openChatId=${openChatId}`;
+            queryParams.set('openChatId', openChatId);
+            // targetUrl = `${dashboardBaseUrl}?openChatId=${openChatId}`;
         } else if (notificationType === 'workout_reminder' && openWorkoutId) {
             setNotificationWorkoutId(openWorkoutId);
-            targetUrl = `${dashboardBaseUrl}?openWorkoutId=${openWorkoutId}`;
+            queryParams.set('openWorkoutId', openWorkoutId);
+            // targetUrl = `${dashboardBaseUrl}?openWorkoutId=${openWorkoutId}`;
         } else if (notificationType === 'appointment_reminder' && openAppointmentId) {
             setNotificationAppointmentId(openAppointmentId);
-            targetUrl = `${dashboardBaseUrl}?openAppointmentId=${openAppointmentId}`;
+            queryParams.set('openAppointmentId', openAppointmentId);
+            // targetUrl = `${dashboardBaseUrl}?openAppointmentId=${openAppointmentId}`;
         } else if (notificationType === 'hydration' && openHydration === 'true') {
             setTriggerHydrationModal(true);
-            targetUrl = `${dashboardBaseUrl}?openHydration=true`;
+            queryParams.set('openHydration', 'true');
+            // targetUrl = `${dashboardBaseUrl}?openHydration=true`;
         }
 
-        log(`PWA URL: Determined target URL: ${targetUrl}`);
+        targetUrl = `${dashboardBaseUrl}?${queryParams.toString()}`;
+        log(`PWA URL: Determined final target URL: ${targetUrl}. IsCoachInUrl: ${isCoachInUrl}`);
         router.replace(targetUrl, { scroll: false });
     }
   }, [router, handleNotificationAction, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
@@ -119,9 +146,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   useEffect(() => {
     log("PushNotificationProvider useEffect (native/web setup) triggered.");
 
-    let cleanupFunction: (() => void) | null = null;
+    let cleanupFunction: (() => void) = () => { logError('No cleanup function set.'); }; // Default to no-op for safety
 
-    const setupNotifications = async (): Promise<() => void> => {
+    const setupNotifications = async () => {
       if (Capacitor.isNativePlatform()) {
         log('Setting up NATIVE push notifications...');
         try {
@@ -157,28 +184,29 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
                 handleNotificationAction('Native Action', action.notification.data || {});
             });
 
-            return () => {
+            cleanupFunction = () => {
                 log(`Cleaning up NATIVE push listeners.`);
                 PushNotifications.removeAllListeners();
             };
 
           } else {
             logError('Native push permission NOT granted or failed registration. Status:', permissionStatus.receive);
-            return () => { logError('Native setup did not fully complete, no listeners to clean.'); }; // Return no-op cleanup
+            cleanupFunction = () => { logError('Native setup did not fully complete, no listeners to clean.'); };
           }
 
         } catch (error) {
           logError('Error setting up native push notification listeners:', error);
-          return () => { logError('Native setup failed, no listeners to clean.'); }; // Return no-op cleanup
+          cleanupFunction = () => { logError('Native setup failed, no listeners to clean.'); };
         }
 
       } else { // Web platform logic
         log('Setting up PWA push notifications...');
-        const setupWebListeners = async (): Promise<() => void> => {
+        const setupWebListeners = async () => {
             const isFCMSupported = await isSupported();
             if (!isFCMSupported || !messaging) {
               logError('PWA notifications not supported or Firebase messaging not available in this browser.');
-              return () => { logError('PWA not supported, no listeners to clean.'); }; // Return no-op cleanup
+              cleanupFunction = () => { logError('PWA not supported, no listeners to clean.'); };
+              return;
             }
 
             try {
@@ -222,7 +250,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
               navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
 
-              return () => {
+              cleanupFunction = () => {
                 log(`Cleaning up PWA listeners.`);
                 unsubscribeOnMessage();
                 navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
@@ -230,19 +258,17 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
             } catch (error) {
               logError('PWA: Error during notification setup:', error);
-              return () => { logError('PWA setup failed, no listeners to clean.'); }; // Return no-op cleanup
+              cleanupFunction = () => { logError('PWA setup failed, no listeners to clean.'); };
             }
         };
-        return setupWebListeners();
+        setupWebListeners();
       }
     };
 
     // Trigger setup when user/loading state changes
     if (!loading && user) {
         log(`User (UID: ${user.uid}) and loading state ready for push notification setup.`);
-        setupNotifications().then(cleanup => { // Handle promise for cleanup function
-            cleanupFunction = cleanup;
-        });
+        setupNotifications(); // Call directly now that cleanup is managed internally
     } else if (loading) {
         log('Push notification setup deferred: User still loading.');
     } else if (!user) {
@@ -251,9 +277,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
     return () => {
       log('PushNotificationProvider unmount/cleanup.');
-      if (cleanupFunction) {
-        cleanupFunction();
-      }
+      cleanupFunction(); // Always callable
     };
 
   }, [user, loading, isUserCoachFromAuth, router, showInAppNotification, handleNotificationAction, toast]);
