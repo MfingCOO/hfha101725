@@ -19,9 +19,9 @@ const getUserName = async (userId: string): Promise<string | null> => {
             return clientDoc.data()?.fullName as string;
         }
     } catch (error) {
-         console.error(`Error fetching user name for ${userId} from \'clients\':`, error);
+         console.error(`Error fetching user name for ${userId} from 'clients':`, error);
     }
-    console.log(`getUserName: Could not find a name for userId: ${userId} in \'clients\' collection.`);
+    console.log(`getUserName: Could not find a name for userId: ${userId} in 'clients' collection.`);
     return null;
 };
 
@@ -84,7 +84,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
                     'mutable-content': 1,
                 },
             },
-            fcmOptions: { // Corrected from fcm_options
+            fcmOptions: {
                 imageUrl: imageUrl,
             },
         },
@@ -101,7 +101,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
         },
     };
 
-    let response: BatchResponse; // Declare response here
+    let response: BatchResponse;
     try {
         response = await messaging.sendEachForMulticast(payload as any);
         console.log(`FCM Response for ${userId}. Success: ${response.successCount}, Failure: ${response.failureCount}`);
@@ -237,7 +237,7 @@ export const workoutReminderHandler = onTaskDispatched<any>({ /* Task options */
         await sendPushNotification(
             userId,
             'Workout Reminder',
-            `Your scheduled workout, \"${workoutName},\" is in 10 minutes!`,
+            `Your scheduled workout, "${workoutName}," is in 10 minutes!`,
             `/client/dashboard?notificationType=workout_reminder&entityId=${String(workoutId)}&isCoach=${String(isRecipientCoach)}`,
             'workout_reminder',
             String(workoutId)
@@ -267,7 +267,7 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
         console.log(`onWorkoutScheduled: Reminder time for workout ${workoutId} is in the past. Skipping.`);
         return;
     }
-    const queue = getFunctions().taskQueue('workoutReminderHandler', 'us-central1');
+    const queue = getFunctions().taskQueue('workoutReminderHandler'); // SURGICAL FIX: Removed 'us-central1'
     try {
         await queue.enqueue(
             { userId, workoutId, workoutName },
@@ -287,7 +287,7 @@ export const appointmentReminderHandler = onTaskDispatched<any>({/* Task options
         let message = `Your appointment with ${opponentName || 'your coach/client'} is in 10 minutes.`;
         if (eventTitle) {
             title = 'Live Event Starting Soon';
-            message = `The event \"${eventTitle}\" is starting in 10 minutes!`;
+            message = `The event "${eventTitle}" is starting in 10 minutes!`;
         }
         const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
         const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&entityId=${appointmentId}&isCoach=${String(isCoach)}`;
@@ -323,12 +323,12 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
         console.log(`onAppointmentScheduled: Reminder time for appointment ${appointmentId} is in the past. Skipping.`);
         return;
     }
-    const queue = getFunctions().taskQueue('appointmentReminderHandler', 'us-central1');
+    const queue = getFunctions().taskQueue('appointmentReminderHandler'); // SURGICAL FIX: Removed 'us-central1'
     if (appointment.type === 'one_on_one') {
         const { clientId, coachId } = appointment;
         const clientName = await getUserName(clientId);
         const coachName = await getUserName(coachId);
-        const tasks: Promise<void>[] = [];
+        const tasks: Promise<any>[] = [];
         if (clientId) {
             tasks.push(queue.enqueue({ userId: clientId, appointmentId, isCoach: false, opponentName: coachName || 'your coach' }, { scheduleTime: reminderTime }));
         }
@@ -368,12 +368,10 @@ export const hydrationReminderHandler = onTaskDispatched<any>({}, async (req) =>
         return;
     }
 
-    // Format the time for the notification message
     const scheduledTime = reminder.scheduledAt.toDate();
     const timeString = scheduledTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const message = `This is your ${timeString} hydration reminder.`;
     
-    // Hardcoded URL for client dashboard to open hydration modal
     const ctaUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
     const iconUrl = 'https://storage.googleapis.com/hunger-free-and-happy-app.appspot.com/app-assets/water-drop-icon.png';
 
@@ -413,7 +411,7 @@ export const onReminderScheduled = onDocumentCreated("reminders/{reminderId}", a
         return;
     }
 
-    const queue = getFunctions().taskQueue('hydrationReminderHandler', 'us-central1');
+    const queue = getFunctions().taskQueue('hydrationReminderHandler'); // SURGICAL FIX: Removed 'us-central1'
     try {
         await queue.enqueue(
             { userId, reminderId },
