@@ -40,7 +40,9 @@ import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
 import { ProgramWidget } from '@/components/client/ProgramWidget';
 import { ProgramListDialog } from '@/components/programs/program-list-dialog';
 import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
-import { useNotificationStore } from '@/store/notification-store'; // ADDED: Import useNotificationStore
+import { useNotificationStore } from '@/store/notification-store';
+import { AppointmentDetailDialog } from '../calendar/AppointmentDetailDialog';
+import { WorkoutActionDialog } from '../calendar/WorkoutActionDialog';
 
 export interface Pillar {
   id: string;
@@ -79,16 +81,15 @@ const safeNewDate = (dateSource: any): Date | null => {
 }
 
 interface DashboardClientProps {
-  searchParams?: { [key: string]: string | string[] | undefined }; // ADDED: Define searchParams prop
+  searchParams?: { [key: string]: string | string[] | undefined };
 }
 
-export function DashboardClient({ searchParams }: DashboardClientProps) { // MODIFIED: Accept searchParams prop
+export function DashboardClient({ searchParams }: DashboardClientProps) {
   const { onOpenChallenges, onOpenCalendar, isSettingsOpen, onCloseSettings } = useDashboardActions();
   const { user, isCoach, loading } = useAuth();
   const { toast } = useToast();
-  const { modalType, closeModal } = useDataEntryModal();
-  // ADDED: Destructure notification store setters
-  const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
+  const { modalType, closeModal, openModal } = useDataEntryModal();
+  const { notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationChatId } = useNotificationStore();
 
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
   const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
@@ -115,11 +116,15 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
   const [isProgramHubOpen, setIsProgramHubOpen] = useState(false);
   const [isJoiningChallenge, setIsJoiningChallenge] = useState(false);
 
+  // State for specific notification dialogs
+  const [isAppointmentDetailOpen, setIsAppointmentDetailOpen] = useState(false);
+  const [isWorkoutActionOpen, setIsWorkoutActionOpen] = useState(false);
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
-  // ADDED: useEffect to handle searchParams for notifications
+  // Effect to process incoming searchParams from notifications and set global state
   useEffect(() => {
     if (!searchParams) return;
 
@@ -129,7 +134,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
     const openHydration = String(searchParams.openHydration || 'false');
     const notificationType = String(searchParams.notificationType || '');
 
-    console.log('DashboardClient: Received searchParams for notification handling:', searchParams);
+    console.log('DashboardClient: Processing searchParams for notification:', searchParams);
 
     if (notificationType === 'chat' && openChatId) {
       setNotificationChatId(openChatId);
@@ -140,11 +145,22 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
     } else if (notificationType === 'hydration' && openHydration === 'true') {
       setTriggerHydrationModal(true);
     }
-
-    // You might want to add logic here to clear the URL search params after processing
-    // if you don't want them to persist. This usually involves router.replace from the parent.
-
   }, [searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
+
+  // Effect to open dialogs based on notification store state
+  useEffect(() => {
+    if (notificationAppointmentId) {
+      setIsAppointmentDetailOpen(true);
+    }
+    if (notificationWorkoutId) {
+      setIsWorkoutActionOpen(true);
+    }
+    if (triggerHydrationModal) {
+      openModal('hydration');
+      // Reset the trigger immediately after firing
+      setTriggerHydrationModal(false);
+    }
+  }, [notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal]);
 
   const executePillarAction = (pillar: Pillar) => {
     if (pillar.id === 'insights') {
@@ -179,7 +195,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
     getLatestChallengeForClient().then(result => {
       if (result.success && result.data) {
         setLatestChallenge(result.data as Challenge);
-      } else if (result.error && result.error !== 'not-found') {
+      }
+      else if (result.error && result.error !== 'not-found') {
         toast({ variant: 'destructive', title: 'Error', description: `Could not load challenge: ${result.error}` });
       }
       setIsLoadingChallenge(false);
@@ -237,17 +254,16 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
     setDataEntryDialogOpen(false);
     setActivePillar(null);
     closeModal();
-    // ADDED: Clear specific notification states when closing data entry dialog
-    setNotificationChatId('');
+    // Clear notification states when closing data entry dialog to prevent re-opening
     setNotificationAppointmentId('');
     setNotificationWorkoutId('');
     setTriggerHydrationModal(false);
-
+    setNotificationChatId('');
     if (wasSaved) {
       fetchDashboardData();
     }
   }
-  
+
   const handleSwitchPillar = (pillarId: string) => {
     const pillarToSwitch = pillarsAndTools.find(p => p.id === pillarId);
     if (pillarToSwitch) {
@@ -291,7 +307,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
     if (!bingeFreeSinceDate) return 0;
     return differenceInCalendarDays(new Date(), bingeFreeSinceDate);
   }, [bingeFreeSinceDate]);
-  
+
     const getDayOfYear = () => {
       const now = new Date();
       const start = new Date(now.getFullYear(), 0, 0);
@@ -365,7 +381,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
         </Card>
       )
     }
-    
+
     const isParticipant = latestChallenge.participants.includes(user?.uid || '');
     const now = new Date();
     const challengeStartDate = safeNewDate(latestChallenge.dates.from);
@@ -425,7 +441,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
         <div>
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2>
             <p className="text-base sm:text-lg text-muted-foreground">
-            &ldquo;{quoteOfTheDay}&rdquo; 
+            &ldquo;{quoteOfTheDay}&rdquo;
             </p>
         </div>
 
@@ -436,7 +452,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
       <div className="flex justify-around mt-4">
         {bottomRowButtons.map(renderPillarButton)}
       </div>
-      
+
       {renderChallengeSection()}
 
       <ProgramWidget
@@ -445,11 +461,11 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
         onOpenCurrentProgram={handleOpenCurrentProgram}
       />
 
-      <UpcomingEventWidget 
-        clientProfile={clientProfile} 
-        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)} 
+      <UpcomingEventWidget
+        clientProfile={clientProfile}
+        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
       />
-      
+
       {isLoadingIndulgences ? (
           <Skeleton className="h-24 w-full" />
       ) : upcomingIndulgences.length > 0 && (
@@ -523,8 +539,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
           onSwitchPillar={handleSwitchPillar}
         />
       )}
-      
-      <InsightsDialog 
+
+      <InsightsDialog
         isOpen={insightsDialogOpen}
         onClose={() => setInsightsDialogOpen(false)}
       />
@@ -544,7 +560,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
         featureName={activePillar?.label || 'Premium Features'}
         reason={activePillar ? `Access to the ${activePillar.label} pillar requires a subscription.` : 'Access to this feature requires an upgrade.'}
       />
-      
+
        {clientProfile && (
         <CalendarDialog
             isOpen={isCalendarOpen}
@@ -554,7 +570,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
             highlightedEntryId={highlightedEntryId}
         />
        )}
-       
+
         <AlertDialog open={isResetStreakAlertOpen} onOpenChange={setIsResetStreakAlertOpen}>
             <AlertDialogContent>
                 <AlertDialogHeader>
@@ -572,6 +588,35 @@ export function DashboardClient({ searchParams }: DashboardClientProps) { // MOD
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+
+        {/* SURGICAL ADDITION: Dialogs for notifications */}
+        {clientProfile && notificationAppointmentId && (
+            <AppointmentDetailDialog
+                isOpen={isAppointmentDetailOpen}
+                onClose={() => {
+                    setIsAppointmentDetailOpen(false);
+                    setNotificationAppointmentId('');
+                }}
+                appointmentId={notificationAppointmentId}
+                client={clientProfile}
+            />
+        )}
+
+        {clientProfile && notificationWorkoutId && (
+            <WorkoutActionDialog
+                isOpen={isWorkoutActionOpen}
+                onClose={() => {
+                    setIsWorkoutActionOpen(false);
+                    setNotificationWorkoutId('');
+                }}
+                workoutId={notificationWorkoutId}
+                client={clientProfile}
+                onWorkoutStarted={() => {
+                    setIsWorkoutActionOpen(false);
+                    setNotificationWorkoutId('');
+                }}
+            />
+        )}
     </div>
   );
 }
