@@ -6,12 +6,18 @@ import { headers } from 'next/headers';
 import { getAuth } from "firebase-admin/auth";
 
 // This is a Server Component. It fetches data on the server and passes it down.
-export default async function CoachDashboardPage() {
-    
+export default async function CoachDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+    // MODIFIED: Await searchParams Promise to pass plain object to client component
+    const resolvedSearchParams = await searchParams;
+
     const idToken = (await headers()).get('Authorization')?.split('Bearer ')[1];
     
     if (!idToken) {
-        return <CoachDashboardClient initialClients={[]} pendingFoodCount={0} pendingReportCount={0} />;
+        return <CoachDashboardClient initialClients={[]} pendingFoodCount={0} pendingReportCount={0} searchParams={resolvedSearchParams} />;
     }
     
     let coachId = '';
@@ -20,7 +26,7 @@ export default async function CoachDashboardPage() {
         coachId = decodedToken.uid;
     } catch (error) {
         console.error("Error verifying auth token in CoachDashboardPage:", error);
-        return <CoachDashboardClient initialClients={[]} pendingFoodCount={0} pendingReportCount={0} />;
+        return <CoachDashboardClient initialClients={[]} pendingFoodCount={0} pendingReportCount={0} searchParams={resolvedSearchParams} />;
     }
 
     // Fetch data in parallel
@@ -39,6 +45,7 @@ export default async function CoachDashboardPage() {
             initialClients={[]}
             pendingFoodCount={pendingFoodCount} 
             pendingReportCount={pendingReportCount}
+            searchParams={resolvedSearchParams}
        />
     );
 }
