@@ -63,8 +63,8 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
         setHasSearched(true);
         try {
             const result = await getAllAppUsers(user.uid, searchTerm, tierFilter);
-            if (result.success && result.users) {
-                setAllClients(Array.isArray(result.users) ? result.users : []);
+            if (result.success && result.clients) {
+                setAllClients(Array.isArray(result.clients) ? result.clients : []);
             } else {
                 toast({ variant: 'destructive', title: 'Action Required', description: 'A database index is required.' });
             }

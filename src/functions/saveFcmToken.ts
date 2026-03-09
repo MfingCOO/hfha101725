@@ -1,7 +1,7 @@
 
 import * as functions from 'firebase-functions';
-const cors = require('cors');
 import { db, auth } from './firebase';
+const cors = require('cors');
 
 const corsHandler = cors({ origin: true });
 
@@ -29,7 +29,7 @@ export const saveFcmToken = functions.https.onRequest((request, response) => {
     }
 
     const uid = decodedToken.uid;
-    const { token, isCoach } = request.body.data;
+    const { token } = request.body.data; // Removed isCoach
 
     if (!token) {
         response.status(400).send('Bad Request: Missing token.');
@@ -37,25 +37,12 @@ export const saveFcmToken = functions.https.onRequest((request, response) => {
     }
 
     try {
-        const collectionName = isCoach ? 'coaches' : 'clients';
-        const docRef = db.collection(collectionName).doc(uid);
-
-        await db.runTransaction(async (transaction) => {
-            const doc = await transaction.get(docRef);
-            
-            if (!doc.exists) {
-                transaction.set(docRef, { fcmTokens: [token] });
-                return;
-            }
-
-            const data = doc.data();
-            const existingTokens = data?.fcmTokens || [];
-
-            if (!existingTokens.includes(token)) {
-                const updatedTokens = [...existingTokens, token];
-                transaction.update(docRef, { fcmTokens: updatedTokens });
-            }
-        });
+        // ALWAYS use the 'clients' collection as instructed
+        const docRef = db.collection('clients').doc(uid);
+        
+        // Overwrite the tokens array with the new, fresh token.
+        // This ensures only the most recent token is stored.
+        await docRef.set({ fcmTokens: [token] }, { merge: true });
 
         response.status(200).send({ success: true, message: 'FCM token saved successfully.' });
 

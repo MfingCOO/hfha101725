@@ -21,7 +21,7 @@ function serializeTimestamps(data: any): any {
 }
 
 // FINAL COMBINED SOLUTION: Based on user's working file to fix stats and search.
-export async function getAllAppUsers(coachId: string, searchTerm: string = '', tierFilter: string = 'all'): Promise<{ success: boolean; users?: ClientProfile[]; error?: string }> {
+export async function getAllAppUsers(coachId: string, searchTerm: string = '', tierFilter: string = 'all'): Promise<{ success: boolean; clients?: ClientProfile[]; error?: string }> {
     try {
         let query: FirebaseFirestore.Query = adminDb.collection('clients');
 
@@ -49,7 +49,7 @@ export async function getAllAppUsers(coachId: string, searchTerm: string = '', t
         clients.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
 
         // Return the final, correct data.
-        return { success: true, users: clients };
+        return { success: true, clients: clients };
 
     } catch (error: any) {
         console.error("BACKEND ERROR:", error.message);

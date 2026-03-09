@@ -117,7 +117,7 @@ export function ChatView({ chatId }: ChatViewProps) {
         });
     
         return () => unsubscribe();
-    }, [chatId, user, toast, participants]);
+    }, [chatId, user, toast]);
     
     
     const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
@@ -316,7 +316,7 @@ export function ChatView({ chatId }: ChatViewProps) {
                 <form onSubmit={handleSendMessage} className="flex w-full items-center space-x-1">
                      <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" />
                     <Button type="button" variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isSending}><Paperclip className="h-4 w-4" /></Button>
-                    <Input value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a message..." disabled={isSending} className="h-8 text-xs" />
+                    <Input value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a a message..." disabled={isSending} className="h-8 text-xs" />
                     <Button type="submit" size="icon" className="h-8 w-8" disabled={isSending || (!newMessage.trim() && !selectedFile)}>
                     {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </Button>

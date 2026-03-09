@@ -196,6 +196,25 @@ export async function getChatsAndClientsForCoach(): Promise<{
             return !lastClientTimestamp || differenceInHours(now, lastClientTimestamp) >= miaThresholdHours;
         });
 
+        // Sort the chats based on the specified logic
+        activeCoachingChats.sort((a, b) => {
+            const timeA = a.lastMessage?.timestamp ? (a.lastMessage.timestamp as any).toMillis() : 0;
+            const timeB = b.lastMessage?.timestamp ? (b.lastMessage.timestamp as any).toMillis() : 0;
+            return timeB - timeA;
+        });
+
+        miaCoachingChats.sort((a, b) => {
+            const timeA = a.lastClientMessageTimestamp ? (a.lastClientMessageTimestamp as any).toMillis() : 0;
+            const timeB = b.lastClientMessageTimestamp ? (b.lastClientMessageTimestamp as any).toMillis() : 0;
+            return timeB - timeA;
+        });
+
+        groupChats.sort((a, b) => {
+            const timeA = a.lastMessage?.timestamp ? (a.lastMessage.timestamp as any).toMillis() : 0;
+            const timeB = b.lastMessage?.timestamp ? (b.lastMessage.timestamp as any).toMillis() : 0;
+            return timeB - timeA;
+        });
+
         const serializableActive = activeCoachingChats.map(serializeTimestamps);
         const serializableMia = miaCoachingChats.map(serializeTimestamps);
         const serializableGroup = groupChats.map(serializeTimestamps);

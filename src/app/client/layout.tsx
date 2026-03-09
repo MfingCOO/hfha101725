@@ -19,6 +19,7 @@ import { NotificationActionHandler } from '@/components/providers/NotificationAc
 import { useNotificationStore } from '@/store/notification-store';
 import { getChallengesForClient } from '@/app/challenges/actions';
 import { Toaster } from '@/components/ui/toaster';
+import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 
 // --- NO CHANGES TO ERRORBOUNDARY ---
 interface ErrorBoundaryProps {
@@ -125,6 +126,7 @@ function DialogManager() {
                 open={isSettingsOpen}
                 onOpenChange={onCloseSettings}
             />
+            <NotificationsDialog />
         </>
     );
 }

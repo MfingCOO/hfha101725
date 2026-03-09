@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebaseAdmin';
-import { enrichFoodDetailsFlow } from '@/ai/flows/nutrition/enrich-food-details-flow';
 import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 
 /**
- * Fixes the "Only plain objects" error by converting 
+ * Fixes the "Only plain objects" error by converting
  * Firestore Timestamps into plain numbers.
  */
 function makePlain(data: any): any {
@@ -25,7 +24,6 @@ export async function POST(req: NextRequest) {
     const cachedDoc = await db.collection('foodCache').doc(String(fdcId)).get();
     if (cachedDoc.exists) {
       console.log(`[Cache Hit] Returning cached data for ${fdcId}`);
-      // The makePlain() call is the critical fix here
       return NextResponse.json(makePlain(cachedDoc.data()));
     }
 
@@ -38,6 +36,9 @@ export async function POST(req: NextRequest) {
     // 3. Get Model & Run AI
     const settings = await getSiteSettingsAction();
     const model = settings.data?.aiModelSettings?.flash || 'gemini-1.5-flash';
+
+    // Dynamically import the flow to prevent it from running during the build
+    const { enrichFoodDetailsFlow } = await import('@/ai/flows/nutrition/enrich-food-details-flow');
 
     const enrichedData = await enrichFoodDetailsFlow({
       description: foodData.description,

@@ -5,7 +5,8 @@ import {
   Settings,
   Calendar,
   MessageSquare,
-  Trophy
+  Trophy,
+  Bell,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -23,39 +24,29 @@ import { UserNav } from '../auth/user-nav';
 import { useAuth } from '../auth/auth-provider';
 import { useDashboardActions, useDashboardState } from '@/contexts/DashboardActionsContext';
 import { useChatModalStore } from '@/store/ui-store';
+import { useNotificationStore } from '@/store/notification-store';
 
-const clientMenuItems = [
-  { href: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true, id: 'dashboard' },
-  { href: '#', label: 'Calendar', icon: Calendar, isLink: false, id: 'calendar' },
-  { href: '#', label: 'Chats', icon: MessageSquare, isLink: false, id: 'chats' },
-  { href: '#', label: 'Challenges', icon: Trophy, isLink: false, id: 'challenges' },
-];
-
-const coachMenuItems = [
-    { href: '/coach/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true, id: 'dashboard' },
-]
 
 export function AppSidebar() {
   const pathname = usePathname();
   const { isCoach } = useAuth();
-  const { onOpenChallenges, onOpenCalendar, onOpenSettings } = useDashboardActions();
+  const { onOpenChallenges, onOpenCalendar, onOpenSettings, setIsNotificationsOpen } = useDashboardActions();
   const { openModal: openChatModal } = useChatModalStore();
   const { unreadChatCount } = useDashboardState();
+  const { hasUnreadNotifications } = useNotificationStore();
+
+  const clientMenuItems = [
+    { href: '/client/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true, id: 'dashboard', onClick: undefined },
+    { href: '#', label: 'Calendar', icon: Calendar, isLink: false, id: 'calendar', onClick: onOpenCalendar },
+    { href: '#', label: 'Chats', icon: MessageSquare, isLink: false, id: 'chats', onClick: () => openChatModal(undefined) },
+    { href: '#', label: 'Challenges', icon: Trophy, isLink: false, id: 'challenges', onClick: onOpenChallenges },
+  ];
+
+  const coachMenuItems = [
+      { href: '/coach/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true, id: 'dashboard', onClick: undefined },
+  ]
 
   const menuItems = isCoach ? coachMenuItems : clientMenuItems;
-
-  const handleItemClick = (item: any) => {
-    if (!item.isLink) {
-        if (item.id === 'challenges') {
-            onOpenChallenges();
-        } else if (item.id === 'chats') {
-            // FIX: Pass undefined instead of null to match 'string | undefined' type
-            openChatModal(undefined); 
-        } else if (item.id === 'calendar') {
-            onOpenCalendar();
-        }
-    }
-  }
 
   return (
     <Sidebar>
@@ -83,7 +74,7 @@ export function AppSidebar() {
                  <SidebarMenuButton
                     isActive={false}
                     tooltip={item.label}
-                    onClick={() => handleItemClick(item)}
+                    onClick={item.onClick}
                   >
                     <div className="flex items-center justify-between w-full">
                         <div className="flex items-center">
@@ -105,6 +96,22 @@ export function AppSidebar() {
       
        <SidebarFooter>
          <SidebarMenu>
+            <SidebarMenuItem>
+                <SidebarMenuButton
+                    tooltip={"Notifications"}
+                    onClick={() => setIsNotificationsOpen(true)}
+                >
+                  <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center">
+                          <Bell />
+                          <span className='ml-4'>Notifications</span>
+                      </div>
+                      {hasUnreadNotifications && (
+                          <span className="ml-auto h-2 w-2 rounded-full bg-red-500"></span>
+                      )}
+                  </div>
+                </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
                 <SidebarMenuButton
                     tooltip={"Settings"}

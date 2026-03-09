@@ -5,6 +5,7 @@ import type { Chat } from '@/types';
 import { useAuth } from '@/components/auth/auth-provider';
 import { getChatsForClient, getChatMetadataForUser } from '@/app/chats/actions';
 
+// ... (ChatDialog context remains the same)
 interface ChatDialogContextType {
   isChatOpen: boolean;
   openChat: () => void;
@@ -67,11 +68,13 @@ export const useChatDialog = () => {
     return context;
 };
 
+
 interface DashboardState {
   chats: Chat[];
   unreadChatCount: number;
   chatMetadata: Record<string, { lastReadTimestamp: any }>;
   fetchChats: () => void;
+  isNotificationsOpen: boolean;
 }
 
 interface DashboardActions {
@@ -84,6 +87,8 @@ interface DashboardActions {
   onCloseChallenges: () => void;
   onCloseCalendar: () => void;
   onCloseSettings: () => void;
+  setIsNotificationsOpen: (isOpen: boolean) => void;
+  onCloseNotifications: () => void;
 }
 
 const DashboardStateContext = createContext<DashboardState | undefined>(undefined);
@@ -98,6 +103,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [isChallengesOpen, setIsChallengesOpen] = useState(false);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   const fetchChatMetadata = useCallback(async () => {
     if (!user) return;
@@ -140,8 +146,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     chats,
     unreadChatCount,
     chatMetadata,
-    fetchChats
-  }), [chats, unreadChatCount, chatMetadata, fetchChats]);
+    fetchChats,
+    isNotificationsOpen,
+  }), [chats, unreadChatCount, chatMetadata, fetchChats, isNotificationsOpen]);
 
   const actionsValue = useMemo(() => ({
     onOpenChallenges: () => setIsChallengesOpen(true),
@@ -153,6 +160,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     onCloseChallenges: () => setIsChallengesOpen(false),
     onCloseCalendar: () => setIsCalendarOpen(false),
     onCloseSettings: () => setIsSettingsOpen(false),
+    setIsNotificationsOpen,
+    onCloseNotifications: () => setIsNotificationsOpen(false),
   }), [isChallengesOpen, isCalendarOpen, isSettingsOpen]);
 
   return (
