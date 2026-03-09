@@ -122,19 +122,15 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         if (notificationType === 'chat' && openChatId) {
             setNotificationChatId(openChatId);
             queryParams.set('openChatId', openChatId);
-            // targetUrl = `${dashboardBaseUrl}?openChatId=${openChatId}`;
         } else if (notificationType === 'workout_reminder' && openWorkoutId) {
             setNotificationWorkoutId(openWorkoutId);
             queryParams.set('openWorkoutId', openWorkoutId);
-            // targetUrl = `${dashboardBaseUrl}?openWorkoutId=${openWorkoutId}`;
         } else if (notificationType === 'appointment_reminder' && openAppointmentId) {
             setNotificationAppointmentId(openAppointmentId);
             queryParams.set('openAppointmentId', openAppointmentId);
-            // targetUrl = `${dashboardBaseUrl}?openAppointmentId=${openAppointmentId}`;
         } else if (notificationType === 'hydration' && openHydration === 'true') {
             setTriggerHydrationModal(true);
             queryParams.set('openHydration', 'true');
-            // targetUrl = `${dashboardBaseUrl}?openHydration=true`;
         }
 
         targetUrl = `${dashboardBaseUrl}?${queryParams.toString()}`;
@@ -210,10 +206,16 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             }
 
             try {
+              const swRegistration = await navigator.serviceWorker.register('/sw.js');
+              log('PWA: Service worker registered.', swRegistration);
+
               const permission = await Notification.requestPermission();
               if (permission === 'granted') {
                 log('PWA permission granted. Getting token...');
-                const fcmToken = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY });
+                const fcmToken = await getToken(messaging, { 
+                    vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
+                    serviceWorkerRegistration: swRegistration
+                });
                 if (fcmToken) {
                   log('PWA: Got token, saving to backend...', fcmToken.substring(0, 10) + '...');
                   if (user?.uid) {
