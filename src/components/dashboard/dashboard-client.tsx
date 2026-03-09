@@ -40,6 +40,7 @@ import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
 import { ProgramWidget } from '@/components/client/ProgramWidget';
 import { ProgramListDialog } from '@/components/programs/program-list-dialog';
 import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
+import { useNotificationStore } from '@/store/notification-store'; // ADDED: Import useNotificationStore
 
 export interface Pillar {
   id: string;
@@ -77,27 +78,34 @@ const safeNewDate = (dateSource: any): Date | null => {
     return null;
 }
 
-export function DashboardClient() {
+interface DashboardClientProps {
+  searchParams?: { [key: string]: string | string[] | undefined }; // ADDED: Define searchParams prop
+}
+
+export function DashboardClient({ searchParams }: DashboardClientProps) { // MODIFIED: Accept searchParams prop
   const { onOpenChallenges, onOpenCalendar, isSettingsOpen, onCloseSettings } = useDashboardActions();
   const { user, isCoach, loading } = useAuth();
   const { toast } = useToast();
   const { modalType, closeModal } = useDataEntryModal();
+  // ADDED: Destructure notification store setters
+  const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
+
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
   const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
   const [activePillar, setActivePillar] = useState<Pillar | null>(null);
-  
+
   const [latestChallenge, setLatestChallenge] = useState<Challenge | null>(null);
   const [isLoadingChallenge, setIsLoadingChallenge] = useState(true);
   const [upcomingIndulgences, setUpcomingIndulgences] = useState<any[]>([]);
   const [isLoadingIndulgences, setIsLoadingIndulgences] = useState(true);
-  
+
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [initialCalendarDate, setInitialCalendarDate] = useState<Date | undefined>(undefined);
   const [highlightedEntryId, setHighlightedEntryId] = useState<string | undefined>(undefined);
 
   const [isResettingStreak, setIsResettingStreak] = useState(false);
   const [isResetStreakAlertOpen, setIsResetStreakAlertOpen] = useState(false);
-  
+
   const [liveBingeFreeSince, setLiveBingeFreeSince] = useState<any>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
 
@@ -110,6 +118,33 @@ export function DashboardClient() {
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // ADDED: useEffect to handle searchParams for notifications
+  useEffect(() => {
+    if (!searchParams) return;
+
+    const openChatId = String(searchParams.openChatId || '');
+    const openWorkoutId = String(searchParams.openWorkoutId || '');
+    const openAppointmentId = String(searchParams.openAppointmentId || '');
+    const openHydration = String(searchParams.openHydration || 'false');
+    const notificationType = String(searchParams.notificationType || '');
+
+    console.log('DashboardClient: Received searchParams for notification handling:', searchParams);
+
+    if (notificationType === 'chat' && openChatId) {
+      setNotificationChatId(openChatId);
+    } else if (notificationType === 'workout_reminder' && openWorkoutId) {
+      setNotificationWorkoutId(openWorkoutId);
+    } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
+      setNotificationAppointmentId(openAppointmentId);
+    } else if (notificationType === 'hydration' && openHydration === 'true') {
+      setTriggerHydrationModal(true);
+    }
+
+    // You might want to add logic here to clear the URL search params after processing
+    // if you don't want them to persist. This usually involves router.replace from the parent.
+
+  }, [searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
 
   const executePillarAction = (pillar: Pillar) => {
     if (pillar.id === 'insights') {
@@ -197,11 +232,17 @@ export function DashboardClient() {
       }
     }
   }, [modalType]);
-  
+
   const handleDataEntryDialogClose = (wasSaved: boolean) => {
     setDataEntryDialogOpen(false);
     setActivePillar(null);
     closeModal();
+    // ADDED: Clear specific notification states when closing data entry dialog
+    setNotificationChatId('');
+    setNotificationAppointmentId('');
+    setNotificationWorkoutId('');
+    setTriggerHydrationModal(false);
+
     if (wasSaved) {
       fetchDashboardData();
     }

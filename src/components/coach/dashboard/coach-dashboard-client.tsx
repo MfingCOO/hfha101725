@@ -24,16 +24,21 @@ import { getUnreviewedUserFoods } from '@/app/coach/food-cache/actions';
 import { ModerationDialog } from '@/components/coach/dialogs/ModerationDialog';
 import { getPendingReportsCountAction } from '@/app/actions/moderation-actions';
 import { getUnreadChatCountForCoach } from "@/app/chats/actions";
+import { useNotificationStore } from '@/store/notification-store'; // ADDED: Import useNotificationStore
 
 interface CoachDashboardClientProps {
     initialClients: ClientProfile[];
     pendingFoodCount: number;
     pendingReportCount: number;
+    searchParams?: { [key: string]: string | string[] | undefined }; // ADDED: Define searchParams prop
 }
 
-export function CoachDashboardClient({ initialClients, pendingFoodCount: initialPendingFoodCount, pendingReportCount: initialPendingReportCount }: CoachDashboardClientProps) {
+export function CoachDashboardClient({ initialClients, pendingFoodCount: initialPendingFoodCount, pendingReportCount: initialPendingReportCount, searchParams }: CoachDashboardClientProps) {
     const { toast } = useToast();
     const { user } = useAuth();
+    // ADDED: Destructure notification store setters
+    const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
+
     const [allClients, setAllClients] = useState<ClientProfile[]>(initialClients || []);
     const [isLoading, setIsLoading] = useState(false);
     const [selectedClient, setSelectedClient] = useState<ClientProfile | null>(null);
@@ -53,6 +58,37 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [pendingFoodCount, setPendingFoodCount] = useState(initialPendingFoodCount);
     const [pendingReportCount, setPendingReportCount] = useState(initialPendingReportCount);
     const [unreadChatCount, setUnreadChatCount] = useState(0);
+
+    // ADDED: useEffect to handle searchParams for notifications
+    useEffect(() => {
+        if (!searchParams) return;
+
+        const openChatId = String(searchParams.openChatId || '');
+        const openWorkoutId = String(searchParams.openWorkoutId || '');
+        const openAppointmentId = String(searchParams.openAppointmentId || '');
+        const openHydration = String(searchParams.openHydration || 'false'); // For completeness, though coach doesn't use hydration modal
+        const notificationType = String(searchParams.notificationType || '');
+
+        console.log('CoachDashboardClient: Received searchParams for notification handling:', searchParams);
+
+        if (notificationType === 'chat' && openChatId) {
+            setNotificationChatId(openChatId);
+            setIsChatsOpen(true); // Open the ManageChatsDialog
+        } else if (notificationType === 'workout_reminder' && openWorkoutId) {
+            setNotificationWorkoutId(openWorkoutId);
+            setIsCalendarOpen(true); // Assuming workouts are shown in calendar
+        } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
+            setNotificationAppointmentId(openAppointmentId);
+            setIsCalendarOpen(true); // Open the CoachCalendarDialog
+        } else if (notificationType === 'hydration' && openHydration === 'true') {
+            // Coach does not have hydration modal, but setting state for consistency if logic changes
+            setTriggerHydrationModal(true);
+        }
+
+        // You might want to add logic here to clear the URL search params after processing
+        // if you don't want them to persist. This usually involves router.replace from the parent.
+
+    }, [searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setIsChatsOpen, setIsCalendarOpen]);
 
     const fetchClients = useCallback(async () => {
         if (!user) {
