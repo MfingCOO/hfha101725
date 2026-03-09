@@ -1,9 +1,8 @@
 'use strict';
 import { initializeApp } from 'firebase-admin/app';
-import { getFirestore, Timestamp, QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging, MulticastMessage, BatchResponse } from 'firebase-admin/messaging';
 import { getFunctions } from 'firebase-admin/functions';
-import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { onRequest } from 'firebase-functions/v2/https';
@@ -353,93 +352,75 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
     }
 });
 
-export const hydrationReminderEngine = onSchedule('every 15 minutes', async (event) => {
-    const now = Timestamp.now();
-    const query = db.collection('reminders').where('status', '==', 'scheduled').where('scheduledAt', '<=', now);
-    const snapshot = await query.get();
-    if (snapshot.empty) return;
-
-    const promises = snapshot.docs.map(async (doc: QueryDocumentSnapshot) => {
-        const reminder = doc.data();
-        const userId = reminder.userId;
-        const notificationData = {
-            userId: userId,
-            title: '💧 Time to Hydrate!',
-            message: 'A quick reminder to drink some water and log your intake.',
-            ctaUrl: `/client/dashboard?notificationType=hydration`,
-            notificationType: 'hydration',
-            entityId: 'hydration',
-            sendTime: now,
-            processed: false,
-        };
-        await db.collection('notifications').add(notificationData);
-    });
-    await Promise.all(promises);
-});
-
-export const unifiedNotificationEngine = onSchedule('every 5 minutes', async (event) => {
-  const now = Timestamp.now();
-  const query = db.collection('notifications').where('processed', '==', false).where('sendTime', '<=', now);
-  const snapshot = await query.get();
-  if (snapshot.empty) {
-    console.log("unifiedNotificationEngine: No notifications to process.");
-    return;
-  }
-
-  console.log(`unifiedNotificationEngine: Found ${snapshot.docs.length} notifications to process.`);
-
-  const promises = snapshot.docs.map(async (doc: QueryDocumentSnapshot) => {
-    const notification = doc.data();
-    await doc.ref.update({ processed: true });
-    // Pass sendTime as a string as it's stored that way, and imageUrl
-    await sendPushNotification(
-      notification.userId,
-      notification.title,
-      notification.message,
-      notification.ctaUrl,
-      notification.notificationType as string,
-      notification.entityId as string,
-      notification.imageUrl as string | undefined
-    );
-  });
-  await Promise.all(promises);
-  console.log(`unifiedNotificationEngine: Finished processing ${snapshot.docs.length} notifications.`);
-});
-
-export const cleanupProcessedNotifications = onSchedule('every 24 hours', async (event) => {
-    console.log("Running daily cleanup of processed notifications.");
-
-    const sevenDaysAgo = Timestamp.fromMillis(Date.now() - 7 * 24 * 60 * 60 * 1000);
-
-    const query = db.collection('notifications')
-                    .where('processed', '==', true)
-                    .where('sendTime', '<=', sevenDaysAgo);
-                    
-    const snapshot = await query.get();
-
-    if (snapshot.empty) {
-        console.log("No old processed notifications to clean up.");
+// New, precise handler for individual hydration reminders.
+export const hydrationReminderHandler = onTaskDispatched<any>({}, async (req) => {
+    const { userId, reminderId } = req.data;
+    const docRef = db.collection('reminders').doc(reminderId);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+        console.log(`hydrationReminderHandler: Reminder ${reminderId} not found. Aborting.`);
         return;
     }
 
-    console.log(`Found ${snapshot.size} old notifications to delete.`);
+    const reminder = doc.data()!;
+    if (reminder.status !== 'scheduled') {
+        console.log(`hydrationReminderHandler: Reminder ${reminderId} is no longer in 'scheduled' state. Aborting.`);
+        return;
+    }
 
-    const batches: Promise<any>[] = [];
-    let currentBatch = db.batch();
-    let operationCount = 0;
+    // Format the time for the notification message
+    const scheduledTime = reminder.scheduledAt.toDate();
+    const timeString = scheduledTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    const message = `This is your ${timeString} hydration reminder.`;
+    
+    // Hardcoded URL for client dashboard to open hydration modal
+    const ctaUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
+    const iconUrl = 'https://storage.googleapis.com/hunger-free-and-happy-app.appspot.com/app-assets/water-drop-icon.png';
 
-    snapshot.docs.forEach((doc, index) => {
-        currentBatch.delete(doc.ref);
-        operationCount++;
+    await sendPushNotification(
+        userId,
+        '💧 Time to Hydrate!',
+        message,
+        ctaUrl,
+        'hydration',
+        'hydration', // entityId
+        iconUrl
+    );
 
-        if (operationCount === 500 || index === snapshot.docs.length - 1) {
-            batches.push(currentBatch.commit());
-            currentBatch = db.batch();
-            operationCount = 0;
-        }
-    });
+    await docRef.update({ status: 'sent' });
+    console.log(`hydrationReminderHandler: Successfully sent reminder for ${reminderId}`);
+});
 
-    await Promise.all(batches);
+// New trigger to schedule a precise task when a hydration reminder is created.
+export const onReminderScheduled = onDocumentCreated("reminders/{reminderId}", async (event) => {
+    if (!event.data) {
+        console.log(`onReminderScheduled: No data associated with the event. Skipping.`);
+        return;
+    }
+    const reminder = event.data.data();
+    const { reminderId } = event.params;
 
-    console.log(`Cleanup complete. Deleted ${snapshot.size} old notifications.`);
+    if (!reminder || reminder.type !== 'hydration_reminder' || reminder.status !== 'scheduled' || !event.data.createTime) {
+        console.log(`onReminderScheduled: Skipping reminder ${reminderId}. Not a new 'scheduled' hydration reminder.`);
+        return;
+    }
+
+    const { userId, scheduledAt } = reminder;
+    const reminderTime = scheduledAt.toDate();
+
+    if (reminderTime < new Date()) {
+        console.log(`onReminderScheduled: Reminder time for ${reminderId} is in the past. Skipping.`);
+        return;
+    }
+
+    const queue = getFunctions().taskQueue('hydrationReminderHandler', 'us-central1');
+    try {
+        await queue.enqueue(
+            { userId, reminderId },
+            { scheduleTime: reminderTime }
+        );
+        console.log(`onReminderScheduled: Enqueued reminder ${reminderId} to run at ${reminderTime.toISOString()}`);
+    } catch (error) {
+        console.error(`onReminderScheduled: Error enqueuing task for reminder ${reminderId}:`, error);
+    }
 });
