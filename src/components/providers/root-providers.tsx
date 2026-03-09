@@ -10,7 +10,6 @@ import AdBannerProvider from "@/components/providers/AdBannerProvider";
 import { initializeFirebasePersistence } from '@/lib/firebase';
 import { DashboardProvider } from '@/contexts/DashboardActionsContext';
 import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
-import { PushNotificationHandler } from '@/components/notifications/PushNotificationHandler';
 import { ChatProvider } from '@/components/chats/chat-provider';
 import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
@@ -35,7 +34,6 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
                   <PushNotificationProvider>
                     {children}
                     <NotificationsDialog />
-                    <PushNotificationHandler />
                     <NotificationActionHandler />
                   </PushNotificationProvider>
                 </ChatProvider>
