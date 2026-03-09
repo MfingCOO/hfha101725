@@ -12,7 +12,6 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
-// Helper to get a user's name from the 'clients' collection
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
     try {
@@ -27,7 +26,6 @@ const getUserName = async (userId: string): Promise<string | null> => {
     return null;
 };
 
-// Helper to check if a user is a coach by checking the 'role' field in the 'clients' collection
 async function isUserCoach(userId: string): Promise<boolean> {
     if (!userId) return false;
     try {
@@ -39,8 +37,7 @@ async function isUserCoach(userId: string): Promise<boolean> {
     }
 }
 
-// --- Universal Push Notification Sender ---
-async function sendPushNotification(userId: string, title: string, message: string, ctaUrl: string, notificationType: string, entityId: string, imageUrl?: string) {
+async function sendPushNotification(userId: string, title: string, message: string, ctaUrl: string, notificationType: string, entityId: string, imageUrl?: string, senderId?: string, senderName?: string, messageText?: string) {
     const userDocRef = db.collection('clients').doc(userId);
     const userDoc = await userDocRef.get();
 
@@ -62,9 +59,13 @@ async function sendPushNotification(userId: string, title: string, message: stri
         data: {
             title,
             body: message,
-            url: ctaUrl,
+            url: ctaUrl, // *** THE FIX: Use the passed-in ctaUrl directly ***
             notificationType,
             entityId,
+            chatId: entityId,
+            senderId: senderId || '',
+            senderName: senderName || '',
+            messageText: messageText || '',
             ...(imageUrl && { imageUrl }),
         },
         apns: {
@@ -121,7 +122,6 @@ async function sendPushNotification(userId: string, title: string, message: stri
     }
 }
 
-// [NOW INSTANT] onNewMessage sends notifications directly, not to the queue.
 export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => {
     if (!event.data) {
         console.log("onNewMessage: No data associated with the event. Exiting.");
@@ -162,26 +162,28 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
 
     const senderName = await getUserName(senderId);
     const body = messageText.substring(0, 100);
-    let title = `New message from ${senderName || 'Someone'}`;
+    let title = senderName ? `New message from ${senderName}` : 'New Message';
 
     if (chatData.type === 'private_group' || chatData.type === 'open') {
-        title = `New message in ${chatData.name || 'your group chat'}`;
+        title = chatData.name ? `New message in ${chatData.name}` : 'New Group Message';
     }
 
     const promises = recipients.map(async (recipientId: string) => {
         const isRecipientCoach = await isUserCoach(recipientId);
-        const dashboardUrl = isRecipientCoach ? '/coach/chats' : '/chats';
-        const ctaUrl = `${dashboardUrl}?chatId=${String(chatId)}`;
+        const dashboardUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
+        const ctaUrl = `${dashboardUrl}?openChat=${String(chatId)}`;
 
-        // Directly send the push notification instead of queueing it.
         return sendPushNotification(
             recipientId,
             title,
             body,
             ctaUrl,
             'chat',
-            String(chatId),
-            imageUrl || undefined
+            String(chatId), 
+            imageUrl || undefined,
+            senderId,
+            senderName || '',
+            body
         );
     });
 
@@ -189,8 +191,6 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     console.log(`onNewMessage: Instantly sent ${recipients.length} chat notifications.`);
 });
 
-
-// Diagnostic test function
 export const testPushNotification = onRequest(async (req, res) => {
     const userId = req.query.userId as string;
     if (!userId) {
@@ -215,7 +215,6 @@ export const testPushNotification = onRequest(async (req, res) => {
     }
 });
 
-// Workout Reminder Handler
 export const workoutReminderHandler = onTaskDispatched<any>({ /* Task options */ }, async (req) => {
     const { userId, workoutId, workoutName } = req.data;
     console.log(`workoutReminderHandler: Received task for userId: ${userId}, workoutId: ${workoutId}`);
@@ -229,7 +228,7 @@ export const workoutReminderHandler = onTaskDispatched<any>({ /* Task options */
         await sendPushNotification(
             userId,
             'Workout Reminder',
-            `Your scheduled workout, "${workoutName}," is in 10 minutes!`,
+            `Your scheduled workout, \"${workoutName},\" is in 10 minutes!`,
             `/client/dashboard?notificationType=workout_reminder&entityId=${String(workoutId)}`,
             'workout_reminder',
             String(workoutId)
@@ -242,7 +241,6 @@ export const workoutReminderHandler = onTaskDispatched<any>({ /* Task options */
     }
 });
 
-// onWorkoutScheduled trigger
 export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutId}", async (event) => {
     if (!event.data) {
         console.log(`onWorkoutScheduled: No data associated with the event. Skipping.`);
@@ -272,7 +270,6 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
     }
 });
 
-// Appointment Reminder Handler
 export const appointmentReminderHandler = onTaskDispatched<any>({/* Task options */}, async (req) => {
     const { userId, appointmentId, isCoach, opponentName, eventTitle } = req.data;
     console.log(`appointmentReminderHandler: Received task for userId: ${userId}, appointmentId: ${appointmentId}`);
@@ -281,7 +278,7 @@ export const appointmentReminderHandler = onTaskDispatched<any>({/* Task options
         let message = `Your appointment with ${opponentName || 'your coach/client'} is in 10 minutes.`;
         if (eventTitle) {
             title = 'Live Event Starting Soon';
-            message = `The event "${eventTitle}" is starting in 10 minutes!`;
+            message = `The event \"${eventTitle}\" is starting in 10 minutes!`;
         }
         const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
         const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&entityId=${appointmentId}`;
@@ -301,7 +298,6 @@ export const appointmentReminderHandler = onTaskDispatched<any>({/* Task options
     }
 });
 
-// onAppointmentScheduled trigger
 export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointmentId}", async (event) => {
     if (!event.data) {
         console.log(`onAppointmentScheduled: No data associated with the event. Skipping.`);
@@ -347,7 +343,6 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
     }
 });
 
-// Hydration Reminder Engine - USES THE QUEUE
 export const hydrationReminderEngine = onSchedule('every 15 minutes', async (event) => {
     const now = Timestamp.now();
     const query = db.collection('reminders').where('status', '==', 'scheduled').where('scheduledAt', '<=', now);
@@ -364,7 +359,7 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
             ctaUrl: `/client/dashboard?notificationType=hydration`,
             notificationType: 'hydration',
             entityId: 'hydration',
-            sendTime: now, // Add to queue for immediate processing
+            sendTime: now,
             processed: false,
         };
         await db.collection('notifications').add(notificationData);
@@ -372,7 +367,6 @@ export const hydrationReminderEngine = onSchedule('every 15 minutes', async (eve
     await Promise.all(promises);
 });
 
-// Unified Notification Engine - PROCESSES THE QUEUE (Reminders Only)
 export const unifiedNotificationEngine = onSchedule('every 5 minutes', async (event) => {
   const now = Timestamp.now();
   const query = db.collection('notifications').where('processed', '==', false).where('sendTime', '<=', now);
@@ -401,7 +395,6 @@ export const unifiedNotificationEngine = onSchedule('every 5 minutes', async (ev
   console.log(`unifiedNotificationEngine: Finished processing ${snapshot.docs.length} notifications.`);
 });
 
-// [NEW] Daily cleanup of old, processed notifications from the queue
 export const cleanupProcessedNotifications = onSchedule('every 24 hours', async (event) => {
     console.log("Running daily cleanup of processed notifications.");
 
@@ -420,7 +413,6 @@ export const cleanupProcessedNotifications = onSchedule('every 24 hours', async 
 
     console.log(`Found ${snapshot.size} old notifications to delete.`);
 
-    // Firestore allows a maximum of 500 operations in a single batch.
     const batches: Promise<any>[] = [];
     let currentBatch = db.batch();
     let operationCount = 0;
@@ -429,10 +421,8 @@ export const cleanupProcessedNotifications = onSchedule('every 24 hours', async 
         currentBatch.delete(doc.ref);
         operationCount++;
 
-        // If we reach the batch limit or this is the last document, commit the batch.
         if (operationCount === 500 || index === snapshot.docs.length - 1) {
             batches.push(currentBatch.commit());
-            // Start a new batch for the next set of operations.
             currentBatch = db.batch();
             operationCount = 0;
         }

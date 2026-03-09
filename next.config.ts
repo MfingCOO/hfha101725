@@ -1,10 +1,26 @@
+
 import type { NextConfig } from 'next';
-const withPWA = require('@ducanh2912/next-pwa').default({
+import withPWAInit from 'next-pwa';
+
+const isDev = process.env.NODE_ENV !== 'production';
+
+// Correct configuration to prevent PWA from caching API routes
+const runtimeCaching = [
+  {
+    urlPattern: /^\/api\/.*$/,
+    handler: 'NetworkOnly' as const,
+  },
+  {
+    urlPattern: /.*/,
+    handler: 'NetworkFirst' as const,
+  },
+];
+
+const withPWA = withPWAInit({
   dest: 'public',
-  register: true,
-  skipWaiting: true,
-  disable: process.env.NODE_ENV === 'development',
+  runtimeCaching,
 });
+
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ['3000-firebase-103125-1761919991969.cluster-zsqzu5kebnaemxbyqrvoim2lxo.cloudworkstations.dev'],
@@ -20,7 +36,7 @@ const nextConfig: NextConfig = {
       {
         source: '/:path*',
         headers: [
-          { key: 'Permissions-Policy', value: 'payment=*' },
+          { key: 'Permissions-Policy', value: 'payment=*, push=*, notifications=*' },
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' }
         ],
       },
@@ -40,7 +56,6 @@ const nextConfig: NextConfig = {
       ]
     },
   },
-  serverExternalPackages: ['@opentelemetry/instrumentation', '@genkit-ai/core', '@genkit-ai/flow'],
 };
 
 export default withPWA(nextConfig);
