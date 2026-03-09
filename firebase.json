@@ -6,7 +6,9 @@
     "indexes": "firestore.indexes.json"
   },
   "functions": {
-    "source": "lib/functions"
+    "source": "lib/functions",
+    "codebase": "default",
+    "runtime": "nodejs20"
   },
   "storage": {
     "rules": "storage.rules"
