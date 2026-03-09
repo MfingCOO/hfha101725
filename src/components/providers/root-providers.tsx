@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { AppCheckProvider } from "@/components/auth/app-check-provider";
 import { Toaster } from "@/components/ui/toaster";
@@ -30,14 +30,16 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
         <AppCheckProvider>
           <DataEntryModalProvider>
             <DashboardProvider>
-              <ChatProvider>
-                <PushNotificationProvider>
-                  {children}
-                  <NotificationsDialog />
-                  <PushNotificationHandler />
-                  <NotificationActionHandler />
-                </PushNotificationProvider>
-              </ChatProvider>
+              <Suspense fallback={null}>
+                <ChatProvider>
+                  <PushNotificationProvider>
+                    {children}
+                    <NotificationsDialog />
+                    <PushNotificationHandler />
+                    <NotificationActionHandler />
+                  </PushNotificationProvider>
+                </ChatProvider>
+              </Suspense>
             </DashboardProvider>
             <Toaster />
           </DataEntryModalProvider>

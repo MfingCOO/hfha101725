@@ -1,7 +1,7 @@
 'use strict';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, Timestamp, QueryDocumentSnapshot } from 'firebase-admin/firestore';
-import { getMessaging } from 'firebase-admin/messaging';
+import { getMessaging, MulticastMessage, BatchResponse } from 'firebase-admin/messaging';
 import { getFunctions } from 'firebase-admin/functions';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
@@ -54,53 +54,62 @@ async function sendPushNotification(userId: string, title: string, message: stri
 
     const channelId = notificationType === 'chat' ? 'chat_messages' : 'reminders';
 
-    const payload = {
+    const dataPayload: { [key: string]: string } = {
+        title: String(title),
+        body: String(message),
+        url: String(ctaUrl),
+        notificationType: String(notificationType),
+        entityId: String(entityId),
+        chatId: String(entityId),
+        senderId: String(senderId || ''),
+        senderName: String(senderName || ''),
+        messageText: String(messageText || ''),
+        ...(imageUrl && { imageUrl: String(imageUrl) }),
+        isCoach: String(await isUserCoach(userId))
+    };
+
+    const payload: MulticastMessage = {
         tokens: tokens,
-        data: {
-            title,
-            body: message,
-            url: ctaUrl, // *** THE FIX: Use the passed-in ctaUrl directly ***
-            notificationType,
-            entityId,
-            chatId: entityId,
-            senderId: senderId || '',
-            senderName: senderName || '',
-            messageText: messageText || '',
-            ...(imageUrl && { imageUrl }),
+        notification: {
+            title: String(title),
+            body: String(message),
+            imageUrl: imageUrl,
         },
+        data: dataPayload,
         apns: {
             payload: {
                 aps: {
-                    alert: { title, body: message },
+                    alert: { title: String(title), body: String(message) },
                     badge: 1,
                     sound: 'default',
                     'mutable-content': 1,
                 },
             },
-            fcm_options: {
-                image: imageUrl,
+            fcmOptions: { // Corrected from fcm_options
+                imageUrl: imageUrl,
             },
         },
         android: {
             priority: 'high' as const,
             notification: {
-                title,
-                body: message,
-                channelId,
-                imageUrl,
+                title: String(title),
+                body: String(message),
+                channelId: String(channelId),
+                imageUrl: imageUrl,
                 sound: 'default',
                 clickAction: 'FLUTTER_NOTIFICATION_CLICK',
             },
         },
     };
 
+    let response: BatchResponse; // Declare response here
     try {
-        const response = await messaging.sendEachForMulticast(payload as any);
+        response = await messaging.sendEachForMulticast(payload as any);
         console.log(`FCM Response for ${userId}. Success: ${response.successCount}, Failure: ${response.failureCount}`);
 
         if (response.failureCount > 0) {
             const tokensToRemove: string[] = [];
-            response.responses.forEach((resp, idx) => {
+            response.responses.forEach((resp: { success: boolean, error?: { code: string } }, idx: number) => {
                 if (!resp.success) {
                     const errorCode = resp.error?.code;
                     console.error(`  - Failure for token ${tokens[idx]}: ${errorCode}`);
@@ -171,7 +180,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     const promises = recipients.map(async (recipientId: string) => {
         const isRecipientCoach = await isUserCoach(recipientId);
         const dashboardUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
-        const ctaUrl = `${dashboardUrl}?openChat=${String(chatId)}`;
+        const ctaUrl = `${dashboardUrl}?openChatId=${String(chatId)}&notificationType=chat&entityId=${String(chatId)}&isCoach=${String(isRecipientCoach)}`;
 
         return sendPushNotification(
             recipientId,
@@ -203,7 +212,7 @@ export const testPushNotification = onRequest(async (req, res) => {
             userId,
             'Test Notification',
             'This is a test message to verify push notifications are working.',
-            '/client/dashboard',
+            `/client/dashboard?notificationType=test&entityId=test-id&isCoach=${String(await isUserCoach(userId))}`,
             'test',
             'test-id'
         );
@@ -225,11 +234,12 @@ export const workoutReminderHandler = onTaskDispatched<any>({ /* Task options */
             console.log(`workoutReminderHandler: Reminder already sent for workout ${workoutId}. Aborting.`);
             return;
         }
+        const isRecipientCoach = await isUserCoach(userId);
         await sendPushNotification(
             userId,
             'Workout Reminder',
             `Your scheduled workout, \"${workoutName},\" is in 10 minutes!`,
-            `/client/dashboard?notificationType=workout_reminder&entityId=${String(workoutId)}`,
+            `/client/dashboard?notificationType=workout_reminder&entityId=${String(workoutId)}&isCoach=${String(isRecipientCoach)}`,
             'workout_reminder',
             String(workoutId)
         );
@@ -281,7 +291,7 @@ export const appointmentReminderHandler = onTaskDispatched<any>({/* Task options
             message = `The event \"${eventTitle}\" is starting in 10 minutes!`;
         }
         const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
-        const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&entityId=${appointmentId}`;
+        const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&entityId=${appointmentId}&isCoach=${String(isCoach)}`;
 
         await sendPushNotification(
             userId,
@@ -381,6 +391,7 @@ export const unifiedNotificationEngine = onSchedule('every 5 minutes', async (ev
   const promises = snapshot.docs.map(async (doc: QueryDocumentSnapshot) => {
     const notification = doc.data();
     await doc.ref.update({ processed: true });
+    // Pass sendTime as a string as it's stored that way, and imageUrl
     await sendPushNotification(
       notification.userId,
       notification.title,
