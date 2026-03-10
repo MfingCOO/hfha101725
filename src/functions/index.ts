@@ -36,7 +36,6 @@ async function isUserCoach(userId: string): Promise<boolean> {
     }
 }
 
-// This is the single function that required the definitive fix.
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl: string, notificationType: string, entityId: string, imageUrl?: string, senderId?: string, senderName?: string, messageText?: string) {
     const userDocRef = db.collection('clients').doc(userId);
     const userDoc = await userDocRef.get();
@@ -54,11 +53,10 @@ async function sendPushNotification(userId: string, title: string, message: stri
 
     const channelId = notificationType === 'chat' ? 'chat_messages' : 'reminders';
 
-    // DEFINITIVE FIX: The data payload is now built with the specific keys the frontend expects.
     const dataPayload: { [key: string]: string } = {
         title: String(title),
         body: String(message),
-        url: String(ctaUrl), // Used by service worker for PWA clicks
+        url: String(ctaUrl),
         notificationType: String(notificationType),
         entityId: String(entityId),
         senderId: String(senderId || ''),
@@ -68,7 +66,6 @@ async function sendPushNotification(userId: string, title: string, message: stri
         isCoach: String(await isUserCoach(userId))
     };
 
-    // This logic adds the specific keys needed by the PushNotificationProvider's handleNotificationAction function.
     if (notificationType === 'chat') {
         dataPayload.chatId = entityId;
     } else if (notificationType === 'workout_reminder') {
@@ -76,7 +73,6 @@ async function sendPushNotification(userId: string, title: string, message: stri
     } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType)) {
         dataPayload.appointmentId = entityId;
     } else if (notificationType === 'hydration') {
-        // This was the missing piece for hydration on native/in-app.
         dataPayload.hydration = 'true';
     }
 
@@ -202,7 +198,6 @@ export const workoutReminderHandler = onTaskDispatched<any>({}, async (req) => {
     if (!doc.exists || doc.data()?.status === 'reminder_sent') { return; }
 
     const isRecipientCoach = await isUserCoach(userId);
-    // DEFINITIVE FIX: The URL now uses the specific key the frontend expects.
     const ctaUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${String(workoutId)}&isCoach=${String(isRecipientCoach)}`;
     
     await sendPushNotification(userId, 'Workout Reminder', `Your scheduled workout, "${workoutName}," is in 10 minutes!`, ctaUrl, 'workout_reminder', String(workoutId));
@@ -236,7 +231,6 @@ export const appointmentReminderHandler = onTaskDispatched<any>({}, async (req) 
         message = `The event "${eventTitle}" is starting in 10 minutes!`;
     }
     const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
-    // DEFINITIVE FIX: The URL now uses the specific key the frontend expects.
     const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&openAppointmentId=${appointmentId}&isCoach=${String(isCoach)}`;
 
     await sendPushNotification(userId, title, message, ctaUrl, 'appointment_reminder', appointmentId);
@@ -289,12 +283,28 @@ export const hydrationReminderHandler = onTaskDispatched<any>({}, async (req) =>
     const timeString = scheduledTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const message = `This is your ${timeString} hydration reminder.`;
     
-    // DEFINITIVE FIX: The URL is correct for PWA, and the data payload fix in sendPushNotification will fix it for native.
     const ctaUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
     const iconUrl = 'https://storage.googleapis.com/hunger-free-and-happy-app.appspot.com/app-assets/water-drop-icon.png';
 
+    // Send the current notification
     await sendPushNotification(userId, '💧 Time to Hydrate!', message, ctaUrl, 'hydration', 'hydration', iconUrl);
+    
+    // Mark the current reminder as sent
     await docRef.update({ status: 'sent' });
+
+    // DEFINITIVE FIX: If the reminder is recurring, schedule the next one for the next day.
+    if (reminder.isRecurring) {
+        const nextScheduledAt = new Date(scheduledTime.getTime());
+        nextScheduledAt.setDate(nextScheduledAt.getDate() + 1);
+
+        // Create a new reminder document for the next day, which will be picked up by onReminderScheduled
+        await db.collection('reminders').add({
+            ...reminder, // Copy data from the original reminder
+            scheduledAt: nextScheduledAt, // Set the new date for 1 day in the future
+            status: 'scheduled', // Set status to scheduled to be processed
+            createdAt: new Date() // Set a new creation timestamp
+        });
+    }
 });
 
 export const onReminderScheduled = onDocumentCreated("reminders/{reminderId}", async (event) => {
