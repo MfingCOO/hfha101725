@@ -105,7 +105,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
                 channelId: String(channelId),
                 imageUrl: imageUrl,
                 sound: 'default',
-                clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+                clickAction: 'FCM_PLUGIN_ACTIVITY',
             },
         },
     };
