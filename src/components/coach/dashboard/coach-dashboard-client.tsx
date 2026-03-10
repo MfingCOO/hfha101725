@@ -57,9 +57,14 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [pendingFoodCount, setPendingFoodCount] = useState(initialPendingFoodCount);
     const [pendingReportCount, setPendingReportCount] = useState(initialPendingReportCount);
     const [unreadChatCount, setUnreadChatCount] = useState(0);
+    const [isMounted, setIsMounted] = useState(false);
 
     useEffect(() => {
-        if (!searchParams) return;
+        setIsMounted(true);
+    }, []);
+
+    useEffect(() => {
+        if (!isMounted || !searchParams) return;
 
         const openChatId = String(searchParams.openChatId || '');
         const openWorkoutId = String(searchParams.openWorkoutId || '');
@@ -91,7 +96,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             setTriggerHydrationModal(true);
         }
 
-    }, [searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, toast]);
+    }, [isMounted, searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, toast]);
 
     const fetchClients = useCallback(async () => {
         if (!user) {
