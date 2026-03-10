@@ -17,7 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ManageChatsDialog } from "@/components/coach/chats/manage-chats-dialog";
 import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
-import { getCoachingChatIdForClient } from "@/app/coach/clients/actions";
+// SURGICAL FIX: Import the new actions
+import { getCoachingChatIdForClient, getChatDetailsAction } from "@/app/coach/clients/actions";
 import { CoachCalendarDialog } from "@/app/coach/calendar/CoachCalendarDialog";
 import { ManageFoodCacheDialog } from '@/components/coach/food-cache/manage-food-cache-dialog';
 import { getUnreviewedUserFoods } from '@/app/coach/food-cache/actions';
@@ -58,6 +59,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [pendingReportCount, setPendingReportCount] = useState(initialPendingReportCount);
     const [unreadChatCount, setUnreadChatCount] = useState(0);
 
+    // SURGICAL FIX: Handle chat notifications correctly
     useEffect(() => {
         if (!searchParams) return;
 
@@ -67,11 +69,20 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
         const openHydration = String(searchParams.openHydration || 'false');
         const notificationType = String(searchParams.notificationType || '');
 
-        console.log('CoachDashboardClient: Received searchParams for notification handling:', searchParams);
+        const handleChatNotification = async (chatId: string) => {
+            const result = await getChatDetailsAction(chatId);
+            if (result.success && result.data) {
+                setSelectedChatInfo(result.data);
+                setIsChatDialogOpen(true);
+            } else {
+                toast({ variant: 'destructive', title: 'Error', description: 'Could not open the specified chat.' });
+                setIsChatsOpen(true); // Fallback to opening the main chat list
+            }
+        };
 
         if (notificationType === 'chat' && openChatId) {
             setNotificationChatId(openChatId);
-            setIsChatsOpen(true);
+            handleChatNotification(openChatId);
         } else if (notificationType === 'workout_reminder' && openWorkoutId) {
             setNotificationWorkoutId(openWorkoutId);
             setIsCalendarOpen(true);
@@ -82,7 +93,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             setTriggerHydrationModal(true);
         }
 
-    }, [searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setIsChatsOpen, setIsCalendarOpen]);
+    }, [searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, toast]);
 
     const fetchClients = useCallback(async () => {
         if (!user) {

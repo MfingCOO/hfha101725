@@ -1,7 +1,7 @@
 'use server';
 
 import { db as adminDb, auth } from '@/lib/firebaseAdmin';
-import type { ClientProfile, CoachNote, CreateClientInput, UserTier } from '@/types';
+import type { ClientProfile, CoachNote, CreateClientInput, UserTier, Chat } from '@/types';
 import Stripe from 'stripe';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { calculateIdealBodyWeight, calculateNutritionalGoals } from '@/services/goals';
@@ -16,12 +16,10 @@ function serializeTimestamps(data: any): any {
         return data;
     }
 
-    // Firestore Timestamps have toDate(), plain objects from server actions might not
     if (typeof data.toDate === 'function') {
         return data.toDate().toISOString();
     }
 
-    // Handle object representations of Timestamps from different Firebase SDK versions
     if (typeof data.seconds === 'number' && typeof data.nanoseconds === 'number') {
         return new Date(data.seconds * 1000 + data.nanoseconds / 1000000).toISOString();
     }
@@ -81,24 +79,18 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
         });
         uid = userRecord.uid;
 
-        // --- START OF FIX ---
-        // The previous attempt failed because calculateIdealBodyWeight was called with an object instead of two arguments.
-        // Correct Call: Pass the height and units directly.
         const idealBodyWeight = calculateIdealBodyWeight(data.height, data.units);
 
-        // Now, construct the profile object needed for the calculateNutritionalGoals function.
         const tempProfileForCalc: Partial<ClientProfile> = {
             onboarding: { ...data, birthdate: new Date(data.birthdate) },
-            idealBodyWeight: idealBodyWeight, // Pass the correctly calculated value.
+            idealBodyWeight: idealBodyWeight, 
             height: { 
                 value: data.height, 
                 unit: data.units === 'imperial' ? 'in' : 'cm' 
             }
         };
 
-        // This function now receives an object with the correct idealBodyWeight.
         const { idealGoals, actualGoals } = calculateNutritionalGoals(tempProfileForCalc as ClientProfile);
-        // --- END OF FIX ---
         
         const clientRef = adminDb.collection('clients').doc(uid);
         const clientPayload: any = {
@@ -111,7 +103,7 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
             onboarding: data,
             createdAt: FieldValue.serverTimestamp(),
             height: { value: data.height, unit: data.units },
-            idealBodyWeight: idealBodyWeight, // Store the correct value
+            idealBodyWeight: idealBodyWeight,
             suggestedGoals: idealGoals, 
             customGoals: actualGoals,
             chatIds: [],
@@ -208,7 +200,6 @@ export async function getCoachNotesAction(clientId: string): Promise<{ success: 
         const notesRef = adminDb.collection(`clients/${clientId}/coachNotes`).orderBy('createdAt', 'desc');
         const snapshot = await notesRef.get();
         
-        // THE FIX: Use a robust serialization function to handle all timestamp formats
         const notes = snapshot.docs.map(doc => {
             const data = doc.data();
             return {
@@ -233,20 +224,19 @@ export async function addCoachNoteAction(clientId: string, text: string, coachId
             text,
             coachId,
             coachName,
-            createdAt: FieldValue.serverTimestamp(), // Use server timestamp for consistency
+            createdAt: FieldValue.serverTimestamp(),
         };
         
         const notesRef = adminDb.collection(`clients/${clientId}/coachNotes`);
         const newNoteRef = await notesRef.add(noteData);
 
-        // THE FIX: Return the newly created note so the UI can update instantly
         const newNote: CoachNote = {
             id: newNoteRef.id,
             text,
             coachId,
             coachName,
             clientId,
-            createdAt: new Date().toISOString(), // Provide an immediate timestamp for the UI
+            createdAt: new Date().toISOString(),
         };
 
         return { success: true, newNote };
@@ -287,5 +277,22 @@ export async function getCoachingChatIdForClient(clientId: string): Promise<{ su
     } catch (error: any) {
         console.error(`Error getting coaching chat ID for client ${clientId}:`, error);
         return { success: false, error: { message: error.message || 'An unknown error occurred' } };
+    }
+}
+
+// SURGICAL ADDITION: New action to get chat details by ID for notifications
+export async function getChatDetailsAction(chatId: string): Promise<{ success: boolean; data?: { id: string; name: string; }; error?: string; }> {
+    try {
+        if (!chatId) throw new Error("Chat ID is required.");
+        const chatRef = adminDb.collection('chats').doc(chatId);
+        const chatSnap = await chatRef.get();
+
+        if (!chatSnap.exists) return { success: false, error: "Chat not found." };
+
+        const chatData = chatSnap.data() as Chat;
+        return { success: true, data: { id: chatSnap.id, name: chatData.name || 'Unnamed Chat' } };
+    } catch (error: any) {
+        console.error(`Error fetching chat details for ${chatId}:`, error);
+        return { success: false, error: error.message };
     }
 }
