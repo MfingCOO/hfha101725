@@ -17,7 +17,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ManageChatsDialog } from "@/components/coach/chats/manage-chats-dialog";
 import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
-// SURGICAL FIX: Import the new actions
 import { getCoachingChatIdForClient, getChatDetailsAction } from "@/app/coach/clients/actions";
 import { CoachCalendarDialog } from "@/app/coach/calendar/CoachCalendarDialog";
 import { ManageFoodCacheDialog } from '@/components/coach/food-cache/manage-food-cache-dialog';
@@ -59,7 +58,6 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [pendingReportCount, setPendingReportCount] = useState(initialPendingReportCount);
     const [unreadChatCount, setUnreadChatCount] = useState(0);
 
-    // SURGICAL FIX: Handle chat notifications correctly
     useEffect(() => {
         if (!searchParams) return;
 
@@ -76,7 +74,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
                 setIsChatDialogOpen(true);
             } else {
                 toast({ variant: 'destructive', title: 'Error', description: 'Could not open the specified chat.' });
-                setIsChatsOpen(true); // Fallback to opening the main chat list
+                setIsChatsOpen(true);
             }
         };
 

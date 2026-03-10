@@ -43,6 +43,8 @@ import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
 import { useNotificationStore } from '@/store/notification-store';
 import { AppointmentDetailDialog } from '../calendar/AppointmentDetailDialog';
 import { WorkoutActionDialog } from '../calendar/WorkoutActionDialog';
+import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
+import { getChatDetailsAction } from '@/app/coach/clients/actions';
 
 export interface Pillar {
   id: string;
@@ -89,7 +91,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const { user, isCoach, loading } = useAuth();
   const { toast } = useToast();
   const { modalType, closeModal, openModal } = useDataEntryModal();
-  const { notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationChatId } = useNotificationStore();
+  const { notificationChatId, notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
 
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
   const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
@@ -116,9 +118,10 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const [isProgramHubOpen, setIsProgramHubOpen] = useState(false);
   const [isJoiningChallenge, setIsJoiningChallenge] = useState(false);
 
-  // State for specific notification dialogs
   const [isAppointmentDetailOpen, setIsAppointmentDetailOpen] = useState(false);
   const [isWorkoutActionOpen, setIsWorkoutActionOpen] = useState(false);
+  const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
+  const [selectedChatInfo, setSelectedChatInfo] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -147,8 +150,22 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     }
   }, [searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
 
-  // Effect to open dialogs based on notification store state
+  // Effect to open dialogs based on notification store state, now including chat
   useEffect(() => {
+    const handleChatNotification = async (chatId: string) => {
+        const result = await getChatDetailsAction(chatId);
+        if (result.success && result.data) {
+            setSelectedChatInfo(result.data);
+            setIsChatDialogOpen(true);
+        } else {
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not open the specified chat.' });
+            setNotificationChatId(''); // Clear the bad ID
+        }
+    };
+
+    if (notificationChatId) {
+        handleChatNotification(notificationChatId);
+    }
     if (notificationAppointmentId) {
       setIsAppointmentDetailOpen(true);
     }
@@ -157,10 +174,9 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     }
     if (triggerHydrationModal) {
       openModal('hydration');
-      // Reset the trigger immediately after firing
       setTriggerHydrationModal(false);
     }
-  }, [notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal]);
+  }, [notificationChatId, notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal, setNotificationChatId, toast]);
 
   const executePillarAction = (pillar: Pillar) => {
     if (pillar.id === 'insights') {
@@ -475,7 +491,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
               <Salad className="h-5 w-5 text-lime-400" />
               Upcoming Planned Indulgences
             </h3>
-            <div className="space-y-1">
+            <div className="spacey-1">
               {upcomingIndulgences.map(plan => {
                 const indulgenceDate = safeNewDate(plan.indulgenceDate);
                 if (!indulgenceDate) return null;
@@ -589,7 +605,19 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
             </AlertDialogContent>
         </AlertDialog>
 
-        {/* SURGICAL ADDITION: Dialogs for notifications */}
+        {selectedChatInfo && (
+            <EmbeddedChatDialog
+                isOpen={isChatDialogOpen}
+                onClose={() => {
+                    setIsChatDialogOpen(false);
+                    setSelectedChatInfo(null);
+                    setNotificationChatId(''); // Clear from store
+                }}
+                chatId={selectedChatInfo.id}
+                chatName={selectedChatInfo.name}
+            />
+        )}
+
         {clientProfile && notificationAppointmentId && (
             <AppointmentDetailDialog
                 isOpen={isAppointmentDetailOpen}
