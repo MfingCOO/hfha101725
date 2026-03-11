@@ -4,31 +4,23 @@ import { db } from '@/lib/firebaseAdmin';
 import { firestore } from 'firebase-admin';
 
 /**
- * Recursively converts Firestore Timestamps and GeoPoints within an object to serializable formats.
+ * Recursively converts Firestore Timestamps within an object to a serializable format.
  * @param obj The object or value to process.
- * @returns The processed object with special types converted.
+ * @returns The processed object with Timestamps converted.
  */
 function deepConvertTimestamps(obj: any): any {
     if (obj === null || typeof obj !== 'object') {
         return obj;
     }
 
-    // Convert Firestore Timestamp to milliseconds
     if (typeof obj.toMillis === 'function' && obj.seconds !== undefined && obj.nanoseconds !== undefined) {
         return obj.toMillis();
     }
 
-    // Convert Firestore GeoPoint to a plain object
-    if (obj instanceof firestore.GeoPoint) {
-        return { latitude: obj.latitude, longitude: obj.longitude };
-    }
-
-    // If it's an array, recursively process each item.
     if (Array.isArray(obj)) {
         return obj.map(item => deepConvertTimestamps(item));
     }
 
-    // If it's a plain object, recursively process each value.
     const newObj: { [key: string]: any } = {};
     for (const key in obj) {
         if (Object.prototype.hasOwnProperty.call(obj, key)) {
@@ -39,10 +31,10 @@ function deepConvertTimestamps(obj: any): any {
 }
 
 /**
- * Fetches a user's profile and sanitizes it for client-side use.
+ * Fetches a user's profile and correctly determines their role (client or coach).
  * This function runs on the server with admin privileges.
  * @param uid The user's ID.
- * @returns An object with success status and the serializable user profile data.
+ * @returns An object with success status and the serializable user profile data, including the correct role.
  */
 export async function getUserProfileAndRole(uid: string) {
     if (!uid) {
@@ -50,23 +42,32 @@ export async function getUserProfileAndRole(uid: string) {
     }
 
     try {
-        const fetchAndProcess = async (collection: string, role: string) => {
-            const docRef = db.collection(collection).doc(uid);
-            const doc = await docRef.get();
-            if (doc.exists) {
-                const profile = doc.data() || {};
-                profile.role = role;
-                const serializableProfile = deepConvertTimestamps(profile);
-                return { success: true, data: serializableProfile };
-            }
-            return null;
-        };
+        // Primary check: Look for the user in the 'clients' collection.
+        const clientRef = db.collection('clients').doc(uid);
+        const clientDoc = await clientRef.get();
 
-        const coachResult = await fetchAndProcess('coaches', 'coach');
-        if (coachResult) return coachResult;
+        if (clientDoc.exists) {
+            const profile = clientDoc.data() || {};
+            
+            // **FIXED LOGIC**: Check the 'role' field within the document.
+            // If the role is 'coach', assign 'coach'. Otherwise, default to 'client'.
+            profile.role = profile.role === 'coach' ? 'coach' : 'client';
+            
+            const serializableProfile = deepConvertTimestamps(profile);
+            return { success: true, data: serializableProfile };
+        }
 
-        const clientResult = await fetchAndProcess('clients', 'client');
-        if (clientResult) return clientResult;
+        // Legacy fallback: If not in 'clients', check the old 'coaches' collection.
+        // This maintains backward compatibility.
+        const coachRef = db.collection('coaches').doc(uid);
+        const coachDoc = await coachRef.get();
+
+        if (coachDoc.exists) {
+            const profile = coachDoc.data() || {};
+            profile.role = 'coach'; // Users from this collection are always coaches.
+            const serializableProfile = deepConvertTimestamps(profile);
+            return { success: true, data: serializableProfile };
+        }
 
         return { success: false, error: 'Profile not found in any collection.' };
 
