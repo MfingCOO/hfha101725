@@ -20,6 +20,7 @@ import { useNotificationStore } from '@/store/notification-store';
 import { getChallengesForClient } from '@/app/challenges/actions';
 import { Toaster } from '@/components/ui/toaster';
 import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
+import { useInterstitialAdTriggers } from '@/hooks/useInterstitialAdTriggers';
 
 // --- NO CHANGES TO ERRORBOUNDARY ---
 interface ErrorBoundaryProps {
@@ -159,6 +160,9 @@ export default function ClientLayout({
   const { user, loading, isCoach } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+
+  // Activate the interstitial ad triggers
+  useInterstitialAdTriggers();
 
   useEffect(() => {
     if (!loading && user && isCoach) {

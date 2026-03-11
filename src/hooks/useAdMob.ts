@@ -6,7 +6,6 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { UserTier } from '@/types';
 
 const AD_FREQUENCY_CAP = 10 * 60 * 1000; // 10 minutes in milliseconds
-
 /**
  * Hook for managing AdMob ads, including GDPR consent flow.
  */

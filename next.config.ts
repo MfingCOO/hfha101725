@@ -2,23 +2,18 @@
 import type { NextConfig } from 'next';
 import withPWAInit from 'next-pwa';
 
-const isDev = process.env.NODE_ENV !== 'production';
-
 // Correct configuration to prevent PWA from caching API routes
 const runtimeCaching = [
   {
     urlPattern: /^\/api\/.*$/,
     handler: 'NetworkOnly' as const,
   },
-  {
-    urlPattern: /.*/,
-    handler: 'NetworkFirst' as const,
-  },
 ];
 
 const withPWA = withPWAInit({
   dest: 'public',
   runtimeCaching,
+  // The default precaching will handle the app shell. We don't need a NetworkFirst fallback for everything.
 });
 
 

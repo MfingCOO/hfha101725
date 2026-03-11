@@ -15,21 +15,22 @@ interface NavItem {
 }
 
 export default function BottomNavBar() {
+    console.log('Rendering BottomNavBar...'); // DEBUG LINE
     const { unreadChatCount } = useDashboardState();
-    const { 
-        onOpenCalendar, 
-        onOpenChallenges, 
-        setIsNotificationsOpen 
+    const {
+        onOpenCalendar,
+        onOpenChallenges,
+        setIsNotificationsOpen
     } = useDashboardActions();
-    const { hasUnreadNotifications } = useNotificationStore();
+    const hasUnreadNotifications = useNotificationStore((state) => state.hasUnreadNotifications);
     const { openModal: openChatModal } = useChatModalStore();
 
     const navItems: NavItem[] = [
         { href: "/client/dashboard", label: "Home", icon: Home },
-        { 
-            href: "#", 
-            label: "Calendar", 
-            icon: Calendar, 
+        {
+            href: "#",
+            label: "Calendar",
+            icon: Calendar,
             onClick: onOpenCalendar
         },
         {
@@ -39,11 +40,11 @@ export default function BottomNavBar() {
             notificationCount: unreadChatCount,
             onClick: () => openChatModal()
         },
-        { 
-            href: "#", 
-            label: "Challenges", 
-            icon: Trophy, 
-            onClick: onOpenChallenges 
+        {
+            href: "#",
+            label: "Challenges",
+            icon: Trophy,
+            onClick: onOpenChallenges
         },
         {
             href: "#",

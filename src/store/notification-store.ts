@@ -1,8 +1,12 @@
 'use client';
 
 import { create } from 'zustand';
+import { type MessagePayload } from 'firebase/messaging';
 
 interface NotificationState {
+  notifications: MessagePayload[];
+  addNotification: (notification: MessagePayload) => void;
+  clearNotifications: () => void;
   notificationChatId: string | null;
   setNotificationChatId: (id: string | null) => void;
   notificationAppointmentId: string | null;
@@ -11,12 +15,15 @@ interface NotificationState {
   setNotificationWorkoutId: (id: string | null) => void;
   triggerHydrationModal: boolean;
   setTriggerHydrationModal: (trigger: boolean) => void;
-  // New state for the notification bell
   hasUnreadNotifications: boolean;
   setHasUnreadNotifications: (status: boolean) => void;
 }
 
 export const useNotificationStore = create<NotificationState>((set) => ({
+  notifications: [],
+  addNotification: (notification) =>
+    set((state) => ({ notifications: [notification, ...state.notifications] })),
+  clearNotifications: () => set({ notifications: [] }),
   notificationChatId: null,
   setNotificationChatId: (id) => set({ notificationChatId: id }),
   notificationAppointmentId: null,
@@ -25,7 +32,6 @@ export const useNotificationStore = create<NotificationState>((set) => ({
   setNotificationWorkoutId: (id) => set({ notificationWorkoutId: id }),
   triggerHydrationModal: false,
   setTriggerHydrationModal: (trigger) => set({ triggerHydrationModal: trigger }),
-  // New state and setter for the notification bell
   hasUnreadNotifications: false,
   setHasUnreadNotifications: (status) => set({ hasUnreadNotifications: status }),
 }));

@@ -9,7 +9,7 @@ import { BaseModal } from '@/components/ui/base-modal';
 export function NotificationsDialog() {
   const { isNotificationsOpen } = useDashboardState();
   const { setIsNotificationsOpen } = useDashboardActions();
-  const { setHasUnreadNotifications } = useNotificationStore();
+  const { notifications, clearNotifications, setHasUnreadNotifications } = useNotificationStore();
 
   useEffect(() => {
     if (isNotificationsOpen) {
@@ -21,19 +21,37 @@ export function NotificationsDialog() {
     setIsNotificationsOpen(false);
   };
 
+  const handleClear = () => {
+    clearNotifications();
+  }
+
   return (
     <BaseModal
         isOpen={isNotificationsOpen}
         onClose={handleClose}
         title="Notifications"
-        description="Here are your latest updates. This feature is currently under construction."
+        description="Here are your latest updates."
         footer={
-            <Button onClick={handleClose} className="w-full sm:w-auto">Close</Button>
+          <div className="flex justify-between w-full">
+            <Button onClick={handleClear} variant="outline">Clear All</Button>
+            <Button onClick={handleClose}>Close</Button>
+          </div>
         }
     >
+      {notifications.length > 0 ? (
+        <ul className="my-4 space-y-2">
+          {notifications.map((notification, index) => (
+            <li key={index} className="p-3 bg-gray-100 rounded-lg">
+              <p className="font-bold">{notification.notification?.title}</p>
+              <p>{notification.notification?.body}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
         <div className="my-4 text-center">
             <p className="text-muted-foreground">No new notifications.</p>
         </div>
+      )}
     </BaseModal>
   );
 }

@@ -13,6 +13,7 @@ import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 import { ChatProvider } from '@/components/chats/chat-provider';
 import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
+import { FirebaseMessagingProvider } from '@/components/providers/firebase-messaging-provider';
 
 export function RootProviders({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -31,11 +32,13 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
             <DashboardProvider>
               <Suspense fallback={null}>
                 <ChatProvider>
-                  <PushNotificationProvider>
-                    {children}
-                    <NotificationsDialog />
-                    <NotificationActionHandler />
-                  </PushNotificationProvider>
+                  <FirebaseMessagingProvider>
+                    <PushNotificationProvider>
+                      {children}
+                      <NotificationsDialog />
+                      <NotificationActionHandler />
+                    </PushNotificationProvider>
+                  </FirebaseMessagingProvider>
                 </ChatProvider>
               </Suspense>
             </DashboardProvider>

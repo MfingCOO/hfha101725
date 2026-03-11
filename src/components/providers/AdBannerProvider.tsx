@@ -17,7 +17,7 @@ const AdBannerProvider = () => {
           adId: 'ca-app-pub-3940256099942544/6300978111', // Test ID
           adSize: BannerAdSize.ADAPTIVE_BANNER,
           position: BannerAdPosition.BOTTOM_CENTER,
-          margin: 0,
+          margin: 56, // Keep ad above bottom nav bar
           isTesting: true,
         };
         await initializeAndShowBanner(bannerOptions);
