@@ -255,7 +255,7 @@ export function ChatView({ chatId }: ChatViewProps) {
                         const canDelete = isCoach || isMyMessage;
                         const senderProfile = participants[msg.userId];
                         return (
-                        <div key={msg.id} className={cn("group flex min-w-0 items-center gap-2", msg.isSystemMessage && "flex-col items-center justify-center my-2", isMyMessage ? 'justify-end' : 'justify-start')}>
+                        <div key={msg.id} className={cn("group flex items-center gap-2", msg.isSystemMessage && "flex-col items-center justify-center my-2", isMyMessage ? 'justify-end' : 'justify-start')}>
                             {msg.isSystemMessage ? (
                                 <div className="text-xs text-center bg-muted text-muted-foreground rounded-full px-3 py-1 animate-in fade-in">{msg.text}</div>
                             ) : (
@@ -266,7 +266,7 @@ export function ChatView({ chatId }: ChatViewProps) {
                                         <AvatarFallback className="text-xs">{getInitials(msg.userName)}</AvatarFallback>
                                     </Avatar>
                                 )}
-                                <div className={cn("max-w-[80%] rounded-lg px-2 py-1 min-w-0 overflow-hidden", isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
+                                <div className={cn("max-w-[80%] rounded-lg px-2 py-1 min-w-0", isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
                                     <div className="text-xs break-words"><LinkifiedText text={msg.text || ''} /></div>
                                     {msg.fileUrl && (
                                         <div className="mt-1">
