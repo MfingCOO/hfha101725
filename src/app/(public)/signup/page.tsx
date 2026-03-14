@@ -19,12 +19,13 @@ export default function SignupPage() {
 
     const handleSignup = async (data: OnboardingValues) => {
         try {
+            // CORRECTED: The second 'monthly' argument has been removed to match the new function signature.
             const result = await unifiedSignupAction({
                 ...data,
                 // FIX: Accessing tier safely even if not in the base OnboardingValues type
                 tier: (data as any).tier || selectedTier, 
                 coachId: 'default',
-            }, 'monthly');
+            });
 
             if (result.success) {
                 // ... rest of your logic remains the same

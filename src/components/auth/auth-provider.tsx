@@ -5,11 +5,11 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import type { ClientProfile, UserProfile } from '@/types';
 import { getUserProfileAndRole } from '@/app/auth/actions';
+import { usePathname, useRouter } from 'next/navigation';
 
 interface AuthContextType {
   user: User | null;
   profile: ClientProfile | null;
-  /** Alias for profile to maintain compatibility across components */
   userProfile: UserProfile | null;
   loading: boolean;
   isCoach: boolean;
@@ -22,6 +22,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<ClientProfile | null>(null);
   const [isCoach, setIsCoach] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -30,15 +32,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(firebaseUser);
         try {
           const result = await getUserProfileAndRole(firebaseUser.uid);
-
           if (result.success && 'data' in result) {
             const profileData = result.data as any;
             setProfile(profileData as ClientProfile);
             setIsCoach(profileData?.role === 'coach');
           } else {
-            // If the user exists in Auth but has no profile document yet,
-            // we set profile to null which will trigger the onboarding/signup logic correctly.
-            console.warn("[AuthProvider] User authenticated but no profile found.");
             setProfile(null);
             setIsCoach(false);
           }
@@ -48,7 +46,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsCoach(false);
         }
       } else {
-        // Clear state on logout
         setUser(null);
         setProfile(null);
         setIsCoach(false);
@@ -59,12 +56,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (isLoading) return; // Wait until auth state is loaded
+
+    const isLoggedIn = user && profile;
+    const isPublicPage = ['/login', '/signup'].includes(pathname);
+    const isProtectedPage = ['/coach', '/client'].some(p => pathname.startsWith(p));
+
+    if (isLoggedIn && isPublicPage) {
+      // User is logged in and on a public page, redirect to their dashboard.
+      const targetDashboard = isCoach ? '/coach/dashboard' : '/client/dashboard';
+      router.push(targetDashboard);
+    } else if (!isLoggedIn && isProtectedPage) {
+      // User is not logged in but trying to access a protected page, redirect to login.
+      router.push('/login');
+    }
+  }, [user, profile, isCoach, isLoading, pathname, router]);
+
   return (
     <AuthContext.Provider 
       value={{ 
         user, 
         profile, 
-        userProfile: profile as unknown as UserProfile, // Alias for component compatibility
+        userProfile: profile as unknown as UserProfile, // Alias for compatibility
         loading: isLoading, 
         isCoach 
       }}

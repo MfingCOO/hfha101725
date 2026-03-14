@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -25,6 +25,7 @@ import { useRouter } from 'next/navigation';
 import { AppNumberInput } from '../ui/number-input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 
 
 const onboardingSchema = z.object({
@@ -57,13 +58,34 @@ interface OnboardingFormProps {
     onFormSubmit: (data: any) => Promise<{success: boolean, error?: any}>;
 }
 
-// Defines the structure for pricing with corrected values
 const prices = {
     'ad-free': { monthly: 1.99, yearly: 19.99 },
     basic: { monthly: 4.99, yearly: 49.99 },
     premium: { monthly: 7.99, yearly: 79.99 },
-    coaching: { monthly: 199.99, yearly: 1999.99 },
+    coaching: { monthly: 199.99, yearly: null },
 };
+
+const productIds = {
+    'ad-free': {
+        monthly: { web: 'price_STRIPE_ADFREE_MONTHLY', android: 'ad_free_monthly' },
+        yearly: { web: 'price_STRIPE_ADFREE_YEARLY', android: 'ad_free_yearly' },
+    },
+    'basic': {
+        monthly: { web: 'price_STRIPE_BASIC_MONTHLY', android: 'basic_monthly' },
+        yearly: { web: 'price_STRIPE_BASIC_YEARLY', android: 'basic_yearly' },
+    },
+    'premium': {
+        monthly: { web: 'price_STRIPE_PREMIUM_MONTHLY', android: 'premium_monthly' },
+        yearly: { web: 'price_STRIPE_PREMIUM_YEARLY', android: 'premium_yearly' },
+    },
+    'coaching': {
+        monthly: { web: 'price_STRIPE_COACHING_MONTHLY', android: null },
+        yearly: { web: null, android: null },
+    },
+};
+
+type Tier = 'free' | 'ad-free' | 'basic' | 'premium' | 'coaching';
+type Platform = 'web' | 'android';
 
 const FeatureListItem = ({ children }: { children: React.ReactNode }) => (
     <li className="flex items-start">
@@ -78,7 +100,15 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [step, setStep] = useState(1);
     const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
-    
+    const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
+    const [platform, setPlatform] = useState<Platform>('web');
+
+    useEffect(() => {
+        if (typeof window !== 'undefined' && (window as any).androidBridge) {
+            setPlatform('android');
+        }
+    }, []);
+
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),
         defaultValues: {
@@ -120,16 +150,67 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
         setStep(s => s - 1);
     };
 
-    const handleSubscriptionClick = async (tier: 'free' | 'ad-free' | 'basic' | 'premium' | 'coaching') => {
+    const handleAndroidPurchase = async (sku: string | null) => {
+        if (!sku) {
+            toast({ title: "Not Available", description: "This plan is not available for purchase in the app.", variant: "destructive" });
+            return;
+        }
         setIsLoading(true);
+        try {
+            // The native Android code will handle the response from the purchase
+            await (window as any).androidBridge.makePurchase(sku);
+        } catch (error) {
+            console.error("Android purchase failed:", error);
+            toast({ title: "Purchase Failed", description: "Could not complete the purchase. Please try again.", variant: "destructive" });
+        }
+        // We don't set loading to false here, as the native UI takes over.
+    };
+
+    const handleSubscriptionClick = async (tier: Tier) => {
+        setIsLoading(true);
+        setSelectedTier(tier);
+        
+        const finalBillingCycle = tier === 'coaching' ? 'monthly' : billingCycle;
         const values = form.getValues();
+        
+        let priceId: string | null = null;
+        if (tier !== 'free') {
+            priceId = productIds[tier][finalBillingCycle]?.web || null;
+        }
+
         const submissionData = {
             ...values,
             tier: tier,
-            billingCycle: billingCycle
+            billingCycle: finalBillingCycle,
+            priceId, // Pass the Stripe Price ID to the server
         };
+        
         await onFormSubmit(submissionData);
         // We don't set loading to false because we expect a redirect.
+    };
+    
+    const handleContactCoach = () => {
+        window.location.href = "mailto:support@yourapp.com?subject=Coaching Inquiry";
+    };
+
+    const handleButtonClick = (tier: Tier) => {
+        const finalBillingCycle = tier === 'coaching' ? 'monthly' : billingCycle;
+
+        if (platform === 'android') {
+            if (tier === 'coaching') {
+                handleContactCoach();
+                return;
+            }
+            if (tier === 'free') {
+                 // Handle free tier sign up on Android - likely same as web
+                 handleSubscriptionClick('free');
+                 return;
+            }
+            const sku = productIds[tier][finalBillingCycle]?.android || null;
+            handleAndroidPurchase(sku);
+        } else {
+            handleSubscriptionClick(tier);
+        }
     };
 
     return (
@@ -190,125 +271,76 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                 <Switch id="billing-cycle" checked={billingCycle === 'yearly'} onCheckedChange={(checked) => setBillingCycle(checked ? 'yearly' : 'monthly')} />
                                 <Label htmlFor="billing-cycle">Yearly</Label>
                             </div>
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                                <Card className="flex flex-col">
-                                    <CardHeader>
-                                        <CardTitle>Free</CardTitle>
-                                        <CardDescription>Build lasting habits with essential tracking tools. Ad-supported.</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="flex-grow space-y-4">
-                                        <p className="text-3xl font-bold">Free</p>
-                                        <ul className="space-y-2">
-                                            <FeatureListItem>Log meals with UPF% & Gluten-Free insights</FeatureListItem>
-                                            <FeatureListItem>Track hydration, sleep, and activity</FeatureListItem>
-                                            <FeatureListItem>Basic data summaries</FeatureListItem>
-                                        </ul>
-                                    </CardContent>
-                                    <CardFooter>
-                                        <Button
-                                            className="w-full"
-                                            onClick={() => handleSubscriptionClick('free')}
-                                            disabled={isLoading || billingCycle === 'yearly'}
-                                        >
-                                            {isLoading 
-                                                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 
-                                                : (billingCycle === 'yearly' ? 'Monthly Only' : 'Sign Up Free')}
-                                        </Button>
-                                    </CardFooter>
-                                </Card>
+                            <div className={cn("gap-4", billingCycle === 'monthly' ? "grid grid-cols-1 lg:grid-cols-3" : "grid grid-cols-1 justify-items-center")}>
+                                {billingCycle === 'monthly' && (
+                                    <Card className="flex flex-col">
+                                        <CardHeader><CardTitle>Free</CardTitle><CardDescription>Build lasting habits with essential tracking tools. Ad-supported.</CardDescription></CardHeader>
+                                        <CardContent className="flex-grow space-y-4">
+                                            <p className="text-3xl font-bold">Free</p>
+                                            <ul className="space-y-2">
+                                                <FeatureListItem>Log meals with UPF% & Gluten-Free insights</FeatureListItem>
+                                                <FeatureListItem>Track hydration, sleep, and activity</FeatureListItem>
+                                                <FeatureListItem>Basic data summaries</FeatureListItem>
+                                            </ul>
+                                        </CardContent>
+                                        <CardFooter><Button className="w-full" onClick={() => handleButtonClick('free')} disabled={isLoading}>{isLoading && selectedTier === 'free'? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Sign Up Free'}</Button></CardFooter>
+                                    </Card>
+                                )}
 
-                                <Card className="flex flex-col">
-                                    <CardHeader>
-                                        <CardTitle>Ad-Free</CardTitle>
-                                        <CardDescription>Focus on your goals with an uninterrupted, ad-free experience.</CardDescription>
-                                    </CardHeader>
+                                <Card className={cn("flex flex-col", billingCycle === 'yearly' && "w-full max-w-md")}>
+                                    <CardHeader><CardTitle>Ad-Free</CardTitle><CardDescription>Focus on your goals with an uninterrupted, ad-free experience.</CardDescription></CardHeader>
                                     <CardContent className="flex-grow space-y-4">
                                         <p className="text-3xl font-bold">${prices['ad-free'][billingCycle]} <span className="text-lg font-normal text-muted-foreground">/ {billingCycle === 'monthly' ? 'mo' : 'yr'}</span></p>
-                                        <ul className="space-y-2">
-                                            <FeatureListItem>All features from the Free plan</FeatureListItem>
-                                            <FeatureListItem>A completely ad-free experience</FeatureListItem>
-                                        </ul>
+                                        <ul className="space-y-2"><FeatureListItem>All features from the Free plan</FeatureListItem><FeatureListItem>A completely ad-free experience</FeatureListItem></ul>
                                     </CardContent>
-                                    <CardFooter><Button className="w-full" onClick={() => handleSubscriptionClick('ad-free')} disabled={isLoading}>{isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
+                                    <CardFooter><Button className="w-full" onClick={() => handleButtonClick('ad-free')} disabled={isLoading}>{isLoading && selectedTier === 'ad-free' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
                                 </Card>
 
-                                <Card className="flex flex-col">
-                                    <CardHeader>
-                                        <CardTitle>Basic</CardTitle>
-                                        <CardDescription>Unlock powerful insights and track all aspects of your health.</CardDescription>
-                                    </CardHeader>
+                                <Card className={cn("flex flex-col", billingCycle === 'yearly' && "w-full max-w-md")}>
+                                    <CardHeader><CardTitle>Basic</CardTitle><CardDescription>Unlock powerful insights and track all aspects of your health.</CardDescription></CardHeader>
                                     <CardContent className="flex-grow space-y-4">
                                         <p className="text-3xl font-bold">${prices.basic[billingCycle]} <span className="text-lg font-normal text-muted-foreground">/ {billingCycle === 'monthly' ? 'mo' : 'yr'}</span></p>
-                                        <ul className="space-y-2">
-                                            <FeatureListItem>Everything in Ad-Free</FeatureListItem>
-                                            <FeatureListItem>Track Stress, Cravings, and Binges</FeatureListItem>
-                                            <FeatureListItem>Analyze trends in Weight and WtHR</FeatureListItem>
-                                            <FeatureListItem>Enable smart hydration reminders</FeatureListItem>
-                                        </ul>
+                                        <ul className="space-y-2"><FeatureListItem>Everything in Ad-Free</FeatureListItem><FeatureListItem>Track Stress, Cravings, and Binges</FeatureListItem><FeatureListItem>Analyze trends in Weight and WtHR</FeatureListItem><FeatureListItem>Enable smart hydration reminders</FeatureListItem></ul>
                                     </CardContent>
-                                    <CardFooter><Button className="w-full" onClick={() => handleSubscriptionClick('basic')} disabled={isLoading}>{isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
+                                    <CardFooter><Button className="w-full" onClick={() => handleButtonClick('basic')} disabled={isLoading}>{isLoading && selectedTier === 'basic' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
                                 </Card>
 
-                                <Card className="border-primary flex flex-col">
-                                    <CardHeader>
-                                        <CardTitle>Premium</CardTitle>
-                                        <CardDescription>Access exclusive content and join our vibrant community.</CardDescription>
-                                    </CardHeader>
+                                <Card className={cn("border-primary flex flex-col", billingCycle === 'yearly' && "w-full max-w-md")}>
+                                    <CardHeader><CardTitle>Premium</CardTitle><CardDescription>Access exclusive content and join our vibrant community.</CardDescription></CardHeader>
                                     <CardContent className="flex-grow space-y-4">
                                         <p className="text-3xl font-bold">${prices.premium[billingCycle]} <span className="text-lg font-normal text-muted-foreground">/ {billingCycle === 'monthly' ? 'mo' : 'yr'}</span></p>
-                                        <ul className="space-y-2">
-                                            <FeatureListItem>Everything in Basic</FeatureListItem>
-                                            <FeatureListItem>Full access to all workout programs</FeatureListItem>
-                                            <FeatureListItem>Join live events, Q&As & workouts</FeatureListItem>
-                                            <FeatureListItem>Participate in community challenges & chats</FeatureListItem>
-                                        </ul>
+                                        <ul className="space-y-2"><FeatureListItem>Everything in Basic</FeatureListItem><FeatureListItem>Full access to all workout programs</FeatureListItem><FeatureListItem>Join live events, Q&As & workouts</FeatureListItem><FeatureListItem>Participate in community challenges & chats</FeatureListItem></ul>
                                     </CardContent>
-                                    <CardFooter><Button className="w-full" onClick={() => handleSubscriptionClick('premium')} disabled={isLoading}>{isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
+                                    <CardFooter><Button className="w-full" onClick={() => handleButtonClick('premium')} disabled={isLoading}>{isLoading && selectedTier === 'premium' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
                                 </Card>
 
-                                <Card className="flex flex-col lg:col-span-2">
-                                    <CardHeader>
-                                        <CardTitle>Coaching</CardTitle>
-                                        <CardDescription>The ultimate accountability partnership for transformative results.</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="flex-grow space-y-4">
-                                        <p className="text-3xl font-bold">${prices.coaching[billingCycle]} <span className="text-lg font-normal text-muted-foreground">/ {billingCycle === 'monthly' ? 'mo' : 'yr'}</span></p>
-                                        <ul className="space-y-2">
-                                            <FeatureListItem>All Premium features</FeatureListItem>
-                                            <FeatureListItem>Personalized one-on-one coaching</FeatureListItem>
-                                            <FeatureListItem>Daily check-ins & direct messaging</FeatureListItem>
-                                            <FeatureListItem>Weekly one-on-one video conferences</FeatureListItem>
-                                        </ul>
-                                    </CardContent>
-                                    <CardFooter><Button className="w-full" onClick={() => handleSubscriptionClick('coaching')} disabled={isLoading}>{isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
-                                </Card>
+                                {billingCycle === 'monthly' && (
+                                     <Card className="flex flex-col lg:col-span-2">
+                                        <CardHeader><CardTitle>Coaching</CardTitle><CardDescription>The ultimate accountability partnership for transformative results.</CardDescription></CardHeader>
+                                        <CardContent className="flex-grow space-y-4">
+                                             <p className="text-3xl font-bold">{prices.coaching.monthly ? `$${prices.coaching.monthly}` : 'Contact Us'} <span className="text-lg font-normal text-muted-foreground">/ mo</span></p>
+                                            <ul className="space-y-2"><FeatureListItem>All Premium features</FeatureListItem><FeatureListItem>Personalized one-on-one coaching</FeatureListItem><FeatureListItem>Daily check-ins & direct messaging</FeatureListItem><FeatureListItem>Weekly one-on-one video conferences</FeatureListItem></ul>
+                                        </CardContent>
+                                        <CardFooter>
+                                            <Button className="w-full" onClick={() => handleButtonClick('coaching')} disabled={isLoading && selectedTier === 'coaching'}>
+                                                {isLoading && selectedTier === 'coaching' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (platform === 'android' ? 'Contact for Info' : 'Subscribe')}
+                                            </Button>
+                                        </CardFooter>
+                                    </Card>
+                                )}
                             </div>
                         </div>
                     )}
                 </CardContent>
                 <CardFooter className="flex justify-between">
-                    <div>
-                        {step > 1 && step < 4 ? (
-                             <Button type="button" variant="ghost" onClick={prevStep}>
-                                <ArrowLeft className="mr-2 h-4 w-4" />
-                                Previous
-                            </Button>
-                        ): <div />}
-                    </div>
-                     <div>
-                        {step < totalSteps && (
-                            <Button type="button" onClick={nextStep} disabled={step === 3 && !form.watch('disclaimer')}>
-                                Next
-                                <ArrowRight className="ml-2 h-4 w-4" />
-                            </Button>
-                        )}
+                    <div>{step > 1 && step < 4 ? (<Button type="button" variant="ghost" onClick={prevStep}><ArrowLeft className="mr-2 h-4 w-4" />Previous</Button>): <div />}</div>
+                     <div>{step < totalSteps && (<Button type="button" onClick={nextStep} disabled={step === 3 && !form.watch('disclaimer')}>
+                                Next<ArrowRight className="ml-2 h-4 w-4" /></Button>)}
                     </div>
                 </CardFooter>
                  <div className="pb-6 text-center text-sm">
                     Already have an account?{' '}
-                    <Link href="/login" className="underline">
-                        Sign In
-                    </Link>
+                    <Link href="/login" className="underline">Sign In</Link>
                 </div>
             </form>
         </Form>

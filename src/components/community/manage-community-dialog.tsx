@@ -35,10 +35,12 @@ export function ManageCommunityDialog({ isOpen, onClose }: ManageCommunityDialog
         <div className="flex-1 min-h-0">
             <TabsContent value="community" className="p-4 h-full flex flex-col">
               <Tabs defaultValue="challenges" className="w-full h-full flex flex-col">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="challenges">Challenges</TabsTrigger>
-                  <TabsTrigger value="events">Events</TabsTrigger>
-                </TabsList>
+                <div className="flex justify-center">
+                  <TabsList>
+                    <TabsTrigger value="challenges">Challenges</TabsTrigger>
+                    <TabsTrigger value="events">Events</TabsTrigger>
+                  </TabsList>
+                </div>
                 <div className="flex-1 min-h-0 overflow-y-auto pt-4">
                     <TabsContent value="challenges" className="m-0">
                       <ChallengeList 

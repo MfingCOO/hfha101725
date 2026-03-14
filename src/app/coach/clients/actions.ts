@@ -6,6 +6,7 @@ import Stripe from 'stripe';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { calculateIdealBodyWeight, calculateNutritionalGoals } from '@/services/goals';
 
+// CORRECTED: Uses the correct environment variable name and does not hardcode the key.
 const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
     apiVersion: '2024-04-10',
 });
@@ -38,6 +39,105 @@ function serializeTimestamps(data: any): any {
         }
     }
     return newObj;
+}
+
+export async function unifiedSignupAction(
+    data: CreateClientInput & { priceId?: string | null } // priceId is now expected here for paid tiers
+): Promise<{ success: boolean; error?: string; checkoutUrl?: string | null }> {
+
+    // PATH 1: FREE TIER SIGNUP
+    if (data.tier === 'free' || !data.priceId) { // Also handle cases where priceId might be missing for safety
+        let uid = '';
+        try {
+            // Create a Stripe customer even for free users for future upgrades
+            const stripeCustomer = await stripe.customers.create({ email: data.email, name: data.fullName });
+
+            // Create Firebase Auth user
+            const userRecord = await auth.createUser({
+                email: data.email,
+                password: data.password,
+                displayName: data.fullName,
+                emailVerified: false,
+            });
+            uid = userRecord.uid;
+
+            // Set custom claims for role-based access
+            await auth.setCustomUserClaims(uid, { role: 'client', tier: 'free' });
+
+            const idealBodyWeight = calculateIdealBodyWeight(data.height, data.units);
+            
+            const tempProfileForCalc: Partial<ClientProfile> = {
+                onboarding: { ...data, birthdate: new Date(data.birthdate) },
+                idealBodyWeight: idealBodyWeight, 
+                height: { value: data.height, unit: data.units === 'imperial' ? 'in' : 'cm' },
+            };
+
+            const { idealGoals, actualGoals } = calculateNutritionalGoals(tempProfileForCalc as ClientProfile);
+
+            const clientRef = adminDb.collection('clients').doc(uid);
+            const clientPayload: any = {
+                uid: uid,
+                email: data.email,
+                fullName: data.fullName,
+                tier: 'free',
+                role: 'client',
+                stripeCustomerId: stripeCustomer.id,
+                onboarding: data,
+                createdAt: FieldValue.serverTimestamp(),
+                height: { value: data.height, unit: data.units === 'imperial' ? 'in' : 'cm' },
+                idealBodyWeight: idealBodyWeight,
+                suggestedGoals: idealGoals, 
+                customGoals: actualGoals,
+                chatIds: [],
+                challengeIds: [],
+                hasLoggedInBefore: false,
+            };
+
+            if (data.coachId) {
+                clientPayload.coachId = data.coachId;
+            }
+
+            await clientRef.set(clientPayload);
+
+            return { success: true, checkoutUrl: null };
+
+        } catch (error: any) {
+            console.error("Error in free tier signup of unifiedSignupAction:", error);
+            if (uid) {
+                await auth.deleteUser(uid).catch(delError => console.error(`Failed to clean up auth user ${uid}`, delError));
+            }
+            return { success: false, error: error.message || 'An unknown error occurred during free signup.' };
+        }
+    }
+
+    // PATH 2: PAID TIER SIGNUP
+    try {
+        const returnUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const successUrl = `${returnUrl}/client/dashboard?signup=success`;
+        const cancelUrl = `${returnUrl}/signup`;
+
+        const checkoutSession = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [{ price: data.priceId, quantity: 1 }],
+            mode: 'subscription',
+            customer_email: data.email, 
+            success_url: successUrl,
+            cancel_url: cancelUrl,
+            metadata: {
+                userData: JSON.stringify(data)
+            }
+        });
+
+        if (!checkoutSession.url) {
+            throw new Error("Could not create Stripe checkout session.");
+        }
+
+        return { success: true, checkoutUrl: checkoutSession.url };
+
+    } catch (error: any) {
+        console.error("Error creating paid checkout session:", error);
+        return { success: false, error: error.message };
+    }
 }
 
 export async function updateClientWthr(clientId: string, waist: number): Promise<{ success: boolean; error?: string }> {
@@ -124,59 +224,6 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
             await auth.deleteUser(uid).catch(delError => console.error(`Failed to clean up auth user ${uid}`, delError));
         }
         return { success: false, error: { message: error.message || 'An unknown error occurred' } };
-    }
-}
-
-export async function unifiedSignupAction(
-    data: CreateClientInput,
-    billingCycle: 'monthly' | 'yearly'
-): Promise<{ success: boolean; error?: string; checkoutUrl?: string | null }> {
-    
-    try {
-        let priceId: string | undefined;
-        if (billingCycle === 'monthly') {
-            switch (data.tier) {
-                case 'free': priceId = process.env.STRIPE_FREE_MONTHLY_PRICE_ID; break;
-                case 'ad-free': priceId = process.env.STRIPE_AD_FREE_MONTHLY_PRICE_ID; break;
-                case 'basic': priceId = process.env.STRIPE_BASIC_MONTHLY_PRICE_ID; break;
-                case 'premium': priceId = process.env.STRIPE_PREMIUM_MONTHLY_PRICE_ID; break;
-                case 'coaching': priceId = process.env.STRIPE_COACHING_MONTHLY_PRICE_ID; break;
-            }
-        } else { // yearly
-            switch (data.tier) {
-                case 'ad-free': priceId = process.env.STRIPE_AD_FREE_YEARLY_PRICE_ID; break;
-                case 'basic': priceId = process.env.STRIPE_BASIC_YEARLY_PRICE_ID; break;
-                case 'premium': priceId = process.env.STRIPE_PREMIUM_YEARLY_PRICE_ID; break;
-                case 'coaching': priceId = process.env.STRIPE_COACHING_YEARLY_PRICE_ID; break;
-            }
-        }
-
-        if (!priceId) {
-            throw new Error(`Price ID for tier "${data.tier}" with billing cycle "${billingCycle}" is not configured.`);
-        }
-
-        const returnUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-        const successUrl = `${returnUrl}/login?signup=success`;
-        const cancelUrl = `${returnUrl}/signup`;
-
-        const checkoutSession = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [{ price: priceId, quantity: 1 }],
-            mode: 'subscription',
-            success_url: successUrl,
-            cancel_url: cancelUrl,
-            metadata: {
-                userData: JSON.stringify(data)
-            }
-        });
-
-        if (!checkoutSession.url) throw new Error("Could not create Stripe checkout session.");
-
-        return { success: true, checkoutUrl: checkoutSession.url };
-
-    } catch (error: any) {
-        console.error("Error creating paid checkout session:", error);
-        return { success: false, error: error.message };
     }
 }
 
