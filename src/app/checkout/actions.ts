@@ -3,9 +3,7 @@
 import { Stripe } from 'stripe';
 import { redirect } from 'next/navigation';
 
-// This is your test secret API key.
-// Replace with your live key when you are ready to go live.
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_51PbyT1Rth9vV2WBQpbvNkZ4N9ju3aI0A25W96de7OH8f9d4M2z3hVjexx7z1hceAN2UDOoJT3t53s7yYUD4sFAdI00f7Uf4lD5', {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-04-10',
 });
 
