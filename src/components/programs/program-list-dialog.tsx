@@ -88,28 +88,37 @@ export function ProgramListDialog({ isOpen, onClose, userProfile, onOpenUpgradeM
               return (
                 <Card key={program.id} className="hover:bg-muted/50 transition-colors">
                   <CardContent className="p-4">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1 space-y-1">
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex-1 space-y-1 min-w-0">
                         <h3 className="font-semibold text-lg">{program.name}</h3>
                         <p className="text-sm text-muted-foreground line-clamp-2">{program.description}</p>
                         <Badge variant="outline" className="text-xs">{typeof program.duration === 'number' ? `${program.duration} Weeks` : 'Continuous'}</Badge>
                       </div>
-                      {hasProgramAccess ? (
-                        <Button 
-                          size="sm"
-                          onClick={() => handleSubscribe(program.id)}
-                          disabled={isSubscribing === program.id || isSubscribed}
-                        >
-                          {isSubscribing === program.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                          {isSubscribed ? <CheckCircle className="mr-2 h-4 w-4" /> : null}
-                          {isSubscribed ? 'Subscribed' : 'Subscribe'}
-                        </Button>
-                      ) : (
-                        <Button size="sm" onClick={onOpenUpgradeModal}>
-                          <Lock className="mr-2 h-4 w-4" />
-                          Upgrade to Subscribe
-                        </Button>
-                      )}
+                      <div className="flex-shrink-0">
+                        {hasProgramAccess ? (
+                          <Button 
+                            size="sm"
+                            onClick={() => handleSubscribe(program.id)}
+                            disabled={isSubscribing === program.id || isSubscribed}
+                            className="whitespace-nowrap"
+                          >
+                            {isSubscribing === program.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {isSubscribed ? <CheckCircle className="mr-2 h-4 w-4" /> : null}
+                            {isSubscribed ? 'Subscribed' : 'Subscribe'}
+                          </Button>
+                        ) : (
+                          <Button 
+                            size="sm" 
+                            onClick={onOpenUpgradeModal} 
+                            className="h-auto px-4 py-2"
+                          >
+                            <div className="flex flex-col items-center space-y-1">
+                              <span>Upgrade</span>
+                              <Lock className="h-4 w-4" />
+                            </div>
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

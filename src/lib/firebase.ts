@@ -1,6 +1,6 @@
 
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
-import { getFirestore, enableIndexedDbPersistence, Firestore, initializeFirestore } from "firebase/firestore";
+import { getFirestore, Firestore, initializeFirestore, persistentLocalCache } from "firebase/firestore";
 import { getAuth, Auth } from "firebase/auth";
 import { getStorage, FirebaseStorage } from "firebase/storage";
 import { getMessaging, Messaging } from "firebase/messaging";
@@ -16,13 +16,10 @@ const firebaseConfig = {
   appId: "1:1002580546718:web:a8574bfc3732c7c137978f",
 };
 
-// Initialize Firebase and export the services directly.
-// This is safe because the app's root will wait for persistence to be enabled.
 const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-// To prevent Firestore from being used before persistence is enabled, we initialize it without settings first
-// and will re-initialize it in the specific persistence function.
-const db: Firestore = getFirestore(app);
+// db is now a 'let' and will be initialized asynchronously within initializeFirebasePersistence.
+let db: Firestore;
 const auth: Auth = getAuth(app);
 const storage: FirebaseStorage = getStorage(app);
 let messaging: Messaging | undefined;
@@ -43,24 +40,36 @@ export const initializeFirebasePersistence = () => {
   persistencePromise = new Promise((resolve) => {
     // Only run this for web clients, not native or server-side.
     if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
-      enableIndexedDbPersistence(db)
-        .then(() => {
-          console.log("Offline persistence has been enabled.");
-        })
-        .catch((err) => {
-          console.warn("Error enabling offline persistence: ", err);
-        })
-        .finally(() => {
-          // Initialize messaging here after persistence is attempted.
-          try {
-            messaging = getMessaging(app);
-          } catch (e) {
-            console.error("Could not initialize messaging", e)
-          }
-          resolve(); // Resolve the promise regardless of persistence success.
+      try {
+        // MODERN API: Initialize Firestore with persistence enabled.
+        // This call enables persistence for the current tab.
+        db = initializeFirestore(app, {
+          localCache: persistentLocalCache()
         });
+        console.log("Offline persistence has been enabled.");
+      } catch (err: any) {
+        // This can happen if another tab has already initialized persistence.
+        if (err.code === 'failed-precondition') {
+          console.warn("Firestore persistence failed: another tab may have it enabled.");
+        } else if (err.code === 'unimplemented') {
+          console.warn("Firestore persistence is not available in this browser.");
+        } else {
+            console.error("An error occurred while enabling Firestore persistence:", err);
+        }
+        // Fallback to regular initialization if persistence fails.
+        db = getFirestore(app);
+      } finally {
+        // Initialize messaging after Firestore is set up.
+        try {
+          messaging = getMessaging(app);
+        } catch (e) {
+          console.error("Could not initialize messaging", e);
+        }
+        resolve();
+      }
     } else {
-      // For native or SSR, resolve immediately.
+      // For native or SSR, just initialize Firestore without persistence.
+      db = getFirestore(app);
       resolve();
     }
   });
@@ -69,4 +78,5 @@ export const initializeFirebasePersistence = () => {
 };
 
 // Export the initialized services for the rest of the app to use.
+// The 'db' export is a live binding that will be populated by initializeFirebasePersistence.
 export { app, auth, db, storage, messaging };

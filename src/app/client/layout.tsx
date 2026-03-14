@@ -160,9 +160,14 @@ export default function ClientLayout({
   const { user, loading, isCoach } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const [isMounted, setIsMounted] = useState(false);
 
   // Activate the interstitial ad triggers
   useInterstitialAdTriggers();
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!loading && user && isCoach) {
@@ -170,7 +175,7 @@ export default function ClientLayout({
     }
   }, [user, loading, isCoach, router]);
 
-  if (loading || !user || isCoach) {
+  if (!isMounted || loading || !user || isCoach) {
     return (
         <div className="w-full h-screen flex items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin" />

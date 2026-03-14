@@ -13,9 +13,7 @@ const runtimeCaching = [
 const withPWA = withPWAInit({
   dest: 'public',
   runtimeCaching,
-  // The default precaching will handle the app shell. We don't need a NetworkFirst fallback for everything.
 });
-
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ['3000-firebase-103125-1761919991969.cluster-zsqzu5kebnaemxbyqrvoim2lxo.cloudworkstations.dev'],
