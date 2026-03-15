@@ -112,7 +112,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
 
     let response: BatchResponse;
     try {
-        response = await messaging.sendEachForMulticast(payload as any);
+        response = await messaging.sendMulticast(payload);
         console.log(`FCM Response for ${userId}. Success: ${response.successCount}, Failure: ${response.failureCount}`);
 
         if (response.failureCount > 0) {

@@ -3,11 +3,9 @@ import withPWAInit from 'next-pwa';
 
 const withPWA = withPWAInit({
   dest: 'public',
-  // FIX: Change this to false to enable and test notifications in dev mode
   disable: false, 
   register: true,
   skipWaiting: true,
-  // This ensures your custom sw.js logic (if you have one) doesn't get overwritten
   sw: 'sw.js', 
   runtimeCaching: [
     {
@@ -19,7 +17,6 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['@opentelemetry/sdk-node', '@opentelemetry/api'],
-
   experimental: {
     serverActions: {
       bodySizeLimit: '4.5mb',
@@ -29,7 +26,6 @@ const nextConfig: NextConfig = {
       ],
     },
   },
-
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.ignoreWarnings = [
@@ -40,7 +36,6 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
-
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'placehold.co' },
@@ -48,7 +43,6 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'firebasestorage.googleapis.com' },
     ],
   },
-
   async headers() {
     return [
       {
@@ -60,7 +54,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-
   async redirects() {
     return [
       { source: '/coach', destination: '/coach/dashboard', permanent: true },

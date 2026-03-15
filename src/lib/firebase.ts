@@ -8,7 +8,7 @@ import {
 } from "firebase/firestore";
 import { getAuth, Auth } from "firebase/auth";
 import { getStorage, FirebaseStorage } from "firebase/storage";
-import { getMessaging, Messaging } from "firebase/messaging";
+import { getMessaging, Messaging, isSupported } from "firebase/messaging";
 import { Capacitor } from '@capacitor/core';
 
 const firebaseConfig = {
@@ -23,11 +23,10 @@ const firebaseConfig = {
 // 1. Initialize App
 const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-// 2. Initialize Firestore with MODERN Persistence
-// This replaces the old enableIndexedDbPersistence call entirely.
+// 2. Initialize Firestore with Modern Persistence (HEAD version logic)
 const db: Firestore = initializeFirestore(app, {
   localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager() // Allows multiple tabs to share the same cache!
+    tabManager: persistentMultipleTabManager() 
   })
 });
 
@@ -35,22 +34,24 @@ const auth: Auth = getAuth(app);
 const storage: FirebaseStorage = getStorage(app);
 let messaging: Messaging | undefined;
 
-// We initialize messaging safely for the web environment
+// 3. Initialize messaging safely (GitHub version logic)
 if (typeof window !== 'undefined' && !Capacitor.isNativePlatform()) {
-  try {
-    messaging = getMessaging(app);
-  } catch (e) {
-    console.warn("Messaging not supported in this browser context", e);
-  }
+  isSupported().then((supported) => {
+    if (supported) {
+      try {
+        messaging = getMessaging(app);
+      } catch (e) {
+        console.warn("Messaging initialization failed", e);
+      }
+    }
+  });
 }
 
 /**
- * Since persistence is now handled inside initializeFirestore, 
- * this function can be greatly simplified or just resolve immediately
- * to maintain compatibility with your existing root-providers.tsx.
+ * Compatibility function for root-providers.tsx
  */
 export const initializeFirebasePersistence = async () => {
-  console.log("Firebase services and modern cache initialized.");
+  console.log("Firebase services and multi-tab cache initialized.");
   return Promise.resolve();
 };
 

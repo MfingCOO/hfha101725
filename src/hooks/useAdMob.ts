@@ -25,7 +25,7 @@ export const useAdMob = () => {
   const initializeAdMob = useCallback(async () => {
     if (isAdMobInitialized || !Capacitor.isNativePlatform()) return;
     try {
-      await AdMob.initialize({});
+      await AdMob.initialize();
       isAdMobInitialized = true;
       console.log('AdMob initialized.');
     } catch (e) {
