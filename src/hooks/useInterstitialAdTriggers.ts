@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { AdMob, InterstitialAdPluginEvents } from '@capacitor-community/admob';
+import { PluginListenerHandle } from '@capacitor/core';
 import { useAdMob } from '@/hooks/useAdMob';
 import { useCalendarStore } from '@/store/ui-store';
 import { useSearchStore } from '@/store/search-store';
@@ -9,24 +10,43 @@ import { useSearchStore } from '@/store/search-store';
 export const useInterstitialAdTriggers = () => {
   const { showInterstitialAd, prepareInterstitialAd } = useAdMob();
   const adId = 'ca-app-pub-3940256099942544/1033173712'; // Test ID
+  
+  // Ref to store the listener handle to ensure it persists across renders
+  // and is available for the cleanup function.
+  const listenerHandleRef = useRef<PluginListenerHandle | null>(null);
 
   const loadNextAd = useCallback(() => {
     prepareInterstitialAd({ adId });
-  }, [prepareInterstitialAd]);
+  }, [prepareInterstitialAd, adId]);
 
   // Setup listeners and load the first ad
   useEffect(() => {
-    // Load the first ad
+    // Initial load
     loadNextAd();
 
-    // When an ad is closed, load the next one
-    const adDismissedListener = AdMob.addListener(InterstitialAdPluginEvents.Dismissed, () => {
-      console.log('Interstitial ad dismissed. Loading next ad.');
-      loadNextAd();
-    });
+    const setupListener = async () => {
+      try {
+        // We await the promise to get the actual handle containing the .remove() method
+        const handle = await AdMob.addListener(
+          InterstitialAdPluginEvents.Dismissed, 
+          () => {
+            console.log('Interstitial ad dismissed. Loading next ad.');
+            loadNextAd();
+          }
+        );
+        listenerHandleRef.current = handle;
+      } catch (error) {
+        console.error('Error setting up AdMob listener:', error);
+      }
+    };
+
+    setupListener();
 
     return () => {
-      adDismissedListener.remove();
+      // Safe cleanup: only call remove if the handle was successfully created
+      if (listenerHandleRef.current && typeof listenerHandleRef.current.remove === 'function') {
+        listenerHandleRef.current.remove();
+      }
     };
   }, [loadNextAd]);
 
@@ -48,7 +68,7 @@ export const useInterstitialAdTriggers = () => {
   useEffect(() => {
     const unsubscribe = useSearchStore.subscribe(
       (state, prevState) => {
-        // Assuming closing the nutrition modal resets the search store
+        // Trigger ad when the search is cleared/reset (modal closed)
         if (prevState.hasSearched && !state.hasSearched) {
           console.log('Search reset, attempting to show interstitial ad.');
           showInterstitialAd();

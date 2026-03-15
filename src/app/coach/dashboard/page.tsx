@@ -3,7 +3,7 @@ import { CoachDashboardClient } from "@/components/coach/dashboard/coach-dashboa
 import { getUnreviewedUserFoods } from "@/app/coach/food-cache/actions";
 import { getPendingReportsCountAction } from "@/app/actions/moderation-actions";
 import { headers } from 'next/headers';
-import { getAuth } from "firebase-admin/auth";
+import { auth } from "@/lib/firebaseAdmin";
 
 // This is a Server Component. It fetches data on the server and passes it down.
 export default async function CoachDashboardPage({
@@ -22,7 +22,7 @@ export default async function CoachDashboardPage({
     
     let coachId = '';
     try {
-        const decodedToken = await getAuth().verifyIdToken(idToken);
+        const decodedToken = await auth.verifyIdToken(idToken);
         coachId = decodedToken.uid;
     } catch (error) {
         console.error("Error verifying auth token in CoachDashboardPage:", error);
