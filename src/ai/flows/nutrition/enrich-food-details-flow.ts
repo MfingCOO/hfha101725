@@ -1,3 +1,4 @@
+'use server';
 import { z } from 'zod';
 import { configuredGenkit } from '@/ai/genkit.config';
 import { NovaGroup } from '@/types/index';

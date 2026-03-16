@@ -1,4 +1,3 @@
-'use server';
 import { CoachDashboardClient } from "@/components/coach/dashboard/coach-dashboard-client";
 import { getUnreviewedUserFoods } from "@/app/coach/food-cache/actions";
 import { getPendingReportsCountAction } from "@/app/actions/moderation-actions";

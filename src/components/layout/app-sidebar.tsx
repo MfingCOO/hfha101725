@@ -52,6 +52,21 @@ export function AppSidebar() {
     { href: '/coach/dashboard', label: 'Dashboard', icon: LayoutDashboard, isLink: true, id: 'dashboard', onClick: undefined },
   ];
 
+  if (!mounted) {
+    return (
+      <Sidebar suppressHydrationWarning>
+        <SidebarHeader>
+          <Logo className="text-primary size-8" />
+          <h1 className="text-xl font-semibold tracking-tight">
+            HungerFree
+          </h1>
+        </SidebarHeader>
+        <SidebarContent />
+        <SidebarFooter />
+      </Sidebar>
+    );
+  }
+
   const menuItems = isCoach ? coachMenuItems : clientMenuItems;
 
   return (
@@ -88,7 +103,7 @@ export function AppSidebar() {
                       <item.icon />
                       <span className='ml-4'>{item.label}</span>
                     </div>
-                    {mounted && item.id === 'chats' && unreadChatCount > 0 && (
+                    {item.id === 'chats' && unreadChatCount > 0 && (
                       <span className="ml-auto text-xs font-semibold text-white bg-red-500 rounded-full h-5 w-5 flex items-center justify-center">
                         {unreadChatCount}
                       </span>
@@ -113,7 +128,7 @@ export function AppSidebar() {
                   <Bell />
                   <span className='ml-4'>Notifications</span>
                 </div>
-                {mounted && hasUnreadNotifications && (
+                {hasUnreadNotifications && (
                   <span className="ml-auto h-2 w-2 rounded-full bg-red-500"></span>
                 )}
               </div>
@@ -122,14 +137,14 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               tooltip={"Settings"}
-              onClick={onOpenSettings} 
+              onClick={onOpenSettings}
             >
               <Settings />
               <span>Settings</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <div className="p-2 border-t mt-auto">
-            {mounted && <UserNav />}
+            <UserNav />
           </div>
         </SidebarMenu>
       </SidebarFooter>

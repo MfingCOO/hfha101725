@@ -1,7 +1,6 @@
 'use client';
 
 import { Suspense, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { AppCheckProvider } from "@/components/auth/app-check-provider";
 import { Toaster } from "@/components/ui/toaster"; // shadcn toaster
@@ -13,13 +12,8 @@ import { DashboardProvider } from '@/contexts/DashboardActionsContext';
 import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 import { ChatProvider } from '@/components/chats/chat-provider';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
-import { Capacitor } from '@capacitor/core';
 
-// Dynamically import AdBannerProvider only on the client-side to prevent build errors on web.
-const AdBannerProvider = dynamic(() => import('@/components/providers/AdBannerProvider'), {
-  ssr: false,
-  loading: () => null, // Or a loading spinner
-});
+// AdBannerProvider is completely removed from this web-specific file.
 
 export function RootProviders({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -53,9 +47,6 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
             <SonnerToaster position="top-center" expand={true} richColors /> 
           </DataEntryModalProvider>
         </AppCheckProvider>
-
-        {/* Guard: AdBanner will now only be rendered AND loaded on native platforms. */}
-        {Capacitor.isNativePlatform() && <AdBannerProvider />}
       </AuthProvider>
     </QueryProvider>
   );

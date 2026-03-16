@@ -112,7 +112,9 @@ async function sendPushNotification(userId: string, title: string, message: stri
 
     let response: BatchResponse;
     try {
-        response = await messaging.sendMulticast(payload);
+        // DEFINITIVE FIX: sendMulticast is deprecated in Admin SDK v11+. 
+        // Using sendEachForMulticast instead.
+        response = await messaging.sendEachForMulticast(payload);
         console.log(`FCM Response for ${userId}. Success: ${response.successCount}, Failure: ${response.failureCount}`);
 
         if (response.failureCount > 0) {
@@ -292,17 +294,17 @@ export const hydrationReminderHandler = onTaskDispatched<any>({}, async (req) =>
     // Mark the current reminder as sent
     await docRef.update({ status: 'sent' });
 
-    // DEFINITIVE FIX: If the reminder is recurring, schedule the next one for the next day.
+    // RECURRENCE LOGIC: If the reminder is recurring, schedule the next one for the next day.
     if (reminder.isRecurring) {
         const nextScheduledAt = new Date(scheduledTime.getTime());
         nextScheduledAt.setDate(nextScheduledAt.getDate() + 1);
 
-        // Create a new reminder document for the next day, which will be picked up by onReminderScheduled
+        // Create a new reminder document for the next day
         await db.collection('reminders').add({
-            ...reminder, // Copy data from the original reminder
-            scheduledAt: nextScheduledAt, // Set the new date for 1 day in the future
-            status: 'scheduled', // Set status to scheduled to be processed
-            createdAt: new Date() // Set a new creation timestamp
+            ...reminder,
+            scheduledAt: nextScheduledAt,
+            status: 'scheduled',
+            createdAt: new Date()
         });
     }
 });

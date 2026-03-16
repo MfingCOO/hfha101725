@@ -277,7 +277,7 @@ export function ChatView({ chatId }: ChatViewProps) {
                                                 </Link>
                                             ) : (
                                                 <Link href={msg.fileUrl} target="_blank">
-                                                    <Image src={msg.fileUrl} alt={msg.fileName || 'Shared Image'} width={100} height={100} className="rounded-md object-cover" />
+                                                    <Image src={msg.fileUrl} alt={msg.fileName || 'Shared Image'} width={100} height={100} className="rounded-md object-cover" style={{ width: '100%', height: 'auto' }} />
                                                 </Link>
                                             )}
                                         </div>
@@ -346,4 +346,4 @@ export function ChatView({ chatId }: ChatViewProps) {
             </AlertDialog>
         </div>
     );
-};
+}

@@ -125,16 +125,12 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     }, []);
 
     const refreshPendingReportCount = useCallback(async () => {
-        if (!user) return;
+        if (!user?.uid) return;
         const result = await getPendingReportsCountAction(user.uid);
         if (result.success) {
             setPendingReportCount(result.count ?? 0);
         }
-    }, [user]);
-
-    useEffect(() => {
-        refreshPendingFoodCount();
-    }, [refreshPendingFoodCount]);
+    }, [user?.uid]);
 
     useEffect(() => {
         if (!isModerationOpen) { refreshPendingReportCount(); }
