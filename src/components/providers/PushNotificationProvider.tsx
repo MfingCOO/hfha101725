@@ -5,11 +5,11 @@ import { Capacitor } from '@capacitor/core';
 import { ActionPerformed, PushNotifications, Token, PushNotificationSchema } from '@capacitor/push-notifications';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useNotificationStore } from '@/store/notification-store';
 import { addFcmTokenAction } from '@/app/chats/actions';
 import { messaging } from '@/lib/firebase';
-import { getToken, isSupported, onMessage } from 'firebase/messaging';
+import { isSupported, onMessage } from 'firebase/messaging';
 import { useToast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 
@@ -34,7 +34,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const { toast } = useToast();
   const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
 
-  // Use a ref to hold the cleanup function so it persists across the async setup
   const cleanupRef = useRef<(() => void) | null>(null);
 
   const handleNotificationAction = useCallback((context: string, data: { [key: string]: any }) => {
@@ -95,52 +94,48 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           Open
         </ToastAction>
       ),
+      duration: 7000, // Added duration for in-app toast
     });
   }, [handleNotificationAction, toast]);
 
-  // Handle URL parsing for PWA deep links
   useEffect(() => {
-    log("PushNotificationProvider useEffect (URL parsing) triggered.");
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('notificationType')) {
         log("PWA: Detected notification in URL. Parsing...");
-        const isCoachInUrl = urlParams.get('isCoach') === 'true';
-        const dashboardBaseUrl = isCoachInUrl ? '/coach/dashboard' : '/client/dashboard';
 
-        let targetUrl = dashboardBaseUrl;
         const notificationType = urlParams.get('notificationType');
         const openChatId = urlParams.get('openChatId');
         const openWorkoutId = urlParams.get('openWorkoutId');
         const openAppointmentId = urlParams.get('openAppointmentId');
         const openHydration = urlParams.get('openHydration');
-        const entityId = urlParams.get('entityId');
-
-        const queryParams = new URLSearchParams();
-        if (notificationType) queryParams.set('notificationType', notificationType);
-        queryParams.set('isCoach', String(isCoachInUrl));
-        if (entityId) queryParams.set('entityId', entityId);
 
         if (notificationType === 'chat' && openChatId) {
             setNotificationChatId(openChatId);
-            queryParams.set('openChatId', openChatId);
         } else if (notificationType === 'workout_reminder' && openWorkoutId) {
             setNotificationWorkoutId(openWorkoutId);
-            queryParams.set('openWorkoutId', openWorkoutId);
-        } else if (notificationType === 'appointment_reminder' && openAppointmentId) {
+        } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType || '') && openAppointmentId) {
             setNotificationAppointmentId(openAppointmentId);
-            queryParams.set('openAppointmentId', openAppointmentId);
         } else if (notificationType === 'hydration' && openHydration === 'true') {
             setTriggerHydrationModal(true);
-            queryParams.set('openHydration', 'true');
         }
 
-        targetUrl = `${dashboardBaseUrl}?${queryParams.toString()}`;
-        log(`PWA URL: Determined final target URL: ${targetUrl}. IsCoachInUrl: ${isCoachInUrl}`);
-        router.replace(targetUrl, { scroll: false });
+        const newParams = new URLSearchParams(window.location.search);
+        newParams.delete('notificationType');
+        newParams.delete('openChatId');
+        newParams.delete('openWorkoutId');
+        newParams.delete('openAppointmentId');
+        newParams.delete('openHydration');
+        newParams.delete('entityId');
+        newParams.delete('isCoach');
+        
+        const queryString = newParams.toString();
+        const cleanUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
+        
+        log(`PWA URL: State updated. Cleaning URL to: ${cleanUrl}`);
+        router.replace(cleanUrl, { scroll: false });
     }
   }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
 
-  // Setup Native and Web Listeners
   useEffect(() => {
     log("PushNotificationProvider useEffect (native/web setup) triggered.");
 
@@ -181,41 +176,32 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         }
 
       } else { 
-        // Web platform logic
-        log('Setting up PWA push notifications...');
+        // MODIFICATION: Only listen for foreground messages for the PWA bell, don't register for OS push notifications.
+        log('Setting up PWA foreground notifications listener...');
         const isFCMSupported = await isSupported();
         if (!isFCMSupported || !messaging) {
-          logError('PWA notifications not supported.');
+          logError('PWA foreground messaging not supported.');
           return;
         }
 
         try {
-          const swRegistration = await navigator.serviceWorker.register('/sw.js');
-          const permission = await Notification.requestPermission();
-          
-          if (permission === 'granted') {
-            const fcmToken = await getToken(messaging, { 
-                vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-                serviceWorkerRegistration: swRegistration
-            });
-            if (fcmToken && user?.uid) {
-                await addFcmTokenAction({ userId: user.uid, token: fcmToken });
-                log('PWA token saved to backend.');
-            }
-          }
+          // Register the service worker to allow it to listen for messages
+          await navigator.serviceWorker.register('/sw.js');
 
+          // This listener handles messages when the app is in the foreground (active tab)
           const unsubscribeOnMessage = onMessage(messaging, (payload) => {
             log('PWA: Foreground message received.', payload);
             const { notification, data } = payload;
             showInAppNotification(notification?.title, notification?.body, data || {});
           });
 
+          // This listener handles the click event if a notification is somehow displayed and clicked
           const handleServiceWorkerMessage = (event: MessageEvent) => {
             if (event.data?.type === 'notification_clicked') {
+                log('PWA: Received notification_clicked event from service worker.');
                 handleNotificationAction('PWA Click', event.data.data || {});
             }
           };
-
           navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
 
           cleanupRef.current = () => {
@@ -225,7 +211,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           };
 
         } catch (error) {
-          logError('PWA: Error during notification setup:', error);
+          logError('PWA: Error during foreground notification setup:', error);
         }
       }
     };
@@ -238,7 +224,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       if (cleanupRef.current) {
         log('PushNotificationProvider unmount/cleanup.');
         cleanupRef.current();
-        cleanupRef.current = null; // Reset the ref
+        cleanupRef.current = null;
       }
     };
 

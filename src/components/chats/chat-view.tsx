@@ -257,7 +257,25 @@ export function ChatView({ chatId }: ChatViewProps) {
                         return (
                         <div key={msg.id} className={cn("group flex items-center gap-2", msg.isSystemMessage && "flex-col items-center justify-center my-2", isMyMessage ? 'justify-end' : 'justify-start')}>
                             {msg.isSystemMessage ? (
-                                <div className="text-xs text-center bg-muted text-muted-foreground rounded-full px-3 py-1 animate-in fade-in">{msg.text}</div>
+                                <div className="text-xs text-center bg-muted text-muted-foreground rounded-full px-3 py-1 animate-in fade-in">
+                                    {(() => {
+                                        // Regex to match "Name - MM/DD/YY, HH:MM AM/PM"
+                                        const nameDateTimestampRegex = /^(.*?)\s*-\s*(\d{2}\/\d{2}\/\d{2},\s*\d{1,2}:\d{2}\s*(?:AM|PM))$/;
+                                        const match = msg.text?.match(nameDateTimestampRegex);
+
+                                        if (match) {
+                                            // If it matches, extract the date part and format it
+                                            if (msg.timestamp) {
+                                                return format(new Date(msg.timestamp as any), 'MM/dd/yy'); // Display only the date
+                                            } else {
+                                                // Fallback to displaying just the date part from the matched text
+                                                const datePart = match[2].split(',')[0]; // "MM/DD/YY"
+                                                return datePart;
+                                            }
+                                        }
+                                        return msg.text; // If it doesn't match the pattern, display original text
+                                    })()}
+                                </div>
                             ) : (
                                 <>
                                 {!isMyMessage && (
@@ -266,8 +284,8 @@ export function ChatView({ chatId }: ChatViewProps) {
                                         <AvatarFallback className="text-xs">{getInitials(msg.userName)}</AvatarFallback>
                                     </Avatar>
                                 )}
-                                <div className={cn("max-w-[80%] rounded-lg px-2 py-1 min-w-0", isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
-                                    <div className="text-xs break-all"><LinkifiedText text={msg.text || ''} /></div>
+                                <div className={cn("max-w-[80%] rounded-lg px-2 py-1 min-w-0 overflow-hidden", isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
+                                    <div className="text-xs break-words"><LinkifiedText text={msg.text || ''} /></div>
                                     {msg.fileUrl && (
                                         <div className="mt-1">
                                             {msg.fileName?.match(/\.pdf$/i) ? (
@@ -282,7 +300,7 @@ export function ChatView({ chatId }: ChatViewProps) {
                                             )}
                                         </div>
                                     )}
-                                    <p className={cn("text-[10px] mt-0.5 opacity-70", isMyMessage ? 'text-right' : 'text-left')}>
+                                    <p className={cn("text-[10px] mt-0.5 opacity-70 break-words", isMyMessage ? 'text-right' : 'text-left')}>
                                         {msg.userName.split(' ')[0]} - {msg.timestamp ? format(new Date(msg.timestamp as any), 'MM/dd/yy, p') : ''}
                                     </p>
                                 </div>

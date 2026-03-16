@@ -37,15 +37,14 @@ async function isUserCoach(userId: string): Promise<boolean> {
 }
 
 async function sendPushNotification(userId: string, title: string, message: string, ctaUrl: string, notificationType: string, entityId: string, imageUrl?: string, senderId?: string, senderName?: string, messageText?: string) {
-    const userDocRef = db.collection('clients').doc(userId);
-    const userDoc = await userDocRef.get();
+    const userDocRef = await db.collection('clients').doc(userId).get();
 
-    if (!userDoc.exists) {
+    if (!userDocRef.exists) {
         console.log(`sendPushNotification: User profile ${userId} not found in 'clients' collection.`);
         return;
     }
 
-    const tokens = userDoc.data()?.fcmTokens?.filter((t: any) => typeof t === 'string' && t) || [];
+    const tokens = userDocRef.data()?.fcmTokens?.filter((t: any) => typeof t === 'string' && t) || [];
     if (tokens.length === 0) {
         console.log(`sendPushNotification: User ${userId} has no valid FCM tokens.`);
         return;
@@ -78,11 +77,6 @@ async function sendPushNotification(userId: string, title: string, message: stri
 
     const payload: MulticastMessage = {
         tokens: tokens,
-        notification: {
-            title: String(title),
-            body: String(message),
-            imageUrl: imageUrl,
-        },
         data: dataPayload,
         apns: {
             payload: {
@@ -105,15 +99,13 @@ async function sendPushNotification(userId: string, title: string, message: stri
                 channelId: String(channelId),
                 imageUrl: imageUrl,
                 sound: 'default',
-                clickAction: 'FCM_PLUGIN_ACTIVITY',
+                // clickAction: 'FCM_PLUGIN_ACTIVITY', // REMOVED as per instructions
             },
         },
     };
 
     let response: BatchResponse;
     try {
-        // DEFINITIVE FIX: sendMulticast is deprecated in Admin SDK v11+. 
-        // Using sendEachForMulticast instead.
         response = await messaging.sendEachForMulticast(payload);
         console.log(`FCM Response for ${userId}. Success: ${response.successCount}, Failure: ${response.failureCount}`);
 
@@ -130,9 +122,9 @@ async function sendPushNotification(userId: string, title: string, message: stri
             });
 
             if (tokensToRemove.length > 0) {
-                const currentTokens = userDoc.data()?.fcmTokens || [];
+                const currentTokens = userDocRef.data()?.fcmTokens || [];
                 const updatedTokens = currentTokens.filter((token: string) => !tokensToRemove.includes(token));
-                await userDocRef.update({ fcmTokens: updatedTokens });
+                await db.collection('clients').doc(userId).update({ fcmTokens: updatedTokens });
                 console.log(`Removed ${tokensToRemove.length} invalid tokens for user ${userId}.`);
             }
         }

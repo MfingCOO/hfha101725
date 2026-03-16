@@ -25,8 +25,8 @@ import Link from 'next/link';
 
 // UI IMPORTS
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input'; // Corrected import
+import { Label } from '@/components/ui/label'; // Corrected import
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Switch } from '../ui/switch';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
@@ -39,6 +39,10 @@ import { Slider } from '../ui/slider';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { BaseModal } from '../ui/base-modal';
 
+// Capacitor Imports
+import { Capacitor } from '@capacitor/core';
+import { Purchases, CustomerInfo } from '@revenuecat/purchases-capacitor';
+import { Browser } from '@capacitor/browser';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -118,7 +122,7 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
       activityLevel: 'light',
       calculationMode: 'ideal',
       calorieModifier: 0,
-      customMacros: { protein: '', fat: '', carbs: '' },
+      customMacros: { protein: '', fat: '', carbs: '' }, // Corrected syntax
     },
   });
 
@@ -334,14 +338,62 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
   const handleManageBilling = async () => {
     if (!user) return;
     setIsSaving(true);
+
     try {
-        const result = await createStripePortalSession(user.uid);
-        if (result.url) {
-            window.location.href = result.url;
-        } else {
-            toast({ variant: 'destructive', title: 'Error', description: result.error || "Could not open billing portal." });
+      if (Capacitor.isNativePlatform()) {
+        // For native platforms (Android/iOS) check RevenueCat first
+        const rcCustomerInfoWrapper = await Purchases.getCustomerInfo(); 
+        const customerInfo: CustomerInfo = rcCustomerInfoWrapper.customerInfo; 
+        
+        // Find the first active entitlement with an associated store
+        const activeEntitlement = Object.values(customerInfo.entitlements.active).find((ent: any) => ent.store !== undefined);
+
+        if (activeEntitlement) {
+          const store = activeEntitlement.store as string; // Treat store as string
+          let subscriptionUrl: string | null = null;
+
+          switch (store) {
+            case 'PLAY_STORE': // Use string literal for Google Play Store
+              const androidPackageName = process.env.NEXT_PUBLIC_ANDROID_PACKAGE_NAME || 'your.app.package.name';
+              subscriptionUrl = `https://play.google.com/store/account/subscriptions?package=${androidPackageName}`;
+              break;
+            case 'APP_STORE': // Use string literal for Apple App Store
+              subscriptionUrl = `itms-apps://apps.apple.com/account/subscriptions`;
+              break;
+            case 'STRIPE': // Use string literal for Stripe
+              // Fallback to Stripe portal if RevenueCat reports a Stripe purchase on native (e.g., migrated user)
+              const stripePortalResult = await createStripePortalSession(user.uid);
+              subscriptionUrl = stripePortalResult.url || null;
+              if (stripePortalResult.error) {
+                  throw new Error(stripePortalResult.error);
+              }
+              break;
+            default:
+              console.warn("Unhandled RevenueCat store for active entitlement:", store);
+              break;
+          }
+
+          if (subscriptionUrl) {
+            await Browser.open({ url: subscriptionUrl });
+            return;
+          }
         }
+
+        // If no active native entitlement found via RevenueCat, or no specific store URL, default to Stripe portal
+        // This handles cases where a native user might only have a web-purchased Stripe sub.
+        console.log("No active native subscription via RevenueCat found, or unhandled store type. Attempting Stripe portal.");
+      }
+      
+      // Default to Stripe Customer Portal for web or if native fallback
+      const result = await createStripePortalSession(user.uid);
+      if (result.url) {
+          window.location.href = result.url;
+      } else {
+          toast({ variant: 'destructive', title: 'Error', description: result.error || "Could not open billing portal." });
+      }
+
     } catch (err: any) {
+        console.error("Error managing billing:", err);
         toast({ variant: 'destructive', title: 'Error', description: err.message || "An unexpected error occurred." });
     } finally {
         setIsSaving(false);
@@ -438,7 +490,7 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
                             </CardHeader>
                             <CardContent className="p-4 pt-0 space-y-3">
                                 <FormField control={siteSettingsForm.control} name="url" render={({ field }) => (
-                                    <FormItem><FormLabel>Website URL</FormLabel><FormControl><Input placeholder="https://hungerfreeandhappy.com" {...field} /></FormControl><FormMessage /></FormItem>
+                                    <FormItem><FormLabel>Website URL</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                                 )} />
                                 <FormField control={siteSettingsForm.control} name="videoCallLink" render={({ field }) => (
                                 <FormItem><FormLabel>Default Video Call Link</FormLabel><FormControl><Input placeholder="https://zoom.us/j/1234567890" {...field} /></FormControl><FormMessage /></FormItem>

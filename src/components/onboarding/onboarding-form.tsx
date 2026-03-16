@@ -26,6 +26,7 @@ import { AppNumberInput } from '../ui/number-input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { Purchases } from '@revenuecat/purchases-capacitor'; // Import RevenueCat Purchases
 
 
 const onboardingSchema = z.object({
@@ -150,20 +151,54 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
         setStep(s => s - 1);
     };
 
-    const handleAndroidPurchase = async (sku: string | null) => {
-        if (!sku) {
-            toast({ title: "Not Available", description: "This plan is not available for purchase in the app.", variant: "destructive" });
+    // MODIFIED: handleAndroidPurchase to use RevenueCat
+    const handleAndroidPurchase = async (revenueCatPackageIdentifier: string | null) => {
+        if (!revenueCatPackageIdentifier) {
+            toast({ title: "Not Available", description: "This plan is not configured for in-app purchase.", variant: "destructive" });
             return;
         }
         setIsLoading(true);
         try {
-            // The native Android code will handle the response from the purchase
-            await (window as any).androidBridge.makePurchase(sku);
-        } catch (error) {
-            console.error("Android purchase failed:", error);
-            toast({ title: "Purchase Failed", description: "Could not complete the purchase. Please try again.", variant: "destructive" });
+            // 1. Get current offerings from RevenueCat
+            const offerings = await Purchases.getOfferings();
+            
+            // 2. Find the correct package using the identifier (which should match your productIds.android SKUs)
+            let packageToPurchase;
+            for (const offeringId in offerings.all) {
+                const offering = offerings.all[offeringId];
+                packageToPurchase = offering.availablePackages.find(pkg => pkg.identifier === revenueCatPackageIdentifier);
+                if (packageToPurchase) break;
+            }
+
+            if (!packageToPurchase) {
+                throw new Error(`RevenueCat package '${revenueCatPackageIdentifier}' not found in current offerings.`);
+            }
+
+            // 3. Initiate the purchase via RevenueCat
+            const { customerInfo } = await Purchases.purchasePackage({ aPackage: packageToPurchase });
+
+            // 4. Check entitlements - RevenueCat handles Google Play's purchase flow and verification
+            // Your backend webhook will also receive this and update Firestore.
+            if (customerInfo.entitlements.active['premium_access'] || customerInfo.entitlements.active['basic_access'] || customerInfo.entitlements.active['ad_free_access']) { // Adjust entitlements as per your RC config
+                toast({ title: "Purchase Successful!", description: "Your subscription is now active." });
+                // After a successful purchase, navigate to login since unifiedSignupAction is not called for RC paid tiers
+                router.push('/login');
+            } else {
+                toast({ title: "Purchase Completed", description: "Please check your subscription status.", variant: "default" });
+            }
+
+        } catch (e: any) {
+            console.error("RevenueCat purchase failed:", e);
+            let errorMessage = "Could not complete the purchase. Please try again.";
+            if (e.code === 'PURCHASE_CANCELLED') {
+                errorMessage = "Purchase cancelled.";
+            } else if (e.message) {
+                errorMessage = e.message;
+            }
+            toast({ title: "Purchase Failed", description: errorMessage, variant: "destructive" });
+        } finally {
+            setIsLoading(false); // Reset loading state
         }
-        // We don't set loading to false here, as the native UI takes over.
     };
 
     const handleSubscriptionClick = async (tier: Tier) => {
@@ -186,7 +221,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
         };
         
         await onFormSubmit(submissionData);
-        // We don't set loading to false because we expect a redirect.
+        // We don't set loading to false because we expect a redirect or login.
     };
     
     const handleContactCoach = () => {
@@ -202,13 +237,15 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                 return;
             }
             if (tier === 'free') {
-                 // Handle free tier sign up on Android - likely same as web
+                 // Handle free tier sign up on Android - this still goes through unifiedSignupAction
                  handleSubscriptionClick('free');
                  return;
             }
-            const sku = productIds[tier][finalBillingCycle]?.android || null;
-            handleAndroidPurchase(sku);
+            // For paid Android tiers, use RevenueCat's purchase logic
+            const revenueCatPackageIdentifier = productIds[tier][finalBillingCycle]?.android || null;
+            handleAndroidPurchase(revenueCatPackageIdentifier); 
         } else {
+            // For web platform, continue using Stripe via handleSubscriptionClick
             handleSubscriptionClick(tier);
         }
     };
