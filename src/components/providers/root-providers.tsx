@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Suspense, useEffect } from 'react';
@@ -33,13 +34,14 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // Initialize RevenueCat only on native platforms and when user is available
-    if (Capacitor.isNativePlatform() && user?.uid) { // Ensure user.uid is available
-      // Use your specific RevenueCat API Key for Android (if you have separate ones)
-      const revenueCatApiKey = process.env.NEXT_PUBLIC_REVENUECAT_ANDROID_API_KEY; 
+    // Initialize RevenueCat when user is available (for both native and web/PWA)
+    if (user?.uid) { // MODIFIED: Removed Capacitor.isNativePlatform() check
+      // Use your specific RevenueCat API Key (unified for all platforms if possible)
+      // YOU MUST RENAME NEXT_PUBLIC_REVENUECAT_ANDROID_API_KEY to NEXT_PUBLIC_REVENUECAT_API_KEY in your .env.local and apphosting.yaml
+      const revenueCatApiKey = process.env.NEXT_PUBLIC_REVENUECAT_API_KEY; // MODIFIED: Renamed env var
 
       if (!revenueCatApiKey) {
-        console.error("RevenueCat API Key (NEXT_PUBLIC_REVENUECAT_ANDROID_API_KEY) is not set. Please ensure it's configured in your environment variables.");
+        console.error("RevenueCat API Key (NEXT_PUBLIC_REVENUECAT_API_KEY) is not set. Please ensure it's configured in your environment variables.");
         return;
       }
 
@@ -61,10 +63,14 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
         // For now, we'll rely on the backend webhook to update Firestore.
       });
 
-    } else if (Capacitor.isNativePlatform() && !user?.uid) {
+    } else if (Capacitor.isNativePlatform() && !user?.uid) { // Keep this for native logout/reset for consistency if a user logs out
       // If on native platform but no user, ensure RevenueCat is logged out or reset
       // This is important if a user logs out in your app.
       Purchases.logOut().catch(() => {}); // Attempt to log out if a user was previously logged in
+    } else if (!user?.uid && !Capacitor.isNativePlatform()) { // ADDED: For web/PWA when no user is logged in, ensure RevenueCat is logged out/reset
+      // For web/PWA when no user is logged in, RevenueCat should also be logged out or reset if configured.
+      // This helps maintain a clean state, especially during anonymous usage or after web logout.
+      Purchases.logOut().catch(() => {});
     }
 
   }, [user]); // Re-run when user object changes
@@ -76,21 +82,21 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
           <DataEntryModalProvider>
             <DashboardProvider>
               <Suspense fallback={null}>
-                <ChatProvider>
-                  <PushNotificationProvider>
+                <ChatProvider> 
+                  <PushNotificationProvider> 
                     {children}
-                    <NotificationsDialog />
+                    <NotificationsDialog /> 
                   </PushNotificationProvider>
                 </ChatProvider>
               </Suspense>
             </DashboardProvider>
             
-            <Toaster />
+            <Toaster /> 
             <SonnerToaster position="top-center" expand={true} richColors /> 
           </DataEntryModalProvider>
         </AppCheckProvider>
 
-        {Capacitor.isNativePlatform() && <AdBannerProvider />}
+        {Capacitor.isNativePlatform() && <AdBannerProvider />} 
       </AuthProvider>
     </QueryProvider>
   );

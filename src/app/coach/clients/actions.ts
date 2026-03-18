@@ -2,16 +2,13 @@
 
 import { db as adminDb, auth } from '@/lib/firebaseAdmin';
 import type { ClientProfile, CoachNote, CreateClientInput, UserTier, Chat } from '@/types';
-import Stripe from 'stripe';
+// REMOVED: import Stripe from 'stripe';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { calculateIdealBodyWeight, calculateNutritionalGoals } from '@/services/goals';
 
-// CORRECTED: Uses the correct environment variable name and does not hardcode the key.
-const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
-    apiVersion: '2024-04-10',
-});
+// REMOVED: const stripe = new Stripe(process.env.STRIPE_API_KEY!, {...});
 
-// This is a new, more robust serialization function
+// This is a new, more robust serialization function (REMAINS UNTOUCHED)
 function serializeTimestamps(data: any): any {
     if (data === null || data === undefined || typeof data !== 'object') {
         return data;
@@ -42,101 +39,68 @@ function serializeTimestamps(data: any): any {
 }
 
 export async function unifiedSignupAction(
-    data: CreateClientInput & { priceId?: string | null } // priceId is now expected here for paid tiers
+    data: CreateClientInput & { priceId?: string | null } // priceId is now vestigial, as RC handles it
 ): Promise<{ success: boolean; error?: string; checkoutUrl?: string | null }> {
 
-    // PATH 1: FREE TIER SIGNUP
-    if (data.tier === 'free' || !data.priceId) { // Also handle cases where priceId might be missing for safety
-        let uid = '';
-        try {
-            // Create a Stripe customer even for free users for future upgrades
-            const stripeCustomer = await stripe.customers.create({ email: data.email, name: data.fullName });
-
-            // Create Firebase Auth user
-            const userRecord = await auth.createUser({
-                email: data.email,
-                password: data.password,
-                displayName: data.fullName,
-                emailVerified: false,
-            });
-            uid = userRecord.uid;
-
-            // Set custom claims for role-based access
-            await auth.setCustomUserClaims(uid, { role: 'client', tier: 'free' });
-
-            const idealBodyWeight = calculateIdealBodyWeight(data.height, data.units);
-            
-            const tempProfileForCalc: Partial<ClientProfile> = {
-                onboarding: { ...data, birthdate: new Date(data.birthdate) },
-                idealBodyWeight: idealBodyWeight, 
-                height: { value: data.height, unit: data.units === 'imperial' ? 'in' : 'cm' },
-            };
-
-            const { idealGoals, actualGoals } = calculateNutritionalGoals(tempProfileForCalc as ClientProfile);
-
-            const clientRef = adminDb.collection('clients').doc(uid);
-            const clientPayload: any = {
-                uid: uid,
-                email: data.email,
-                fullName: data.fullName,
-                tier: 'free',
-                role: 'client',
-                stripeCustomerId: stripeCustomer.id,
-                onboarding: data,
-                createdAt: FieldValue.serverTimestamp(),
-                height: { value: data.height, unit: data.units === 'imperial' ? 'in' : 'cm' },
-                idealBodyWeight: idealBodyWeight,
-                suggestedGoals: idealGoals, 
-                customGoals: actualGoals,
-                chatIds: [],
-                challengeIds: [],
-                hasLoggedInBefore: false,
-            };
-
-            if (data.coachId) {
-                clientPayload.coachId = data.coachId;
-            }
-
-            await clientRef.set(clientPayload);
-
-            return { success: true, checkoutUrl: null };
-
-        } catch (error: any) {
-            console.error("Error in free tier signup of unifiedSignupAction:", error);
-            if (uid) {
-                await auth.deleteUser(uid).catch(delError => console.error(`Failed to clean up auth user ${uid}`, delError));
-            }
-            return { success: false, error: error.message || 'An unknown error occurred during free signup.' };
-        }
-    }
-
-    // PATH 2: PAID TIER SIGNUP
+    // MODIFIED: Simplified signup for all tiers, no direct Stripe interaction
+    let uid = '';
     try {
-        const returnUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-        const successUrl = `${returnUrl}/client/dashboard?signup=success`;
-        const cancelUrl = `${returnUrl}/signup`;
-
-        const checkoutSession = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [{ price: data.priceId, quantity: 1 }],
-            mode: 'subscription',
-            customer_email: data.email, 
-            success_url: successUrl,
-            cancel_url: cancelUrl,
-            metadata: {
-                userData: JSON.stringify(data)
-            }
+        // Create Firebase Auth user
+        const userRecord = await auth.createUser({
+            email: data.email,
+            password: data.password,
+            displayName: data.fullName,
+            emailVerified: false,
         });
+        uid = userRecord.uid;
 
-        if (!checkoutSession.url) {
-            throw new Error("Could not create Stripe checkout session.");
+        // Set custom claims for role-based access
+        await auth.setCustomUserClaims(uid, { role: 'client', tier: data.tier || 'free' }); // Use provided tier or default to free
+
+        const idealBodyWeight = calculateIdealBodyWeight(data.height, data.units);
+        
+        const tempProfileForCalc: Partial<ClientProfile> = {
+            onboarding: { ...data, birthdate: new Date(data.birthdate) },
+            idealBodyWeight: idealBodyWeight, 
+            height: { value: data.height, unit: data.units === 'imperial' ? 'in' : 'cm' },
+        };
+
+        const { idealGoals, actualGoals } = calculateNutritionalGoals(tempProfileForCalc as ClientProfile);
+
+        const clientRef = adminDb.collection('clients').doc(uid);
+        const clientPayload: any = {
+            uid: uid,
+            email: data.email,
+            fullName: data.fullName,
+            tier: data.tier || 'free', // Use provided tier or default to free
+            role: 'client',
+            // REMOVED: stripeCustomerId as it's now managed by RevenueCat implicitly for Stripe purchases
+            onboarding: data,
+            createdAt: FieldValue.serverTimestamp(),
+            height: { value: data.height, unit: data.units === 'imperial' ? 'in' : 'cm' },
+            idealBodyWeight: idealBodyWeight,
+            suggestedGoals: idealGoals, 
+            customGoals: actualGoals,
+            chatIds: [],
+            challengeIds: [],
+            hasLoggedInBefore: false,
+        };
+
+        if (data.coachId) {
+            clientPayload.coachId = data.coachId;
         }
 
-        return { success: true, checkoutUrl: checkoutSession.url };
+        await clientRef.set(clientPayload);
+
+        // No direct Stripe checkout URL needed, as client-side RC SDK handles it
+        return { success: true, checkoutUrl: null };
 
     } catch (error: any) {
-        console.error("Error creating paid checkout session:", error);
-        return { success: false, error: error.message };
+        console.error("Error in unifiedSignupAction:", error);
+        if (uid) {
+            await auth.deleteUser(uid).catch(delError => console.error(`Failed to clean up auth user ${uid}`, delError));
+        }
+        return { success: false, error: error.message || 'An unknown error occurred during signup.' };
     }
 }
 
@@ -170,7 +134,7 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
     const batch = adminDb.batch();
     let uid = '';
     try {
-        const stripeCustomer = await stripe.customers.create({ email: data.email, name: data.fullName });
+        // REMOVED: const stripeCustomer = await stripe.customers.create({ email: data.email, name: data.fullName });
         const userRecord = await auth.createUser({
             email: data.email,
             password: data.password,
@@ -197,9 +161,9 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
             uid: uid,
             email: data.email,
             fullName: data.fullName,
-            tier: data.tier,
+            tier: data.tier || 'free', // Use provided tier or default to free
             role: 'client',
-            stripeCustomerId: stripeCustomer.id,
+            // REMOVED: stripeCustomerId: stripeCustomer.id, // RC manages Stripe customer IDs
             onboarding: data,
             createdAt: FieldValue.serverTimestamp(),
             height: { value: data.height, unit: data.units },
@@ -327,7 +291,7 @@ export async function getCoachingChatIdForClient(clientId: string): Promise<{ su
     }
 }
 
-// SURGICAL ADDITION: New action to get chat details by ID for notifications
+// SURGICAL ADDITION: New action to get chat details by ID for notifications (REMAINS UNTOUCHED)
 export async function getChatDetailsAction(chatId: string): Promise<{ success: boolean; data?: { id: string; name: string; }; error?: string; }> {
     try {
         if (!chatId) throw new Error("Chat ID is required.");

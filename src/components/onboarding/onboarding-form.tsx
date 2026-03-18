@@ -1,5 +1,6 @@
+
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -26,7 +27,7 @@ import { AppNumberInput } from '../ui/number-input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { Purchases } from '@revenuecat/purchases-capacitor'; // Import RevenueCat Purchases
+import { Purchases, PurchasesOffering, PurchasesPackage } from '@revenuecat/purchases-capacitor'; // Import RevenueCat Purchases types
 
 
 const onboardingSchema = z.object({
@@ -59,34 +60,50 @@ interface OnboardingFormProps {
     onFormSubmit: (data: any) => Promise<{success: boolean, error?: any}>;
 }
 
-const prices = {
-    'ad-free': { monthly: 1.99, yearly: 19.99 },
-    basic: { monthly: 4.99, yearly: 49.99 },
-    premium: { monthly: 7.99, yearly: 79.99 },
-    coaching: { monthly: 199.99, yearly: null },
-};
+// REMOVED: prices object entirely
+// REMOVED: productIds object entirely
 
-const productIds = {
-    'ad-free': {
-        monthly: { web: 'price_STRIPE_ADFREE_MONTHLY', android: 'ad_free_monthly' },
-        yearly: { web: 'price_STRIPE_ADFREE_YEARLY', android: 'ad_free_yearly' },
-    },
-    'basic': {
-        monthly: { web: 'price_STRIPE_BASIC_MONTHLY', android: 'basic_monthly' },
-        yearly: { web: 'price_STRIPE_BASIC_YEARLY', android: 'basic_yearly' },
-    },
-    'premium': {
-        monthly: { web: 'price_STRIPE_PREMIUM_MONTHLY', android: 'premium_monthly' },
-        yearly: { web: 'price_STRIPE_PREMIUM_YEARLY', android: 'premium_yearly' },
-    },
-    'coaching': {
-        monthly: { web: 'price_STRIPE_COACHING_MONTHLY', android: null },
-        yearly: { web: null, android: null },
-    },
-};
+type Tier = 'free' | 'ad-free' | 'basic' | 'premium' | 'coaching'
+  | 'Free' | 'AdFree' | 'Basic' | 'Premium' | 'Coaching'; // Ensure Tier matches UserTier
 
-type Tier = 'free' | 'ad-free' | 'basic' | 'premium' | 'coaching';
 type Platform = 'web' | 'android';
+
+// Map your internal UserTier and billing cycle to RevenueCat Package Identifiers
+// FIXED: Corrected keys to explicitly include both lowercase/kebab-case and PascalCase from UserTier type
+// NOTE: You MUST REPLACE THESE PLACEHOLDER IDs WITH YOUR ACTUAL REVENUECAT PACKAGE IDENTIFIERS.
+//       These are the `identifier` values you assign to packages in RevenueCat's dashboard.
+const revenueCatPackageMap: Record<Tier, { monthly?: string; yearly?: string; free?: string }> = {
+  // Lowercase/kebab-case keys for compatibility
+  'free': { free: 'your_rc_free_web_package_id' }, 
+  'ad-free': {
+    monthly: 'your_rc_ad_free_monthly_package_id',
+    yearly: 'your_rc_ad_free_yearly_package_id',
+  },
+  'basic': {
+    monthly: 'your_rc_basic_monthly_package_id',
+    yearly: 'your_rc_basic_yearly_package_id',
+  },
+  'premium': {
+    monthly: 'your_rc_premium_monthly_package_id',
+    yearly: 'your_rc_premium_yearly_package_id',
+  },
+  'coaching': {}, 
+  // PascalCase keys for full UserTier compatibility
+  'Free': { free: 'your_rc_free_web_package_id' }, 
+  'AdFree': {
+    monthly: 'your_rc_ad_free_monthly_package_id',
+    yearly: 'your_rc_ad_free_yearly_package_id',
+  },
+  'Basic': {
+    monthly: 'your_rc_basic_monthly_package_id',
+    yearly: 'your_rc_basic_yearly_package_id',
+  },
+  'Premium': {
+    monthly: 'your_rc_premium_monthly_package_id',
+    yearly: 'your_rc_premium_yearly_package_id',
+  },
+  'Coaching': {}, 
+};
 
 const FeatureListItem = ({ children }: { children: React.ReactNode }) => (
     <li className="flex items-start">
@@ -103,12 +120,33 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
     const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
     const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
     const [platform, setPlatform] = useState<Platform>('web');
+    const [currentOffering, setCurrentOffering] = useState<PurchasesOffering | null>(null); // ADDED: State to store current offering
 
+    // ADDED: Fetch offerings on component mount
     useEffect(() => {
-        if (typeof window !== 'undefined' && (window as any).androidBridge) {
-            setPlatform('android');
-        }
-    }, []);
+        const fetchOfferings = async () => {
+            try {
+                if (typeof window !== 'undefined' && (window as any).androidBridge) {
+                    setPlatform('android');
+                } else { // Assume web if not androidBridge
+                    setPlatform('web');
+                }
+                const offerings = await Purchases.getOfferings();
+                if (offerings.current) {
+                    setCurrentOffering(offerings.current);
+                } else {
+                    toast({ variant: 'destructive', title: 'Error', description: "No current RevenueCat offering found." });
+                }
+            } catch (error) {
+                console.error("Error fetching RevenueCat offerings:", error);
+                toast({ variant: 'destructive', title: 'Error', description: "Failed to load subscription plans." });
+            } finally {
+                // Even if loading fails, we want to allow user to try free or contact for coaching
+                // setIsLoading(false); // Do not set false here, as purchase flow sets it.
+            }
+        };
+        fetchOfferings();
+    }, [toast]);
 
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),
@@ -151,38 +189,87 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
         setStep(s => s - 1);
     };
 
-    // MODIFIED: handleAndroidPurchase to use RevenueCat
-    const handleAndroidPurchase = async (revenueCatPackageIdentifier: string | null) => {
-        if (!revenueCatPackageIdentifier) {
-            toast({ title: "Not Available", description: "This plan is not configured for in-app purchase.", variant: "destructive" });
-            return;
+    // ADDED: getPackagePrice function to retrieve price from offerings
+    const getPackagePrice = useCallback((tier: Tier, cycle: 'monthly' | 'yearly' | 'free') => {
+        if (!currentOffering) return null;
+
+        // Dynamically select the correct map entry based on `tier`'s casing
+        const tierKey = (tier === 'free' || tier === 'Free') ? 'Free' : 
+                        (tier === 'ad-free' || tier === 'AdFree') ? 'AdFree' : 
+                        (tier === 'basic' || tier === 'Basic') ? 'Basic' : 
+                        (tier === 'premium' || tier === 'Premium') ? 'Premium' : null; 
+        
+        if (!tierKey) return null; // Should not happen with correct Tier input
+
+        let desiredPackageIdentifier: string | undefined;
+        if (tierKey === 'Free') {
+            desiredPackageIdentifier = revenueCatPackageMap[tierKey]?.free;
+        } else {
+            desiredPackageIdentifier = revenueCatPackageMap[tierKey]?.[cycle as 'monthly' | 'yearly'];
         }
+        
+        if (!desiredPackageIdentifier) return null;
+
+        const foundPackage = currentOffering.availablePackages.find(pkg => pkg.identifier === desiredPackageIdentifier);
+        // FIXED: Changed currency_code to currencyCode
+        return foundPackage ? `${foundPackage.product.currencyCode} ${foundPackage.product.price}` : null;
+    }, [currentOffering]);
+
+    const handlePurchase = async (tier: Tier, billingCycle: 'monthly' | 'yearly' | 'free') => {
         setIsLoading(true);
+        setSelectedTier(tier); // Set selected tier for loading state
+
         try {
-            // 1. Get current offerings from RevenueCat
-            const offerings = await Purchases.getOfferings();
-            
-            // 2. Find the correct package using the identifier (which should match your productIds.android SKUs)
-            let packageToPurchase;
-            for (const offeringId in offerings.all) {
-                const offering = offerings.all[offeringId];
-                packageToPurchase = offering.availablePackages.find(pkg => pkg.identifier === revenueCatPackageIdentifier);
-                if (packageToPurchase) break;
+            if (!currentOffering) {
+                throw new Error("RevenueCat offerings not loaded.");
+            }
+
+            let desiredPackageIdentifier: string | undefined;
+            // Dynamically select the correct map entry based on `tier`'s casing
+            const tierKey = (tier === 'free' || tier === 'Free') ? 'Free' : 
+                            (tier === 'ad-free' || tier === 'AdFree') ? 'AdFree' : 
+                            (tier === 'basic' || tier === 'Basic') ? 'Basic' : 
+                            (tier === 'premium' || tier === 'Premium') ? 'Premium' : null; 
+
+            if (!tierKey) {
+                throw new Error(`Invalid tier: ${tier} for package mapping.`);
+            }
+
+            if (tierKey === 'Free') {
+                desiredPackageIdentifier = revenueCatPackageMap[tierKey]?.free;
+            } else {
+                desiredPackageIdentifier = revenueCatPackageMap[tierKey]?.[billingCycle as 'monthly' | 'yearly'];
+            }
+
+            if (!desiredPackageIdentifier) {
+                throw new Error(`No RevenueCat package mapped for tier: ${tier} and cycle: ${billingCycle}`);
+            }
+
+            let packageToPurchase: PurchasesPackage | undefined;
+            for (const offeringPackage of currentOffering.availablePackages) {
+                if (offeringPackage.identifier === desiredPackageIdentifier) {
+                    packageToPurchase = offeringPackage;
+                    break;
+                }
             }
 
             if (!packageToPurchase) {
-                throw new Error(`RevenueCat package '${revenueCatPackageIdentifier}' not found in current offerings.`);
+                throw new Error(`RevenueCat package '${desiredPackageIdentifier}' not found in current offering.`);
             }
 
-            // 3. Initiate the purchase via RevenueCat
             const { customerInfo } = await Purchases.purchasePackage({ aPackage: packageToPurchase });
 
-            // 4. Check entitlements - RevenueCat handles Google Play's purchase flow and verification
-            // Your backend webhook will also receive this and update Firestore.
-            if (customerInfo.entitlements.active['premium_access'] || customerInfo.entitlements.active['basic_access'] || customerInfo.entitlements.active['ad_free_access']) { // Adjust entitlements as per your RC config
+            if (Object.keys(customerInfo.entitlements.active).length > 0 || tierKey === 'Free') { 
                 toast({ title: "Purchase Successful!", description: "Your subscription is now active." });
-                // After a successful purchase, navigate to login since unifiedSignupAction is not called for RC paid tiers
-                router.push('/login');
+                
+                const values = form.getValues();
+                const submissionData = {
+                    ...values,
+                    tier: tier,
+                    billingCycle: billingCycle,
+                };
+                await onFormSubmit(submissionData); 
+                router.push('/login'); 
             } else {
                 toast({ title: "Purchase Completed", description: "Please check your subscription status.", variant: "default" });
             }
@@ -197,57 +284,29 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
             }
             toast({ title: "Purchase Failed", description: errorMessage, variant: "destructive" });
         } finally {
-            setIsLoading(false); // Reset loading state
+            setIsLoading(false);
         }
-    };
-
-    const handleSubscriptionClick = async (tier: Tier) => {
-        setIsLoading(true);
-        setSelectedTier(tier);
-        
-        const finalBillingCycle = tier === 'coaching' ? 'monthly' : billingCycle;
-        const values = form.getValues();
-        
-        let priceId: string | null = null;
-        if (tier !== 'free') {
-            priceId = productIds[tier][finalBillingCycle]?.web || null;
-        }
-
-        const submissionData = {
-            ...values,
-            tier: tier,
-            billingCycle: finalBillingCycle,
-            priceId, // Pass the Stripe Price ID to the server
-        };
-        
-        await onFormSubmit(submissionData);
-        // We don't set loading to false because we expect a redirect or login.
-    };
-    
-    const handleContactCoach = () => {
-        window.location.href = "mailto:support@yourapp.com?subject=Coaching Inquiry";
     };
 
     const handleButtonClick = (tier: Tier) => {
-        const finalBillingCycle = tier === 'coaching' ? 'monthly' : billingCycle;
-
-        if (platform === 'android') {
-            if (tier === 'coaching') {
-                handleContactCoach();
-                return;
-            }
-            if (tier === 'free') {
-                 // Handle free tier sign up on Android - this still goes through unifiedSignupAction
-                 handleSubscriptionClick('free');
-                 return;
-            }
-            // For paid Android tiers, use RevenueCat's purchase logic
-            const revenueCatPackageIdentifier = productIds[tier][finalBillingCycle]?.android || null;
-            handleAndroidPurchase(revenueCatPackageIdentifier); 
-        } else {
-            // For web platform, continue using Stripe via handleSubscriptionClick
-            handleSubscriptionClick(tier);
+        if (tier === 'coaching' || tier === 'Coaching') { // FIXED: Compare with both casing options
+            window.location.href = "mailto:support@yourapp.com?subject=Coaching Inquiry";
+            return;
         }
+
+        const finalBillingCycle = (tier === 'free' || tier === 'Free') ? 'free' : billingCycle; // FIXED: Compare with both casing options
+        handlePurchase(tier, finalBillingCycle);
+    };
+
+    // ADDED: renderPrice helper function for JSX
+    const renderPrice = (tier: Tier, cycle: 'monthly' | 'yearly') => {
+        const price = getPackagePrice(tier, cycle);
+        if (!currentOffering) { // Show loading state if offerings are not yet loaded
+            return <p className="text-3xl font-bold">Loading...</p>;
+        }
+        return price ? 
+            <p className="text-3xl font-bold">{price} <span className="text-lg font-normal text-muted-foreground">/ {cycle === 'monthly' ? 'mo' : 'yr'}</span></p> : 
+            <p className="text-3xl font-bold">Not Available</p>;
     };
 
     return (
@@ -269,7 +328,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                             <h3 className="font-semibold text-lg">Account Details</h3>
                              <FormField control={form.control} name="fullName" render={({ field }) => (<FormItem><FormLabel>Full Name</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} /></FormControl><FormMessage /></FormItem>)} />
                             <FormField control={form.control} name="email" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input placeholder="you@example.com" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                            <FormField control={form.control} name="password" render={({ field }) => (<FormItem><FormLabel>Password</FormLabel><FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                            <FormField control={form.control} name="password" render={({ field }) => (<FormItem><FormLabel>Password</FormLabel><FormControl><Input type="password" {...field} /></FormControl><FormMessage /></FormItem>)} />
                         </div>
                     )}
                     {step === 2 && (
@@ -309,62 +368,73 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                 <Label htmlFor="billing-cycle">Yearly</Label>
                             </div>
                             <div className={cn("gap-4", billingCycle === 'monthly' ? "grid grid-cols-1 lg:grid-cols-3" : "grid grid-cols-1 justify-items-center")}>
-                                {billingCycle === 'monthly' && (
-                                    <Card className="flex flex-col">
-                                        <CardHeader><CardTitle>Free</CardTitle><CardDescription>Build lasting habits with essential tracking tools. Ad-supported.</CardDescription></CardHeader>
-                                        <CardContent className="flex-grow space-y-4">
-                                            <p className="text-3xl font-bold">Free</p>
-                                            <ul className="space-y-2">
-                                                <FeatureListItem>Log meals with UPF% & Gluten-Free insights</FeatureListItem>
-                                                <FeatureListItem>Track hydration, sleep, and activity</FeatureListItem>
-                                                <FeatureListItem>Basic data summaries</FeatureListItem>
-                                            </ul>
-                                        </CardContent>
-                                        <CardFooter><Button className="w-full" onClick={() => handleButtonClick('free')} disabled={isLoading}>{isLoading && selectedTier === 'free'? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Sign Up Free'}</Button></CardFooter>
-                                    </Card>
-                                )}
+                                {/* Free Tier Card - Always visible, but only 'Sign Up Free' button works for web age verification */}
+                                <Card className="flex flex-col">
+                                    <CardHeader><CardTitle>Free</CardTitle><CardDescription>Build lasting habits with essential tracking tools. Ad-supported.</CardDescription></CardHeader>
+                                    <CardContent className="flex-grow space-y-4">
+                                        <p className="text-3xl font-bold">Free</p>
+                                        <ul className="space-y-2">
+                                            <FeatureListItem>Log meals with UPF% & Gluten-Free insights</FeatureListItem>
+                                            <FeatureListItem>Track hydration, sleep, and activity</FeatureListItem>
+                                            <FeatureListItem>Basic data summaries</FeatureListItem>
+                                        </ul>
+                                    </CardContent>
+                                    <CardFooter>
+                                        <Button className="w-full" onClick={() => handleButtonClick('Free')} disabled={isLoading && selectedTier === 'Free'}>
+                                            {isLoading && selectedTier === 'Free' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Sign Up Free'}
+                                        </Button>
+                                    </CardFooter>
+                                </Card>
 
+                                {/* Ad-Free Card */}
                                 <Card className={cn("flex flex-col", billingCycle === 'yearly' && "w-full max-w-md")}>
                                     <CardHeader><CardTitle>Ad-Free</CardTitle><CardDescription>Focus on your goals with an uninterrupted, ad-free experience.</CardDescription></CardHeader>
                                     <CardContent className="flex-grow space-y-4">
-                                        <p className="text-3xl font-bold">${prices['ad-free'][billingCycle]} <span className="text-lg font-normal text-muted-foreground">/ {billingCycle === 'monthly' ? 'mo' : 'yr'}</span></p>
+                                        {renderPrice('AdFree', billingCycle)} 
                                         <ul className="space-y-2"><FeatureListItem>All features from the Free plan</FeatureListItem><FeatureListItem>A completely ad-free experience</FeatureListItem></ul>
                                     </CardContent>
-                                    <CardFooter><Button className="w-full" onClick={() => handleButtonClick('ad-free')} disabled={isLoading}>{isLoading && selectedTier === 'ad-free' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
+                                    <CardFooter><Button className="w-full" onClick={() => handleButtonClick('AdFree')} disabled={isLoading && selectedTier === 'AdFree'}>
+                                        {isLoading && selectedTier === 'AdFree' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}
+                                    </Button></CardFooter>
                                 </Card>
 
+                                {/* Basic Card */}
                                 <Card className={cn("flex flex-col", billingCycle === 'yearly' && "w-full max-w-md")}>
                                     <CardHeader><CardTitle>Basic</CardTitle><CardDescription>Unlock powerful insights and track all aspects of your health.</CardDescription></CardHeader>
                                     <CardContent className="flex-grow space-y-4">
-                                        <p className="text-3xl font-bold">${prices.basic[billingCycle]} <span className="text-lg font-normal text-muted-foreground">/ {billingCycle === 'monthly' ? 'mo' : 'yr'}</span></p>
+                                        {renderPrice('Basic', billingCycle)} 
                                         <ul className="space-y-2"><FeatureListItem>Everything in Ad-Free</FeatureListItem><FeatureListItem>Track Stress, Cravings, and Binges</FeatureListItem><FeatureListItem>Analyze trends in Weight and WtHR</FeatureListItem><FeatureListItem>Enable smart hydration reminders</FeatureListItem></ul>
                                     </CardContent>
-                                    <CardFooter><Button className="w-full" onClick={() => handleButtonClick('basic')} disabled={isLoading}>{isLoading && selectedTier === 'basic' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
+                                    <CardFooter><Button className="w-full" onClick={() => handleButtonClick('Basic')} disabled={isLoading && selectedTier === 'Basic'}>
+                                        {isLoading && selectedTier === 'Basic' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}
+                                    </Button></CardFooter>
                                 </Card>
 
+                                {/* Premium Card */}
                                 <Card className={cn("border-primary flex flex-col", billingCycle === 'yearly' && "w-full max-w-md")}>
                                     <CardHeader><CardTitle>Premium</CardTitle><CardDescription>Access exclusive content and join our vibrant community.</CardDescription></CardHeader>
                                     <CardContent className="flex-grow space-y-4">
-                                        <p className="text-3xl font-bold">${prices.premium[billingCycle]} <span className="text-lg font-normal text-muted-foreground">/ {billingCycle === 'monthly' ? 'mo' : 'yr'}</span></p>
+                                        {renderPrice('Premium', billingCycle)} 
                                         <ul className="space-y-2"><FeatureListItem>Everything in Basic</FeatureListItem><FeatureListItem>Full access to all workout programs</FeatureListItem><FeatureListItem>Join live events, Q&As & workouts</FeatureListItem><FeatureListItem>Participate in community challenges & chats</FeatureListItem></ul>
                                     </CardContent>
-                                    <CardFooter><Button className="w-full" onClick={() => handleButtonClick('premium')} disabled={isLoading}>{isLoading && selectedTier === 'premium' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}</Button></CardFooter>
+                                    <CardFooter><Button className="w-full" onClick={() => handleButtonClick('Premium')} disabled={isLoading && selectedTier === 'Premium'}>
+                                        {isLoading && selectedTier === 'Premium' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Subscribe'}
+                                    </Button></CardFooter>
                                 </Card>
 
-                                {billingCycle === 'monthly' && (
-                                     <Card className="flex flex-col lg:col-span-2">
-                                        <CardHeader><CardTitle>Coaching</CardTitle><CardDescription>The ultimate accountability partnership for transformative results.</CardDescription></CardHeader>
-                                        <CardContent className="flex-grow space-y-4">
-                                             <p className="text-3xl font-bold">{prices.coaching.monthly ? `$${prices.coaching.monthly}` : 'Contact Us'} <span className="text-lg font-normal text-muted-foreground">/ mo</span></p>
-                                            <ul className="space-y-2"><FeatureListItem>All Premium features</FeatureListItem><FeatureListItem>Personalized one-on-one coaching</FeatureListItem><FeatureListItem>Daily check-ins & direct messaging</FeatureListItem><FeatureListItem>Weekly one-on-one video conferences</FeatureListItem></ul>
-                                        </CardContent>
-                                        <CardFooter>
-                                            <Button className="w-full" onClick={() => handleButtonClick('coaching')} disabled={isLoading && selectedTier === 'coaching'}>
-                                                {isLoading && selectedTier === 'coaching' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (platform === 'android' ? 'Contact for Info' : 'Subscribe')}
-                                            </Button>
-                                        </CardFooter>
-                                    </Card>
-                                )}
+                                {/* Coaching Card - Always visible, but as a contact option */}
+                                <Card className="flex flex-col lg:col-span-2">
+                                    <CardHeader><CardTitle>Coaching</CardTitle><CardDescription>The ultimate accountability partnership for transformative results.</CardDescription></CardHeader>
+                                    <CardContent className="flex-grow space-y-4">
+                                        <p className="text-3xl font-bold">Contact Us</p>
+                                        <ul className="space-y-2"><FeatureListItem>All Premium features</FeatureListItem><FeatureListItem>Personalized one-on-one coaching</FeatureListItem><FeatureListItem>Daily check-ins & direct messaging</FeatureListItem><FeatureListItem>Weekly one-on-one video conferences</FeatureListItem></ul>
+                                    </CardContent>
+                                    <CardFooter>
+                                        <Button className="w-full" onClick={() => handleButtonClick('Coaching')}> 
+                                            Contact for Services 
+                                        </Button>
+                                    </CardFooter>
+                                </Card>
                             </div>
                         </div>
                     )}

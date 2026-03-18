@@ -1,10 +1,10 @@
 'use server';
 
-import { db as adminDb, auth as adminAuth } from '@/lib/firebaseAdmin';
+import { admin, db as adminDb, auth as adminAuth } from '@/lib/firebaseAdmin'; // FIXED: Added admin import
 import type { ClientProfile } from '@/types';
-import { uploadImageAction } from '@/app/coach/actions';
+// REMOVED: import { uploadImageAction } from '@/app/coach/actions'; // This import is no longer needed here
 import { calculateNutritionalGoals } from '@/services/goals';
-import Stripe from 'stripe';
+// REMOVED: import Stripe from 'stripe';
 
 // Inlined type definitions to avoid client-side module errors
 export interface TrackingSettings {
@@ -31,126 +31,22 @@ export interface NutritionalGoals {
     tdee?: number;
 }
 
-const stripe = new Stripe(process.env.STRIPE_API_KEY!, {
-    apiVersion: '2024-04-10',
-});
+// REMOVED: const stripe = new Stripe(process.env.STRIPE_API_KEY!, {...});
 
 
-/**
- * Creates a Stripe Checkout session to allow a user to start a new subscription.
- * This function now supports both 'monthly' and 'yearly' billing cycles.
- */
-export async function createStripeCheckoutSession(
-    clientId: string,
-    tier: 'ad-free' | 'basic' | 'premium' | 'coaching',
-    billingCycle: 'monthly' | 'yearly'
-): Promise<{ url?: string; error?: string; }> {
-    try {
-        if (!clientId) throw new Error("Client ID is required.");
-
-        const clientRef = adminDb.collection('clients').doc(clientId);
-        const clientSnap = await clientRef.get();
-        if (!clientSnap.exists) throw new Error("Client profile not found.");
-
-        const clientData = clientSnap.data() as ClientProfile;
-        const stripeCustomerId = clientData.stripeCustomerId;
-        if (!stripeCustomerId) throw new Error("Stripe customer ID not found for this client.");
-
-        let priceId: string | undefined;
-
-        if (billingCycle === 'monthly') {
-            switch (tier) {
-                case 'ad-free': priceId = process.env.STRIPE_AD_FREE_MONTHLY_PRICE_ID; break;
-                case 'basic': priceId = process.env.STRIPE_BASIC_MONTHLY_PRICE_ID; break;
-                case 'premium': priceId = process.env.STRIPE_PREMIUM_MONTHLY_PRICE_ID; break;
-                case 'coaching': priceId = process.env.STRIPE_COACHING_MONTHLY_PRICE_ID; break;
-            }
-        } else { // yearly
-            switch (tier) {
-                case 'ad-free': priceId = process.env.STRIPE_AD_FREE_YEARLY_PRICE_ID; break;
-                case 'basic': priceId = process.env.STRIPE_BASIC_YEARLY_PRICE_ID; break;
-                case 'premium': priceId = process.env.STRIPE_PREMIUM_YEARLY_PRICE_ID; break;
-                case 'coaching': priceId = process.env.STRIPE_COACHING_YEARLY_PRICE_ID; break;
-            }
-        }
+// REMOVED: /**
+// REMOVED:  * Creates a Stripe Checkout session to allow a user to start a new subscription.
+// REMOVED:  * This function now supports both 'monthly' and 'yearly' billing cycles.
+// REMOVED:  */
+// REMOVED: export async function createStripeCheckoutSession(...): Promise<{ url?: string; error?: string; }> {...}
 
 
-        if (!priceId) throw new Error(`Price ID for tier "${tier}" with billing cycle "${billingCycle}" is not configured in environment variables.`);
-        
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-        
-        const checkoutSession = await stripe.checkout.sessions.create({
-            customer: stripeCustomerId,
-            line_items: [{
-                price: priceId,
-                quantity: 1,
-            }],
-            mode: 'subscription',
-            success_url: `${baseUrl}/client/dashboard?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${baseUrl}/client/dashboard`,
-        });
 
-        if (!checkoutSession.url) throw new Error("Could not create Stripe checkout session.");
-        
-        return { url: checkoutSession.url };
-        
-    } catch (error: any) {
-        console.error("Error creating Stripe checkout session:", error);
-        return { error: error.message };
-    }
-}
-
-
-/**
- * Creates a Stripe Customer Portal session and returns the URL.
- * Creates a Stripe Customer if one doesn't exist.
- */
-export async function createStripePortalSession(clientId: string): Promise<{ url?: string; error?: string; }> {
-    try {
-        const clientRef = adminDb.collection('clients').doc(clientId);
-        const clientSnap = await clientRef.get();
-
-        if (!clientSnap.exists) {
-            throw new Error("Client profile not found.");
-        }
-
-        const portalConfigId = process.env.STRIPE_PORTAL_CONFIG_ID;
-        if (!portalConfigId) {
-            console.error('[PORTAL_ACTION] CRITICAL SERVER MISCONFIGURATION: STRIPE_PORTAL_CONFIG_ID is not set.');
-            return { error: 'Server configuration error. Please contact support.' };
-        }
-
-        const clientData = clientSnap.data() as ClientProfile;
-        let stripeCustomerId = clientData.stripeCustomerId;
-
-        // If the user doesn't have a Stripe Customer ID, create one.
-        if (!stripeCustomerId) {
-            const customer = await stripe.customers.create({
-                email: clientData.email,
-                name: clientData.fullName,
-                metadata: {
-                    firebaseUID: clientId,
-                },
-            });
-            stripeCustomerId = customer.id;
-            await clientRef.update({ stripeCustomerId });
-        }
-
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-
-        const portalSession = await stripe.billingPortal.sessions.create({
-            customer: stripeCustomerId,
-            return_url: `${baseUrl}/client/dashboard`,
-            configuration: portalConfigId,
-        });
-
-        return { url: portalSession.url };
-
-    } catch (error: any) {
-        console.error("Error creating Stripe portal session:", error);
-        return { error: error.message };
-    }
-}
+// REMOVED: /**
+// REMOVED:  * Creates a Stripe Customer Portal session and returns the URL.
+// REMOVED:  * Creates a Stripe Customer if one doesn't exist.
+// REMOVED:  */
+// REMOVED: export async function createStripePortalSession(clientId: string): Promise<{ url?: string; error?: string; }> {...}
 
 
 /**
@@ -273,17 +169,23 @@ export async function updateUserProfileAction(uid: string, data: { fullName?: st
         let finalPhotoUrl = photoURL;
 
         if (finalPhotoUrl && finalPhotoUrl.startsWith('data:image')) {
-            const formData = new FormData();
-            const response = await fetch(finalPhotoUrl);
-            const blob = await response.blob();
-            formData.append('file', blob, 'profile-picture');
+            // Extract MIME type and base64 data
+            const mimeType = finalPhotoUrl.substring(finalPhotoUrl.indexOf(':') + 1, finalPhotoUrl.indexOf(';'));
+            const base64Data = finalPhotoUrl.split(',')[1];
+            const imageBuffer = Buffer.from(base64Data, 'base64');
 
-            const uploadResult = await uploadImageAction(formData);
-            if (uploadResult.success && uploadResult.url) {
-                finalPhotoUrl = uploadResult.url;
-            } else {
-                throw new Error(uploadResult.error || 'Failed to upload new profile picture.');
-            }
+            // FIX: Correctly access admin.storage()
+            const bucket = admin.storage().bucket(); 
+            const filePath = `profile-pictures/${uid}/${Date.now()}-profile-pic.${mimeType.split('/')[1]}`;
+            const fileRef = bucket.file(filePath);
+
+            await fileRef.save(imageBuffer, {
+                metadata: { contentType: mimeType },
+                public: true, // Make the file publicly accessible
+            });
+            
+            // Get the public URL of the uploaded image
+            finalPhotoUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media`;
         }
 
         const authUpdatePayload: any = {};

@@ -11,7 +11,7 @@
 - Biometric Tracking: Weight, waist circumference, waist-to-height ratio, and BMI tracking with trend analysis.
 - Unit System Support: Supports imperial and metric units, automatic conversions, and preference settings.
 - Coach Platform: Dashboard for client management, goal setting, progress tracking, and direct messaging.
-- Payment Processing: Integrates Stripe for secure payment processing, subscription management, and revenue tracking.
+- Payment Processing: Integrates RevenueCat for secure payment processing, subscription management, and revenue tracking.
 - Challenges System: Community challenges, progress sharing, leaderboards, and reward system.
 - Messaging Platform: Direct coach-client messaging, group conversations, and automated check-ins.
 - Comprehensive Insights: Trend analysis with visualizations, correlations, and predictive analytics.

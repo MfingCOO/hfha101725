@@ -70,13 +70,11 @@ export default function PrivacyPage() {
                 <li><strong>Google AdMob:</strong> To serve advertisements in our app.</li>
                 <li><strong>Google Analytics for Firebase:</strong> For app usage analytics and reporting.</li>
                 <li><strong>Firebase Authentication, Firestore, Cloud Functions:</strong> To provide core backend infrastructure, including database, authentication, and serverless functions.</li>
-                <li><strong>Google Play Billing:</strong> To process in-app subscriptions and payments made through the Google Play Store.</li>
               </ul>
               <p className="pt-2">By using our App, you agree to be bound by Google's Privacy Policy, which can be found here: <a href="https://policies.google.com/privacy" className="text-blue-500 hover:underline">https://policies.google.com/privacy</a></p>
             </li>
-            <li className="pt-2">
-              <strong>Stripe:</strong> We use Stripe to process payments made outside the app (e.g., on our website). We do not store your full payment card details on our servers.
-              <p className="pt-2">You can review Stripe's Privacy Policy here: <a href="https://stripe.com/privacy" className="text-blue-500 hover:underline">https://stripe.com/privacy</a></p>
+            <li>
+              <strong>RevenueCat:</strong> We utilize RevenueCat to manage and process all subscriptions and payments, both in-app and on our website. RevenueCat acts as an intermediary, using Google Play Billing for Android in-app purchases and Stripe for web-based purchases. We do not directly store your full payment card details on our servers. You can review RevenueCat's Privacy Policy here: <a href="https://www.revenuecat.com/privacy" className="text-blue-500 hover:underline">https://www.revenuecat.com/privacy</a>
             </li>
           </ul>
         </section>

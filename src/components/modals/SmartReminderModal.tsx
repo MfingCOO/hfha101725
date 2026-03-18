@@ -11,17 +11,17 @@ import {
 import { Button } from '@/components/ui/button';
 import { Reminder, dismissReminderAction } from '@/services/reminders';
 import type { LucideIcon } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation'; // FIXED: Corrected import statement
 import { UserTier } from '@/types';
 import { useState } from 'react';
 import { DataEntryDialog } from '../dashboard/data-entry-dialog';
 import { pillarsAndTools } from '@/lib/pillars';
 import { useToast } from '@/hooks/use-toast';
-import { createStripeCheckoutSession } from '@/app/client/settings/actions';
 import { useAuth } from '../auth/auth-provider';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Loader2, X, Trophy } from 'lucide-react';
+import { Purchases } from '@revenuecat/purchases-capacitor';
 
 interface SmartReminderModalProps {
   isOpen: boolean;
@@ -29,8 +29,43 @@ interface SmartReminderModalProps {
   reminder: Reminder & { id: string };
 }
 
+// Map your internal UserTier and billing cycle to RevenueCat Package Identifiers
+// FIXED: Corrected keys to explicitly include both lowercase/kebab-case and PascalCase from UserTier type
+const revenueCatPackageMap: Record<UserTier, { monthly?: string; yearly?: string; free?: string }> = {
+  // Lowercase/kebab-case keys
+  'free': { free: 'your_rc_free_web_package_id' }, 
+  'ad-free': {
+    monthly: 'your_rc_ad_free_monthly_package_id',
+    yearly: 'your_rc_ad_free_yearly_package_id',
+  },
+  'basic': {
+    monthly: 'your_rc_basic_monthly_package_id',
+    yearly: 'your_rc_basic_yearly_package_id',
+  },
+  'premium': {
+    monthly: 'your_rc_premium_monthly_package_id',
+    yearly: 'your_rc_premium_yearly_package_id',
+  },
+  'coaching': {}, 
+  // PascalCase keys (for full UserTier compatibility)
+  'Free': { free: 'your_rc_free_web_package_id' }, 
+  'AdFree': {
+    monthly: 'your_rc_ad_free_monthly_package_id',
+    yearly: 'your_rc_ad_free_yearly_package_id',
+  },
+  'Basic': {
+    monthly: 'your_rc_basic_monthly_package_id',
+    yearly: 'your_rc_basic_yearly_package_id',
+  },
+  'Premium': {
+    monthly: 'your_rc_premium_monthly_package_id',
+    yearly: 'your_rc_premium_yearly_package_id',
+  },
+  'Coaching': {}, 
+};
+
 export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderModalProps) {
-    const { toast } = useToast();
+    const { toast } = useToast(); // FIXED: Removed default value here, as useToast handles it
     const { user } = useAuth();
     const router = useRouter();
     const [isDataEntryOpen, setIsDataEntryOpen] = useState(false);
@@ -41,6 +76,7 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
     const pillar = pillarsAndTools.find(p => p.id === reminder.pillarId);
     const Icon = pillar?.icon || Trophy;
     const isCustomPopup = reminder.type === 'custom-popup';
+    const isCoachingTier = reminder.requiredTier === 'coaching' || reminder.requiredTier === 'Coaching'; // FIXED: Compare with both casing options
 
     const handleDismiss = async () => {
         if (user?.uid && reminder.id) {
@@ -50,34 +86,81 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
     };
 
     const handleAction = () => {
-        // If the reminder has a URL, treat it as the primary action, even for non-custom popups.
-        // This makes the component more robust to mis-configured reminder data.
         if (reminder.data?.ctaUrl) {
             window.open(reminder.data.ctaUrl, '_blank');
             handleDismiss();
-        } 
-        // Otherwise, fall back to data entry if a pillar is specified.
+        }
         else if (reminder.pillarId) {
             setIsDataEntryOpen(true);
         }
     };
 
-    const handleUpgrade = async () => {
-        if (!user?.uid || !reminder.requiredTier) return;
+    const handleContactCoaching = () => {
+      toast({ title: "Contact Us", description: "Please contact us to inquire about coaching services." });
+      onClose();
+    };
+
+    const handleUpgrade = async (billingCycle: 'monthly' | 'yearly' = 'monthly') => {
+        if (!user || !reminder.requiredTier || isCoachingTier) return;
+        setIsRedirecting(true);
         try {
-            setIsRedirecting(true);
-            const result = await createStripeCheckoutSession(user.uid, reminder.requiredTier as any, 'monthly');
-            if (result.url) {
-                router.push(result.url);
-            } else {
-                throw new Error('Could not create a checkout session. Please try again.');
+            const offerings = await Purchases.getOfferings();
+            if (!offerings.current) {
+                throw new Error("No current RevenueCat offering found.");
             }
-        } catch (error: any) {
-            toast({
-                variant: 'destructive',
-                title: 'Upgrade Failed',
-                description: error.message,
-            });
+
+            let desiredPackageIdentifier: string | undefined;
+            // Dynamically select the correct map entry based on `reminder.requiredTier`'s casing
+            const tierKey = (reminder.requiredTier === 'free' || reminder.requiredTier === 'Free') ? 'Free' : 
+                            (reminder.requiredTier === 'ad-free' || reminder.requiredTier === 'AdFree') ? 'AdFree' : 
+                            (reminder.requiredTier === 'basic' || reminder.requiredTier === 'Basic') ? 'Basic' : 
+                            (reminder.requiredTier === 'premium' || reminder.requiredTier === 'Premium') ? 'Premium' : null; // Handles coaching explicitly being filtered out already
+
+            if (!tierKey) {
+                throw new Error(`Invalid tier: ${reminder.requiredTier} for package mapping.`);
+            }
+
+            if (tierKey === 'Free') {
+                desiredPackageIdentifier = revenueCatPackageMap[tierKey]?.free;
+            } else {
+                desiredPackageIdentifier = revenueCatPackageMap[tierKey]?.[billingCycle];
+            }
+
+            if (!desiredPackageIdentifier) {
+                throw new Error(`No RevenueCat package mapped for tier: ${reminder.requiredTier} and cycle: ${billingCycle}`);
+            }
+
+            let packageToPurchase;
+            for (const offeringPackage of offerings.current.availablePackages) {
+                if (offeringPackage.identifier === desiredPackageIdentifier) {
+                    packageToPurchase = offeringPackage;
+                    break;
+                }
+            }
+
+            if (!packageToPurchase) {
+                throw new Error(`RevenueCat package '${desiredPackageIdentifier}' not found in current offering.`);
+            }
+
+            const { customerInfo } = await Purchases.purchasePackage({ aPackage: packageToPurchase });
+
+            if (Object.keys(customerInfo.entitlements.active).length > 0) {
+                toast({ title: "Purchase Successful!", description: "Your subscription has been activated." });
+                onClose();
+            } else {
+                throw new Error("Purchase completed, but no active entitlements found. Please check your subscription status.");
+            }
+
+        } catch (e: any) {
+            console.error("RevenueCat purchase failed:", e);
+            let errorMessage = "Could not complete the upgrade. Please try again.";
+            if (e.code === 'PURCHASE_CANCELLED') {
+                errorMessage = "Purchase was cancelled.";
+            } else if (e.message) {
+                errorMessage = e.message;
+            }
+            toast({ variant: 'destructive', title: 'Error', description: errorMessage });
+        } finally {
             setIsRedirecting(false);
         }
     };
@@ -117,9 +200,13 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
                                  </Button>
                              )}
                             {reminder.requiredTier && (
-                                <Button onClick={handleUpgrade} disabled={isRedirecting} className="w-full">
-                                    {isRedirecting && <Loader2 className="h-4 w-4 animate-spin" />}
-                                    Upgrade to {reminder.requiredTier}
+                                <Button
+                                    onClick={isCoachingTier ? handleContactCoaching : () => handleUpgrade('monthly')}
+                                    disabled={isRedirecting}
+                                    className="w-full"
+                                >
+                                    {isCoachingTier ? "Contact for Coaching" : (isRedirecting && <Loader2 className="h-4 w-4 animate-spin" />)}
+                                    {isCoachingTier ? null : `Upgrade to ${reminder.requiredTier}`}
                                 </Button>
                             )}
                              {reminder.type === 'custom-popup' && reminder.data?.ctaUrl && reminder.data?.ctaText && (

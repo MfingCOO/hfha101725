@@ -127,7 +127,6 @@ export interface ClientProfile {
     coachId?: string;
     challengeIds?: string[];
     activeProgramId?: string; 
-    stripeCustomerId?: string | null;
     createdAt?: any;
     suggestedGoals?: NutritionalGoals;
     height?: {

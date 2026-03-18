@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/components/auth/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Send, Paperclip, XCircle, FileText, Trash2, Flag } from 'lucide-react';
+import { Loader2, Send, Paperclip, XCircle, FileText, Trash2, Flag, Camera, Image as ImageIcon } from 'lucide-react'; // ADDED Camera and ImageIcon
 import { ChatMessage, ClientProfile } from '@/types';
 import { postMessageAction, deleteMessageAction, uploadChatImageAction, markChatAsReadAction, getChatMessagesAction } from '@/app/chats/actions';
 import { reportMessageAction } from '@/app/actions/moderation-actions';
@@ -26,6 +26,10 @@ import {
 import { onSnapshot, collection, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ScrollArea } from '@/components/ui/scroll-area';
+
+// Capacitor Imports
+import { Capacitor } from '@capacitor/core'; // ADDED Capacitor
+import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera'; // Renamed to CapacitorCamera
 
 function LinkifiedText({ text }: { text: string }) {
     if (!text) return null;
@@ -96,6 +100,13 @@ const resizeImage = (file: File): Promise<File> => {
     });
 };
 
+// ADDED: Helper to convert Capacitor URI to File
+const uriToFile = async (uri: string, fileName: string, fileType: string): Promise<File> => {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return new File([blob], fileName, { type: fileType, lastModified: Date.now() });
+};
+
 interface ChatViewProps {
     chatId: string | null;
 }
@@ -118,6 +129,7 @@ export function ChatView({ chatId }: ChatViewProps) {
     const [isReporting, setIsReporting] = useState(false);
     
     const viewportRef = useRef<HTMLDivElement>(null);
+    const [showAttachmentOptions, setShowAttachmentOptions] = useState(false); // ADDED: State for attachment options
 
     useEffect(() => {
         if (!chatId || !user) {
@@ -181,6 +193,7 @@ export function ChatView({ chatId }: ChatViewProps) {
 
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const originalFile = event.target.files?.[0];
+        setShowAttachmentOptions(false); // Hide options after selection
         if (originalFile) {
             if (!originalFile.type.startsWith('image/') && originalFile.size > 5 * 1024 * 1024) { // 5MB limit for non-images
                 toast({ variant: "destructive", title: "File Too Large", description: "Please select a file smaller than 5MB." });
@@ -206,6 +219,94 @@ export function ChatView({ chatId }: ChatViewProps) {
             } else {
                 setFilePreview(null);
             }
+        }
+    };
+
+    // ADDED: handleCameraAction for native camera integration with resizing
+    const handleCameraAction = async () => {
+        setShowAttachmentOptions(false); // Hide options after action
+        if (!user) return;
+        setIsSending(true); // Use isSending for camera/gallery ops as well
+        try {
+            const photo = await CapacitorCamera.getPhoto({
+                quality: 90,
+                allowEditing: false,
+                resultType: CameraResultType.Uri, // Get as URI to create a File
+                source: CameraSource.Camera, // Directly open camera
+            });
+
+            if (photo.webPath) {
+                const fileType = photo.format ? `image/${photo.format}` : 'image/jpeg';
+                const fileName = `chat_camera_${Date.now()}.${photo.format || 'jpeg'}`;
+                const originalFile = await uriToFile(photo.webPath, fileName, fileType);
+                
+                let fileToUpload = originalFile;
+                if (originalFile.type.startsWith('image/')) {
+                    fileToUpload = await resizeImage(originalFile);
+                    if (fileToUpload.size > 5 * 1024 * 1024) {
+                        toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
+                        setIsSending(false);
+                        return;
+                    }
+                }
+
+                setSelectedFile(fileToUpload);
+                const reader = new FileReader();
+                reader.onloadend = () => setFilePreview(reader.result as string);
+                reader.readAsDataURL(fileToUpload);
+
+            } else {
+                toast({ variant: "destructive", title: "Error", description: "Could not capture photo." });
+            }
+        } catch (error: any) {
+            console.error("Error capturing photo:", error);
+            toast({ variant: "destructive", title: "Error", description: error.message || "Failed to capture photo." });
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    // ADDED: handleGalleryAction for native gallery integration with resizing
+    const handleGalleryAction = async () => {
+        setShowAttachmentOptions(false); // Hide options after action
+        if (!user) return;
+        setIsSending(true); // Use isSending for camera/gallery ops as well
+        try {
+            const photo = await CapacitorCamera.getPhoto({
+                quality: 90,
+                allowEditing: false,
+                resultType: CameraResultType.Uri, // Get as URI to create a File
+                source: CameraSource.Photos, // Open gallery
+            });
+
+            if (photo.webPath) {
+                const fileType = photo.format ? `image/${photo.format}` : 'image/jpeg';
+                const fileName = `chat_gallery_${Date.now()}.${photo.format || 'jpeg'}`;
+                const originalFile = await uriToFile(photo.webPath, fileName, fileType);
+
+                let fileToUpload = originalFile;
+                if (originalFile.type.startsWith('image/')) {
+                    fileToUpload = await resizeImage(originalFile);
+                    if (fileToUpload.size > 5 * 1024 * 1024) {
+                        toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
+                        setIsSending(false);
+                        return;
+                    }
+                }
+
+                setSelectedFile(fileToUpload);
+                const reader = new FileReader();
+                reader.onloadend = () => setFilePreview(reader.result as string);
+                reader.readAsDataURL(fileToUpload);
+
+            } else {
+                toast({ variant: "destructive", title: "Error", description: "No photo selected." });
+            }
+        } catch (error: any) {
+            console.error("Error selecting photo from gallery:", error);
+            toast({ variant: "destructive", title: "Error", description: error.message || "Failed to select photo from gallery." });
+        } finally {
+            setIsSending(false);
         }
     };
 
@@ -388,9 +489,28 @@ export function ChatView({ chatId }: ChatViewProps) {
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={clearFileSelection}><XCircle className="h-4 w-4" /></Button>
                     </div>
                 )}
-                <form onSubmit={handleSendMessage} className="flex w-full items-center space-x-1">
+                <form onSubmit={handleSendMessage} className="flex w-full items-center space-x-1 relative">
                      <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" />
-                    <Button type="button" variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} disabled={isSending}><Paperclip className="h-4 w-4" /></Button>
+                    
+                    {Capacitor.isNativePlatform() && showAttachmentOptions && (
+                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-popover border rounded-md shadow-lg p-1 animate-in fade-in-5 slide-in-from-bottom-1">
+                            <Button variant="ghost" className="w-full justify-start" onClick={handleCameraAction} disabled={isSending}>
+                                <Camera className="mr-2 h-4 w-4" /> Take Photo
+                            </Button>
+                            <Button variant="ghost" className="w-full justify-start" onClick={handleGalleryAction} disabled={isSending}>
+                                <ImageIcon className="mr-2 h-4 w-4" /> Choose from Library
+                            </Button>
+                        </div>
+                    )}
+
+                    <Button 
+                        type="button" 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => Capacitor.isNativePlatform() ? setShowAttachmentOptions(!showAttachmentOptions) : fileInputRef.current?.click()} 
+                        disabled={isSending}>
+                        <Paperclip className="h-4 w-4" />
+                    </Button>
                     <Input value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a a message..." disabled={isSending} className="h-8 text-xs" />
                     <Button type="submit" size="icon" className="h-8 w-8" disabled={isSending || (!newMessage.trim() && !selectedFile)}>
                     {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

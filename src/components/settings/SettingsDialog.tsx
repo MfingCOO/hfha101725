@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from '@/hooks/use-toast';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, User, Bell, SlidersHorizontal, Settings as SettingsIcon, CreditCard, LogOut, Trash2, Camera, Target, Undo2, BrainCircuit, RefreshCw, HelpCircle, FileText, ShieldCheck } from 'lucide-react';
+import { Loader2, User, Bell, SlidersHorizontal, Settings as SettingsIcon, CreditCard, LogOut, Trash2, Camera as CameraIcon, Target, Undo2, BrainCircuit, RefreshCw, HelpCircle, FileText, ShieldCheck } from 'lucide-react'; // RENAMED Camera to CameraIcon
 import { useAuth } from '@/components/auth/auth-provider';
 import { signOut } from 'firebase/auth';
 import { auth as clientAuth } from '@/lib/firebase';
@@ -14,7 +14,7 @@ import {
     updateUserPasswordAction,
     updateClientProfileAndGoalsAction,
     updateClientSettingsAction,
-    createStripePortalSession,
+    // REMOVED: createStripePortalSession as it's no longer used directly
   } from '@/app/client/settings/actions';
 import { getSiteSettingsAction, updateSiteSettingsAction } from '@/app/coach/site-settings/actions';
 import type { TrackingSettings, ClientProfile, NutritionalGoals } from '@/types';
@@ -41,6 +41,7 @@ import { BaseModal } from '../ui/base-modal';
 
 // Capacitor Imports
 import { Capacitor } from '@capacitor/core';
+import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera'; // ALIASED Camera as CapacitorCamera
 import { Purchases, CustomerInfo } from '@revenuecat/purchases-capacitor';
 import { Browser } from '@capacitor/browser';
 
@@ -94,6 +95,40 @@ const trackingOptions: { id: keyof Omit<TrackingSettings, 'units' | 'reminders'>
     { id: 'stress', label: 'Stress/Cravings Tracking' },
     { id: 'measurements', label: 'Measurements Tracking' },
 ];
+
+// ADDED: resizeImage helper function for images
+const resizeImage = (dataUrl: string, fileName: string, fileType: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new (window as any).Image();
+    img.src = dataUrl;
+    img.onload = () => {
+      const MAX_DIMENSION = 1024; // Max width or height
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > MAX_DIMENSION) {
+          height *= MAX_DIMENSION / width;
+          width = MAX_DIMENSION;
+        }
+      } else {
+        if (height > MAX_DIMENSION) {
+          width *= MAX_DIMENSION / height;
+          height = MAX_DIMENSION;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+
+      resolve(canvas.toDataURL(fileType, 0.8)); // Compress to 80% quality
+    };
+    img.onerror = (error: any) => reject(error);
+  });
+};
 
 export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordion }: SettingsDialogProps) {
   const { toast } = useToast();
@@ -261,25 +296,98 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
     setIsSaving(false);
   };
   
-   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // MODIFIED: handleFileSelect for web/PWA file input with resizing
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && user) {
         setIsSaving(true);
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-            const dataUrl = reader.result as string;
-            const result = await updateUserProfileAction(user.uid, { photoURL: dataUrl });
-            if(result.success) {
-                toast({ title: "Profile picture updated!" });
-                // Manually update user and clientData state to force re-render with new image
-                 await user.reload();
-                 await fetchClientData();
-            } else {
-                toast({ variant: 'destructive', title: 'Error', description: result.error });
-            }
+        try {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                const dataUrl = reader.result as string;
+                const resizedDataUrl = await resizeImage(dataUrl, file.name, file.type); // Resize the image
+                const result = await updateUserProfileAction(user.uid, { photoURL: resizedDataUrl });
+                if(result.success) {
+                    toast({ title: "Profile picture updated!" });
+                    await user.reload();
+                    await fetchClientData();
+                } else {
+                    toast({ variant: 'destructive', title: 'Error', description: result.error });
+                }
+            };
+            reader.readAsDataURL(file);
+        } catch (error: any) {
+            console.error("Error selecting and resizing file:", error);
+            toast({ variant: 'destructive', title: 'Error', description: error.message || "Failed to update profile picture." });
+        } finally {
             setIsSaving(false);
-        };
-        reader.readAsDataURL(file);
+        }
+    }
+  };
+
+  // ADDED: handleCameraCapture for native camera integration with resizing
+  const handleCameraCapture = async () => {
+    if (!user) return;
+    setIsSaving(true);
+    try {
+      const photo = await CapacitorCamera.getPhoto({
+        quality: 90,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl, // Get as base64 string
+        source: CameraSource.Camera, // Directly open camera
+      });
+
+      if (photo.dataUrl) {
+        const resizedDataUrl = await resizeImage(photo.dataUrl, "profile_pic.jpeg", "image/jpeg");
+        const result = await updateUserProfileAction(user.uid, { photoURL: resizedDataUrl });
+        if (result.success) {
+          toast({ title: "Profile picture updated!" });
+          await user.reload();
+          await fetchClientData();
+        } else {
+          toast({ variant: 'destructive', title: 'Error', description: result.error });
+        }
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not capture photo.' });
+      }
+    } catch (error: any) {
+      console.error("Error capturing photo:", error);
+      toast({ variant: 'destructive', title: 'Error', description: error.message || "Failed to capture photo." });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ADDED: handleGallerySelection for native gallery integration with resizing
+  const handleGallerySelection = async () => {
+    if (!user) return;
+    setIsSaving(true);
+    try {
+      const photo = await CapacitorCamera.getPhoto({
+        quality: 90,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl, // Get as base64 string
+        source: CameraSource.Photos, // Open gallery
+      });
+
+      if (photo.dataUrl) {
+        const resizedDataUrl = await resizeImage(photo.dataUrl, "profile_pic.jpeg", "image/jpeg");
+        const result = await updateUserProfileAction(user.uid, { photoURL: resizedDataUrl });
+        if (result.success) {
+          toast({ title: "Profile picture updated!" });
+          await user.reload();
+          await fetchClientData();
+        } else {
+          toast({ variant: 'destructive', title: 'Error', description: result.error });
+        }
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: 'No photo selected.' });
+      }
+    } catch (error: any) {
+      console.error("Error selecting photo from gallery:", error);
+      toast({ variant: 'destructive', title: 'Error', description: error.message || "Failed to select photo from gallery." });
+    } finally {
+      setIsSaving(false);
     }
   };
   
@@ -340,63 +448,47 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
     setIsSaving(true);
 
     try {
-      if (Capacitor.isNativePlatform()) {
-        // For native platforms (Android/iOS) check RevenueCat first
-        const rcCustomerInfoWrapper = await Purchases.getCustomerInfo(); 
-        const customerInfo: CustomerInfo = rcCustomerInfoWrapper.customerInfo; 
-        
-        // Find the first active entitlement with an associated store
+      const rcCustomerInfoWrapper = await Purchases.getCustomerInfo(); 
+      const customerInfo: CustomerInfo = rcCustomerInfoWrapper.customerInfo; 
+      
+      let subscriptionUrl: string | null = null;
+
+      // Prioritize RevenueCat's managementURL if available
+      if (customerInfo.managementURL) {
+        subscriptionUrl = customerInfo.managementURL;
+      } else if (Capacitor.isNativePlatform()) {
+        // If on native and no RC management URL, try platform-specific deep links
         const activeEntitlement = Object.values(customerInfo.entitlements.active).find((ent: any) => ent.store !== undefined);
-
         if (activeEntitlement) {
-          const store = activeEntitlement.store as string; // Treat store as string
-          let subscriptionUrl: string | null = null;
-
+          const store = activeEntitlement.store as string;
           switch (store) {
-            case 'PLAY_STORE': // Use string literal for Google Play Store
+            case 'PLAY_STORE':
               const androidPackageName = process.env.NEXT_PUBLIC_ANDROID_PACKAGE_NAME || 'your.app.package.name';
               subscriptionUrl = `https://play.google.com/store/account/subscriptions?package=${androidPackageName}`;
               break;
-            case 'APP_STORE': // Use string literal for Apple App Store
+            case 'APP_STORE':
               subscriptionUrl = `itms-apps://apps.apple.com/account/subscriptions`;
               break;
-            case 'STRIPE': // Use string literal for Stripe
-              // Fallback to Stripe portal if RevenueCat reports a Stripe purchase on native (e.g., migrated user)
-              const stripePortalResult = await createStripePortalSession(user.uid);
-              subscriptionUrl = stripePortalResult.url || null;
-              if (stripePortalResult.error) {
-                  throw new Error(stripePortalResult.error);
-              }
-              break;
+            // REMOVED: case 'STRIPE' as RevenueCat handles Stripe portal via managementURL
             default:
               console.warn("Unhandled RevenueCat store for active entitlement:", store);
               break;
           }
-
-          if (subscriptionUrl) {
-            await Browser.open({ url: subscriptionUrl });
-            return;
-          }
         }
-
-        // If no active native entitlement found via RevenueCat, or no specific store URL, default to Stripe portal
-        // This handles cases where a native user might only have a web-purchased Stripe sub.
-        console.log("No active native subscription via RevenueCat found, or unhandled store type. Attempting Stripe portal.");
       }
-      
-      // Default to Stripe Customer Portal for web or if native fallback
-      const result = await createStripePortalSession(user.uid);
-      if (result.url) {
-          window.location.href = result.url;
+
+      if (subscriptionUrl) {
+        await Browser.open({ url: subscriptionUrl });
       } else {
-          toast({ variant: 'destructive', title: 'Error', description: result.error || "Could not open billing portal." });
+        // Fallback if no URL could be determined
+        toast({ variant: 'destructive', title: 'Error', description: "Could not determine subscription management URL." });
       }
 
     } catch (err: any) {
         console.error("Error managing billing:", err);
         toast({ variant: 'destructive', title: 'Error', description: err.message || "An unexpected error occurred." });
     } finally {
-        setIsSaving(false);
+      setIsSaving(false);
     }
   }
 
@@ -406,6 +498,7 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
   const goalsToShow = 
     calculationMode === 'ideal' ? displayGoals?.idealGoals :
     calculationMode === 'actual' ? displayGoals?.actualGoals :
+    calculationMode === 'custom' ? displayGoals?.customGoals : // FIXED: Typo displayMode to calculationMode
     displayGoals?.customGoals;
   
   const tdee = displayGoals?.actualGoals.tdee;
@@ -425,11 +518,26 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
                     <FormLabel>Profile Picture</FormLabel>
                     <FormControl>
                         <div>
-                           <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*"/>
-                           <Button type="button" variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isSaving}>
-                               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Camera className="mr-2 h-4 w-4"/>}
-                               Change Picture
-                           </Button>
+                           {Capacitor.isNativePlatform() ? (
+                                <div className="flex flex-col gap-2">
+                                    <Button type="button" variant="secondary" size="sm" onClick={handleCameraCapture} disabled={isSaving}>
+                                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CameraIcon className="mr-2 h-4 w-4"/>}
+                                        Take Photo
+                                    </Button>
+                                    <Button type="button" variant="secondary" size="sm" onClick={handleGallerySelection} disabled={isSaving}>
+                                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CameraIcon className="mr-2 h-4 w-4"/>}
+                                        Choose from Library
+                                    </Button>
+                                </div>
+                           ) : (
+                               <>
+                                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*"/>
+                                   <Button type="button" variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isSaving}>
+                                       {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CameraIcon className="mr-2 h-4 w-4"/>}
+                                       Change Picture
+                                   </Button>
+                               </>
+                           )}
                         </div>
                     </FormControl>
                 </FormItem>

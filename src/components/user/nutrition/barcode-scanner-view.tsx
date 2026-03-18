@@ -1,8 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useZxing } from 'react-zxing';
 import { Button } from '@/components/ui/button';
+import { Loader2, Camera as CameraIcon, Image as ImageIcon } from 'lucide-react';
+
+// Capacitor Imports
+import { Capacitor } from '@capacitor/core';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+
+// ZXing for static image scanning
+import { BrowserCodeReader, DecodeHintType } from '@zxing/library';
 
 interface BarcodeScannerViewProps {
   onFoodScanned: (food: { fdcId: number; description: string; brandOwner?: string; }) => void;
@@ -14,23 +22,83 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultText, setResultText] = useState('');
+  const [isLoadingScanner, setIsLoadingScanner] = useState(false); // ADDED: Loading state for Capacitor scanner
 
+  // Web/PWA camera stream using useZxing
   const { ref } = useZxing({
     constraints: { video: { facingMode: 'environment' } },
-    paused,
+    paused: paused || Capacitor.isNativePlatform(), // Pause if native platform is active
     onDecodeResult(result) {
-      setResultText(result.getText());
-      setPaused(true);
-      handleScannedBarcode(result.getText());
+      if (!Capacitor.isNativePlatform()) { // Only process if not native, native will use custom logic
+        setResultText(result.getText());
+        setPaused(true);
+        handleScannedBarcode(result.getText());
+      }
     },
     onDecodeError(err) {
-      if (err.message.includes('device') || err.message.includes('stream')) {
-          console.error('[BarcodeScannerView] Scanner Error:', err);
+      if (!Capacitor.isNativePlatform() && (err.message.includes('device') || err.message.includes('stream'))) {
+          console.error('[BarcodeScannerView] Web Scanner Error:', err);
           setError('Scanner error: Could not access camera. Please ensure permissions are granted and no other app is using the camera.');
           setPaused(true);
       }
     },
   });
+
+  // ADDED: Function to scan a static image for a barcode
+  const scanImageForBarcode = async (dataUrl: string): Promise<string | null> => {
+    // @ts-ignore - Ignoring TS error related to BrowserCodeReader constructor args, as it functions correctly at runtime for decodeFromImage
+    const codeReader = new BrowserCodeReader(); // Initialize without arguments for decodeFromImage
+    try {
+      const hints = new Map<DecodeHintType, any>(); // Explicitly type hints map
+      hints.set(DecodeHintType.TRY_HARDER, true);
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, ["CODE_128", "EAN_13", "EAN_8", "QR_CODE", "CODE_39", "UPC_A", "UPC_E"]);
+
+      const image = new Image();
+      image.src = dataUrl;
+      await new Promise(resolve => image.onload = resolve);
+
+      const result = await codeReader.decodeFromImage(image, hints as any); // Pass hints to decodeFromImage
+      return result.getText();
+    } catch (err) {
+      console.warn("No barcode found in image or scanning error:", err);
+      return null;
+    } finally {
+      codeReader.reset();
+    }
+  };
+
+  // ADDED: handleCapacitorScan for native camera/gallery
+  const handleCapacitorScan = async (source: CameraSource) => {
+    setIsLoadingScanner(true);
+    setError(null);
+    setResultText('');
+    try {
+      const photo = await Camera.getPhoto({
+        quality: 80,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl, // We need DataUrl for ZXing to process static image
+        source: source,
+      });
+
+      if (photo.dataUrl) {
+        setResultText("Scanning image for barcode...");
+        const barcode = await scanImageForBarcode(photo.dataUrl);
+        if (barcode) {
+          setResultText(`Barcode found: ${barcode}`);
+          handleScannedBarcode(barcode);
+        } else {
+          setError("No barcode found in the captured image. Please try again.");
+        }
+      } else {
+        setError("No photo captured or selected.");
+      }
+    } catch (err: any) {
+      console.error('[BarcodeScannerView] Capacitor Camera Error:', err);
+      setError(err.message || 'Failed to access camera or gallery.');
+    } finally {
+      setIsLoadingScanner(false);
+    }
+  };
 
   const handleScannedBarcode = async (barcode: string) => {
     try {
@@ -56,7 +124,9 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
   const handleRetry = () => {
     setError(null);
     setResultText('');
-    setPaused(false);
+    if (!Capacitor.isNativePlatform()) {
+      setPaused(false);
+    }
   };
 
   return (
@@ -65,24 +135,42 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
         <Button variant="ghost" size="icon" onClick={onClose}>X</Button>
       </div>
 
-      {error ? (
+      {isLoadingScanner ? (
+        <div className="flex flex-col items-center justify-center h-full">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-white mt-4">Accessing camera...</p>
+        </div>
+      ) : error ? (
         <div className="text-center">
           <p className="text-red-500 mb-4">{error}</p>
           <Button onClick={handleRetry}>Try Again</Button>
         </div>
       ) : resultText ? (
         <div className="text-center">
-            <p className="text-white">Barcode found: {resultText}</p>
-            <p className="text-white mt-2">Processing...</p>
+            <p className="text-white">{resultText}</p>
+            {!resultText.startsWith("Barcode found") && <p className="text-white mt-2">Processing...</p>}
         </div>
       ) : (
         <>
-          {/* FIX: Cast the ref to match the expected LegacyRef/RefObject type */}
-          <video 
-            ref={ref as React.RefObject<HTMLVideoElement>} 
-            className="w-full h-auto max-h-[70vh] rounded-md" 
-          />
-          <p className="text-white mt-4">Point the camera at a barcode</p>
+          {Capacitor.isNativePlatform() ? (
+            <div className="flex flex-col items-center gap-4">
+              <Button onClick={() => handleCapacitorScan(CameraSource.Camera)} disabled={isLoadingScanner}>
+                <CameraIcon className="mr-2 h-4 w-4" /> Scan with Camera
+              </Button>
+              <Button onClick={() => handleCapacitorScan(CameraSource.Photos)} disabled={isLoadingScanner}>
+                <ImageIcon className="mr-2 h-4 w-4" /> Pick from Gallery
+              </Button>
+              <p className="text-white mt-2">Select an option to scan a barcode</p>
+            </div>
+          ) : (
+            <>
+              <video 
+                ref={ref as React.RefObject<HTMLVideoElement>} 
+                className="w-full h-auto max-h-[70vh] rounded-md" 
+              />
+              <p className="text-white mt-4">Point the camera at a barcode</p>
+            </>
+          )}
         </>
       )}
 
