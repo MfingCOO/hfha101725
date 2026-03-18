@@ -477,7 +477,12 @@ export async function uploadChatImageAction(input: z.infer<typeof UploadChatImag
         }
 
         const bucket = adminStorage().bucket();
-        const buffer = Buffer.from(fileDataUrl.split(';base64,').pop()!, 'base64');
+        // ADDED: Validation for base64Content
+        const base64Content = fileDataUrl.split(';base64,').pop();
+        if (!base64Content) {
+            return { success: false, error: { message: "Invalid file data URL format: Missing base64 content." } };
+        }
+        const buffer = Buffer.from(base64Content, 'base64');
         
         const fileId = uuidv4();
         const fullFileName = `${fileId}-${fileName}`;
@@ -564,7 +569,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
     } catch (error: any) {
         console.error(`Critical error in postMessageAction for chat ${input.chatId}:`, error);
         if (error instanceof z.ZodError) {
-            return { success: false, error: { message: `Validation Error: ${error.message}` } };
+            return { success: false, error: { message: `Validation Error: ${error.errors.map(e => e.message).join(', ')}` } };
         }
         return { success: false, error: { message: error.message || `An unknown admin error occurred.` } };
     }
@@ -587,7 +592,7 @@ export async function joinChat(chatId: string, userId: string): Promise<{ succes
                 participants: FieldValue.arrayUnion(userId),
                 participantCount: FieldValue.increment(1)
             });
-            transaction.update(userDocRef, { chatIds: FieldValue.arrayUnion(chatId) });
+            transaction.update(userDocRef, { chatIds: FieldValue.arrayUnion(chatRef.id) });
         });
 
         return { success: true };
@@ -801,7 +806,7 @@ export async function createChatAction(input: z.infer<typeof CreateChatInputSche
     } catch (error: any) {
         console.error(`Failed to create chat:`, error);
         if (error instanceof z.ZodError) {
-            return { success: false, error: { message: error.errors.map(e => e.message).join(', ') } };
+            return { success: false, error: { message: `Validation Error: ${error.errors.map(e => e.message).join(', ')}` } };
         }
         return { success: false, error: { message: error.message || "An unknown error occurred." } };
     }

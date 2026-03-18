@@ -53,6 +53,49 @@ const fileToDataUrl = (file: File): Promise<string> => {
     });
 };
 
+const resizeImage = (file: File): Promise<File> => {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const img = new (window as any).Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const MAX_DIMENSION = 1024; // Max width or height
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_DIMENSION) {
+                        height *= MAX_DIMENSION / width;
+                        width = MAX_DIMENSION;
+                    }
+                } else {
+                    if (height > MAX_DIMENSION) {
+                        width *= MAX_DIMENSION / height;
+                        height = MAX_DIMENSION;
+                    }
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(new File([blob], file.name, { type: file.type, lastModified: Date.now() }));
+                    } else {
+                        // If blob is null, return the original file
+                        resolve(file);
+                    }
+                }, file.type, 0.8); // Compress to 80% quality
+            };
+        };
+        reader.readAsDataURL(file);
+    });
+};
+
 interface ChatViewProps {
     chatId: string | null;
 }
@@ -136,18 +179,30 @@ export function ChatView({ chatId }: ChatViewProps) {
         return () => observer.disconnect();
     }, [messages, isLoading]);
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file) {
-            if (file.size > 5 * 1024 * 1024) { // 5MB limit
-                 toast({ variant: "destructive", title: "File Too Large", description: "Please select a file smaller than 5MB." });
+    const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const originalFile = event.target.files?.[0];
+        if (originalFile) {
+            if (!originalFile.type.startsWith('image/') && originalFile.size > 5 * 1024 * 1024) { // 5MB limit for non-images
+                toast({ variant: "destructive", title: "File Too Large", description: "Please select a file smaller than 5MB." });
                 return;
             }
-            setSelectedFile(file);
-            if (file.type.startsWith('image/')) {
+
+            let fileToUpload = originalFile;
+
+            // Resize image if it's an image file
+            if (originalFile.type.startsWith('image/')) {
+                fileToUpload = await resizeImage(originalFile);
+                if (fileToUpload.size > 5 * 1024 * 1024) { // Check size again after compression
+                     toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
+                     return;
+                }
+            }
+            
+            setSelectedFile(fileToUpload);
+            if (fileToUpload.type.startsWith('image/')) {
                 const reader = new FileReader();
                 reader.onloadend = () => setFilePreview(reader.result as string);
-                reader.readAsDataURL(file);
+                reader.readAsDataURL(fileToUpload);
             } else {
                 setFilePreview(null);
             }
@@ -255,7 +310,7 @@ export function ChatView({ chatId }: ChatViewProps) {
                         const canDelete = isCoach || isMyMessage;
                         const senderProfile = participants[msg.userId];
                         return (
-                        <div key={msg.id} className={cn("group flex items-center gap-2", msg.isSystemMessage && "flex-col items-center justify-center my-2", isMyMessage ? 'justify-end' : 'justify-start')}>
+                        <div key={msg.id} className={cn("group flex items-start gap-2", msg.isSystemMessage && "flex-col items-center justify-center my-2", isMyMessage ? 'justify-end' : 'justify-start')}>
                             {msg.isSystemMessage ? (
                                 <div className="text-xs text-center bg-muted text-muted-foreground rounded-full px-3 py-1 animate-in fade-in">
                                     {(() => {
@@ -279,42 +334,44 @@ export function ChatView({ chatId }: ChatViewProps) {
                             ) : (
                                 <>
                                 {!isMyMessage && (
-                                    <Avatar className="h-6 w-6 border flex-shrink-0 self-end mb-4">
+                                    <Avatar className="h-6 w-6 border flex-shrink-0 mt-4">
                                         <AvatarImage src={senderProfile?.photoURL || ''} alt={msg.userName} />
                                         <AvatarFallback className="text-xs">{getInitials(msg.userName)}</AvatarFallback>
                                     </Avatar>
                                 )}
-                                <div className={cn("max-w-[80%] rounded-lg px-2 py-1 min-w-0 overflow-hidden", isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
-                                    <div className="text-xs break-words"><LinkifiedText text={msg.text || ''} /></div>
-                                    {msg.fileUrl && (
-                                        <div className="mt-1">
-                                            {msg.fileName?.match(/\.pdf$/i) ? (
-                                                <Link href={msg.fileUrl} target="_blank" className="flex items-center gap-2 p-1 rounded-md bg-background/20 hover:bg-background/40">
-                                                    <FileText className="h-3 w-3" />
-                                                    <span className="text-xs font-medium truncate max-w-[120px]">{msg.fileName || 'Shared File'}</span>
-                                                </Link>
-                                            ) : (
-                                                <Link href={msg.fileUrl} target="_blank">
-                                                    <Image src={msg.fileUrl} alt={msg.fileName || 'Shared Image'} width={100} height={100} className="rounded-md object-cover" style={{ width: '100%', height: 'auto' }} />
-                                                </Link>
-                                            )}
-                                        </div>
-                                    )}
-                                    <p className={cn("text-[10px] mt-0.5 opacity-70 break-words", isMyMessage ? 'text-right' : 'text-left')}>
-                                        {msg.userName.split(' ')[0]} - {msg.timestamp ? format(new Date(msg.timestamp as any), 'MM/dd/yy, p') : ''}
-                                    </p>
-                                </div>
-                                 <div className={cn("flex-shrink-0 self-end transition-opacity opacity-0 group-hover:opacity-100", isMyMessage && "order-first")}>
-                                    {canDelete && (
-                                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setDeleteAlertState({open: true, message: msg})}>
-                                            <Trash2 className="h-3 w-3 text-muted-foreground" />
-                                        </Button>
-                                    )}
-                                    {!isMyMessage && (
-                                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReportAlertState({open: true, message: msg})}>
-                                            <Flag className="h-3 w-3 text-muted-foreground" />
-                                        </Button>
-                                    )}
+                                <div className={cn("flex gap-1 items-start", isMyMessage && "flex-row-reverse")}>
+                                    <div className={cn("max-w-[calc(100vw-120px)] sm:max-w-[calc(100vw-160px)] md:max-w-[400px] rounded-lg px-2 py-1 min-w-0 overflow-hidden", isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
+                                        <div className="text-xs break-words"><LinkifiedText text={msg.text || ''} /></div>
+                                        {msg.fileUrl && (
+                                            <div className="mt-1">
+                                                {msg.fileName?.match(/\.pdf$/i) ? (
+                                                    <Link href={msg.fileUrl} target="_blank" className="flex items-center gap-2 p-1 rounded-md bg-background/20 hover:bg-background/40">
+                                                        <FileText className="h-3 w-3" />
+                                                        <span className="text-xs font-medium truncate max-w-[120px]">{msg.fileName || 'Shared File'}</span>
+                                                    </Link>
+                                                ) : (
+                                                    <Link href={msg.fileUrl} target="_blank">
+                                                        <Image src={msg.fileUrl} alt={msg.fileName || 'Shared Image'} width={100} height={100} className="rounded-md object-cover" style={{ width: '100%', height: 'auto' }} />
+                                                    </Link>
+                                                )}
+                                            </div>
+                                        )}
+                                        <p className={cn("text-[10px] mt-0.5 opacity-70 break-words", isMyMessage ? 'text-right' : 'text-left')}>
+                                            {msg.userName.split(' ')[0]} - {msg.timestamp ? format(new Date(msg.timestamp as any), 'MM/dd/yy, p') : ''}
+                                        </p>
+                                    </div>
+                                    <div className={cn("flex-shrink-0 self-start transition-opacity opacity-0 group-hover:opacity-100")}>
+                                        {canDelete && (
+                                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setDeleteAlertState({open: true, message: msg})}>
+                                                <Trash2 className="h-3 w-3 text-muted-foreground" />
+                                            </Button>
+                                        )}
+                                        {!isMyMessage && (
+                                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReportAlertState({open: true, message: msg})}>
+                                                <Flag className="h-3 w-3 text-muted-foreground" />
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
                                 </>
                             )}
