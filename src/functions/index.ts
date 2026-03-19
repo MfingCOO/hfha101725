@@ -14,17 +14,17 @@ const messaging = getMessaging();
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
     try {
-        // MODIFIED: Changed collection from 'clients' to 'userProfiles'
-        const userProfileDoc = await db.collection('userProfiles').doc(userId).get();
-        if (userProfileDoc.exists && userProfileDoc.data()?.fullName) {
-            return userProfileDoc.data()?.fullName as string;
+        // CORRECTED: Now reads from 'clients' collection as per instruction (source of truth)
+        const clientDoc = await db.collection('clients').doc(userId).get();
+        if (clientDoc.exists && clientDoc.data()?.fullName) {
+            return clientDoc.data()?.fullName as string;
         }
     } catch (error) {
-         // MODIFIED: Updated error message to reflect 'userProfiles' collection
-         console.error(`Error fetching user name for ${userId} from 'userProfiles':`, error);
+         // CORRECTED: Updated error message to reflect 'clients' collection
+         console.error(`Error fetching user name for ${userId} from 'clients':`, error);
     }
-    // MODIFIED: Updated log message to reflect 'userProfiles' collection
-    console.log(`getUserName: Could not find a name for userId: ${userId} in 'userProfiles' collection.`);
+    // CORRECTED: Updated log message to reflect 'clients' collection
+    console.log(`getUserName: Could not find a name for userId: ${userId} in 'clients' collection.`);
     return null;
 };
 
@@ -80,7 +80,6 @@ async function sendPushNotification(userId: string, title: string, message: stri
 
     const payload: MulticastMessage = {
         tokens: tokens,
-        // ADDED: Explicit top-level notification object for consistent foreground/background handling
         notification: {
             title: String(title),
             body: String(message),
@@ -108,7 +107,6 @@ async function sendPushNotification(userId: string, title: string, message: stri
                 channelId: String(channelId),
                 imageUrl: imageUrl,
                 sound: 'default',
-                // clickAction: 'FCM_PLUGIN_ACTIVITY', // REMOVED as per instructions
             },
         },
     };
@@ -200,7 +198,6 @@ export const workoutReminderHandler = onTaskDispatched<any>({}, async (req) => {
     const doc = await docRef.get();
     if (!doc.exists || doc.data()?.status === 'reminder_sent') { return; }
 
-    // REMOVED: const isRecipientCoach = await isUserCoach(userId);
     const ctaUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${String(workoutId)}&isCoach=false`;
     
     await sendPushNotification(userId, 'Workout Reminder', `Your scheduled workout, "${workoutName}," is in 10 minutes!`, ctaUrl, 'workout_reminder', String(workoutId));
@@ -215,7 +212,6 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
 
     const { userId, workoutName, scheduledDate } = workout;
     const reminderTime = new Date(scheduledDate.toMillis() - 10 * 60 * 1000);
-    // REMOVED: if (reminderTime < new Date()) { return; }
 
     const queue = getFunctions().taskQueue('workoutReminderHandler');
     try {
@@ -246,22 +242,22 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
     if (!appointment || !event.data.createTime || !appointment.start) { return; }
 
     const reminderTime = new Date(appointment.start.toMillis() - 10 * 60 * 1000);
-    // REMOVED: if (reminderTime < new Date()) { return; }
 
     const queue = getFunctions().taskQueue('appointmentReminderHandler');
     if (appointment.type === 'one_on_one') {
         const { clientId, coachId } = appointment;
-        // ADDED: Logging for one_on_one appointment data
-        console.log(`onAppointmentScheduled: Processing one_on_one appointment. appointmentId: ${appointmentId}, clientId: ${clientId}, coachId: ${coachId}`);
-        const clientName = await getUserName(clientId);
-        const coachName = await getUserName(coachId);
-        console.log(`onAppointmentScheduled: User names fetched. clientName: ${clientName}, coachName: ${coachName}`);
+        // REMOVED: All prior getUserName calls and associated logging for appointments.
+        
+        // MODIFIED: Use generic placeholders as names cannot be reliably fetched for appointments.
+        const genericClientName = 'your client';
+        const genericCoachName = 'your coach';
+
         const tasks: Promise<any>[] = [];
         if (clientId) {
-            tasks.push(queue.enqueue({ userId: clientId, appointmentId, isCoach: false, opponentName: coachName || 'your coach' }, { scheduleTime: reminderTime }));
+            tasks.push(queue.enqueue({ userId: clientId, appointmentId, isCoach: false, opponentName: genericCoachName }, { scheduleTime: reminderTime }));
         }
         if (coachId) {
-            tasks.push(queue.enqueue({ userId: coachId, appointmentId, isCoach: true, opponentName: clientName || 'your client' }, { scheduleTime: reminderTime }));
+            tasks.push(queue.enqueue({ userId: coachId, appointmentId, isCoach: true, opponentName: genericClientName }, { scheduleTime: reminderTime }));
         }
         await Promise.all(tasks);
     } else if (appointment.liveEventId) {
@@ -321,8 +317,6 @@ export const onReminderScheduled = onDocumentCreated("reminders/{reminderId}", a
 
     const { userId, scheduledAt } = reminder;
     const reminderTime = scheduledAt.toDate();
-
-    // REMOVED: if (reminderTime < new Date()) { return; }
 
     const queue = getFunctions().taskQueue('hydrationReminderHandler');
     try {
