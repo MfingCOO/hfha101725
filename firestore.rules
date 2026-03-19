@@ -1,86 +1,85 @@
-    rules_version = '2';
+rules_version = '2';
 
-    service cloud.firestore {
-      match /databases/{database}/documents {
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if the user is a designated coach
+    function isCoach(userId) {
+      // IMPORTANT: Ensure this list is accurate for your coach UIDs.
+      return userId in ['yue7fVPBQZg45vmfXXUH5PdG7jE2', 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2', 'rVBbOZ1l0xbc7dXjezVpU5BgmgC2'];
+    }
+
+    // Helper function to check if the authenticated user is the owner of the document being accessed
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Rules for the 'userProfiles' collection
+    match /userProfiles/{userId} {
+      // Allow read access if an authenticated user is the owner of the profile OR is a coach
+      allow read: if request.auth != null && (isOwner(userId) || isCoach(request.auth.uid));
+      // Allow write (create/update) access if an authenticated user is the owner of their own profile
+      allow write: if request.auth != null && isOwner(userId);
+    }
+
+    // Rules for the 'user_chat_metadata' collection
+   match /user_chat_metadata/{metadataId} {
+      // A user can read/write their own metadata. A coach can read/write any.
+      // We check ownership by splitting the document ID, which is backward-compatible.
+      allow read, write: if request.auth != null && (request.auth.uid == metadataId.split('_')[0] || isCoach(request.auth.uid));
       
-        // Helper function to check if the user is a designated coach
-        function isCoach(userId) {
-          // IMPORTANT: Ensure this list is accurate for your coach UIDs.
-          return userId in ['yue7fVPBQZg45vmfXXUH5PdG7jE2', 'oYsf7Iah6hVlEgHvWJ7Ms7j1oTB2', 'rVBbOZ1l0xbc7dXjezVpU5BgmgC2'];
-        }
+      // ONLY a coach can list the entire collection.
+      allow list: if request.auth != null && isCoach(request.auth.uid);
+    }
 
-        // Helper function to check if the authenticated user is the owner of the document being accessed
-        function isOwner(userId) {
-          return request.auth.uid == userId;
-        }
+    // Rules for the 'clients' collection and its subcollections
+    match /clients/{clientId} {
+      // Allow list/read access if an authenticated user is the owner or a coach.
+      // This is necessary for snapshot listeners to function correctly.
+      allow list, read: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
 
-        // Rules for the 'userProfiles' collection
-        match /userProfiles/{userId} {
-          // Allow read access if an authenticated user is the owner of the profile OR is a coach
-          allow read: if request.auth != null && (isOwner(userId) || isCoach(request.auth.uid));
-          // Allow write (create/update) access if an authenticated user is the owner of their own profile
-          allow write: if request.auth != null && isOwner(userId);
-        }
+      // Allow create/update if an authenticated user is the owner of their client document
+      // This covers initial client document creation and updates (like FCM tokens)
+      allow create, update: if request.auth != null && isOwner(clientId);
 
-        // Rules for the 'user_chat_metadata' collection
-       match /user_chat_metadata/{metadataId} {
-  // A user can read/write their own metadata. A coach can read/write any.
-  // We check ownership by splitting the document ID, which is backward-compatible.
-  allow read, write: if request.auth != null && (request.auth.uid == metadataId.split('_')[0] || isCoach(request.auth.uid));
-  
-  // ONLY a coach can list the entire collection.
-  allow list: if request.auth != null && isCoach(request.auth.uid);
-}
+      // Allow delete only if an authenticated user is a coach
+      allow delete: if request.auth != null && isCoach(request.auth.uid);
 
+      // Generic rules for all subcollections under a client's document
+      // This grants owners read/write to their own subcollection data, and coaches read/write to any client's subcollection data
+      match /{document=**} {
+        allow read: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
+        allow write: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
+      }
+    }
+    
+    // Rules for the 'challenges' collection
+    // Allowing any authenticated user to read challenges for display
+    match /challenges/{challengeId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Deny write by default
+    }
 
-        // Rules for the 'clients' collection and its subcollections
-        match /clients/{clientId} {
-          // Allow list/read access if an authenticated user is the owner or a coach.
-          // This is necessary for snapshot listeners to function correctly.
-          allow list, read: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
+    // Rules for the 'indulgencePlans' collection
+    // Allowing users to read/write only their own indulgence plans
+    match /indulgencePlans/{indulgencePlanId} {
+      allow read, write: if request.auth != null && isOwner(resource.data.userId);
+    }
 
-          // Allow create/update if an authenticated user is the owner of their client document
-          // This covers initial client document creation and updates (like FCM tokens)
-          allow create, update: if request.auth != null && isOwner(clientId);
+    // Rules for the 'chats' collection and its subcollections
+    match /chats/{chatId} {
+      // Allow get/write access if an authenticated user is a participant in the chat
+      allow get, write: if request.auth != null && request.auth.uid in resource.data.participants;
+      // Allow list access if an authenticated user is a participant in the chat (for queries)
+      allow list: if request.auth != null && request.query.where.participants.hasAny([request.auth.uid]);
 
-          // Allow delete only if an authenticated user is a coach
-          allow delete: if request.auth != null && isCoach(request.auth.uid);
-
-          // Generic rules for all subcollections under a client's document
-          // This grants owners read/write to their own subcollection data, and coaches read/write to any client's subcollection data
-          match /{document=**} {
-            allow read: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
-            allow write: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
-          }
-        }
-        
-        // Rules for the 'challenges' collection
-        // Allowing any authenticated user to read challenges for display
-        match /challenges/{challengeId} {
-          allow read: if request.auth != null;
-          allow write: if false; // Deny write by default
-        }
-
-        // Rules for the 'indulgencePlans' collection
-        // Allowing users to read/write only their own indulgence plans
-        match /indulgencePlans/{indulgencePlanId} {
-          allow read, write: if request.auth != null && isOwner(resource.data.userId);
-        }
-
-        // Rules for the 'chats' collection and its subcollections
-        match /chats/{chatId} {
-          // Allow get/write access if an authenticated user is a participant in the chat
-          allow get, write: if request.auth != null && request.auth.uid in resource.data.participants;
-          // Allow list access if an authenticated user is a participant in the chat (for queries)
-          allow list: if request.auth != null && request.query.where.participants.hasAny([request.auth.uid]);
-
-          match /messages/{messageId} {
-            // Allow read/create messages if an authenticated user is a participant in the parent chat
-            // This includes messages that might contain image URLs.
-            allow read, create: if request.auth != null && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-          }
-        }
-         // Rules for the 'notifications' collection
+      match /messages/{messageId} {
+        // Allow read/create messages if an authenticated user is a participant in the parent chat
+        // This includes messages that might contain image URLs.
+        allow read, create: if request.auth != null && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      }
+    }
+     // Rules for the 'notifications' collection
     match /notifications/{notificationId} {
       // Allow read access if the user is a coach OR is the owner of the notification
       allow read: if request.auth != null && (isCoach(request.auth.uid) || isOwner(resource.data.userId));
@@ -88,5 +87,25 @@
       // Allow write access only to the owner of the notification
       allow write: if request.auth != null && isOwner(resource.data.userId);
     } 
-      }
+
+    // --- NEW RULE FOR APPOINTMENTS COLLECTION ---
+    // This rule targets the /coachCalendar/{appointmentId} path
+    match /coachCalendar/{appointmentId} {
+      // Allow read access if the authenticated user:
+      // 1. Is the owner (client) of the appointment (by checking if request.auth.uid matches resource.data.clientId)
+      // OR
+      // 2. Is a coach and their UID matches the appointment's coachId
+      allow read: if request.auth != null && (
+        (isOwner(resource.data.clientId) && request.auth.uid == resource.data.clientId) || 
+        (isCoach(request.auth.uid) && request.auth.uid == resource.data.coachId)
+      );
+
+      // Allow write (create/update) only if the user is the owner (client) or a coach
+      allow write: if request.auth != null && (
+        (isOwner(resource.data.clientId) && request.auth.uid == resource.data.clientId) || 
+        (isCoach(request.auth.uid) && request.auth.uid == resource.data.coachId)
+      );
     }
+    // --- END NEW RULE ---
+  }
+}
