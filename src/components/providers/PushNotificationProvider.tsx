@@ -45,6 +45,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     const link = String(data.link || '');
     const isRecipientCoachStr = String(data.isCoach || 'false');
 
+    // ADDED: Granular logging for parsed data
+    console.log(`[PushProvider][${context}] Parsed Data: notificationType=${notificationType}, appointmentId=${appointmentId}, entityId=${String(data.entityId || '')}, isCoach=${isRecipientCoachStr}`);
+    
     const isRecipientCoach = isRecipientCoachStr === 'true';
     const dashboardBaseUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
 
@@ -61,8 +64,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         setNotificationWorkoutId(workoutId);
         queryParams.set('openWorkoutId', workoutId);
         queryParams.set('entityId', workoutId);
-    } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && (appointmentId || data.entityId)) { // MODIFIED: Check data.entityId as fallback
-        const resolvedAppointmentId = appointmentId || String(data.entityId || ''); // MODIFIED: Use entityId as fallback if appointmentId is missing
+    } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && (appointmentId || data.entityId)) {
+        const resolvedAppointmentId = appointmentId || String(data.entityId || '');
         setNotificationAppointmentId(resolvedAppointmentId);
         queryParams.set('openAppointmentId', resolvedAppointmentId);
         queryParams.set('entityId', resolvedAppointmentId);
@@ -83,7 +86,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
 
   const showInAppNotification = useCallback((incomingNotificationTitle: string | undefined, incomingNotificationBody: string | undefined, data: { [key: string]: any }) => {
-    // Robust fallback: prioritize incoming 'notification' title/body, then data payload
     const finalTitle = incomingNotificationTitle || data.title || 'New Notification';
     const finalBody = incomingNotificationBody || data.body || '';
 
