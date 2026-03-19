@@ -1,32 +1,26 @@
 'use client';
 
 let audioContext: AudioContext | null = null;
-let isSetup = false;
 
 export const initAudio = () => {
-  if (typeof window === 'undefined' || isSetup) {
+  if (typeof window === 'undefined') {
     return;
   }
-  isSetup = true;
 
-  try {
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-    audioContext = new AudioContext();
+  if (!audioContext) {
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      audioContext = new AudioContext();
+    } catch (error) {
+      console.error("Failed to initialize AudioContext:", error);
+      return;
+    }
+  }
 
-    const resumeContext = () => {
-        if (audioContext?.state === 'suspended') {
-            audioContext.resume().then(() => {
-                console.log("AudioContext resumed by user gesture.");
-            }).catch(e => console.error("AudioContext resume failed:", e));
-        }
-    };
-
-    document.addEventListener('click', resumeContext, { once: true });
-    document.addEventListener('touchstart', resumeContext, { once: true });
-    document.addEventListener('keydown', resumeContext, { once: true });
-
-  } catch (error) {
-    console.error("Failed to initialize AudioContext:", error);
+  if (audioContext.state === 'suspended') {
+    audioContext.resume().then(() => {
+      console.log("AudioContext resumed.");
+    }).catch(e => console.error("AudioContext resume failed:", e));
   }
 };
 

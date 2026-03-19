@@ -44,7 +44,11 @@ export async function createLiveEvent(input: LiveEventInput): Promise<{ success:
         const siteSettings = settingsSnap.data() as SiteSettings;
         if (siteSettings.videoCallLink) {
           videoConferenceLink = siteSettings.videoCallLink;
+        } else {
+          throw new Error("'Attach Video Link' is checked, but no default video call link is configured in site settings.");
         }
+      } else {
+        throw new Error("'Attach Video Link' is checked, but site settings (v1) not found to retrieve video link.");
       }
     }
     
@@ -59,10 +63,10 @@ export async function createLiveEvent(input: LiveEventInput): Promise<{ success:
       eventTimestamp: Timestamp.fromDate(utcEventDate),
       entryDate: Timestamp.fromDate(startOfDayUTC),
       durationMinutes,
-      videoConferenceLink: videoConferenceLink || undefined,
-      signUpDeadline: Timestamp.fromDate(startOfDayUTC),
+      signUpDeadline: Timestamp.fromDate(new Date(utcEventDate.getTime() - 24 * 60 * 60 * 1000)), // Set deadline 24 hours before event
       attendees: [],
       createdAt: FieldValue.serverTimestamp(),
+      ...(videoConferenceLink !== null && { videoConferenceLink }), // Only add if not null
     };
 
     batch.set(liveEventRef, liveEventData);
@@ -114,8 +118,8 @@ export async function signUpForEvent(input: z.infer<typeof SignUpInputSchema>): 
       const liveEvent = liveEventDoc.data() as LiveEvent;
 
       const now = Timestamp.now();
-      if (now > (liveEvent.signUpDeadline as any)) {
-        throw new Error("The sign-up deadline for this event has passed.");
+      if (now.toMillis() > (liveEvent.signUpDeadline as any)?.toMillis()) {
+        throw new Error("Sign-ups for this event are now closed. Please check for other upcoming events!");
       }
       
       if (liveEvent.attendees.includes(userId)) {
@@ -146,7 +150,7 @@ export async function signUpForEvent(input: z.infer<typeof SignUpInputSchema>): 
           end: Timestamp.fromDate(new Date(eventDate.getTime() + Number(liveEvent.durationMinutes) * 60000)),
           description: `You are registered for the live event: "${liveEvent.title}".\n\n${liveEvent.description}`,
           type: 'live-event',
-          videoCallLink: liveEvent.videoConferenceLink,
+          videoCallLink: liveEvent.videoConferenceLink, // Reverted: Will be null or string, never undefined now.
           reminders: [ { method: 'popup', minutes: 30 } ]
       };
 

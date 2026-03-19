@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Workout, ExerciseBlock, WorkoutBlock, GroupBlock, RestBlock } from '@/types/workout-program';
-import { playBeep, playLongBeep } from '@/lib/audio';
+import { playBeep, playLongBeep, initAudio } from '@/lib/audio';
 
 export type WorkoutStatus = 'idle' | 'preparing' | 'exercising' | 'resting' | 'paused' | 'rep_based_pause' | 'finished' | 'empty';
 
@@ -101,6 +101,7 @@ export const useWorkoutEngineStore = create<WorkoutEngineState & WorkoutEngineAc
       ...initialState,
       reset: () => set(initialState),
       startWorkout: (workout) => {
+        initAudio(); // Call initAudio here
         const currentWorkoutId = get().workout?.id;
         if (currentWorkoutId !== workout.id) {
             get().reset();

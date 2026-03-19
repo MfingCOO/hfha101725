@@ -199,7 +199,7 @@ const RestView = ({ timer, onSkip }: { timer: number, onSkip: () => void }) => (
 
 const TimedExerciseView = ({ exercise, timer, onSkip }: { exercise: Exercise, timer: number, groupInfo?: ExerciseBlock['groupInfo'], onSkip: () => void }) => (
     <div className="flex flex-col items-center justify-center h-full w-full">
-        <h2 className="text-3xl sm:text-4xl font-bold truncate w-full mb-2">{exercise.name}</h2>
+        <h2 className="text-3xl sm:text-4xl font-bold w-full mb-2">{exercise.name}</h2>
         <p className="text-muted-foreground text-sm max-w-md mb-4">{exercise.description}</p>
         <h2 className="text-8xl font-bold font-mono tracking-tighter mb-6">{formatTime(timer)}</h2>
         <Button onClick={onSkip} variant="ghost">
@@ -236,7 +236,7 @@ const RepBasedView = ({ exercise, set, onComplete, unitSystem }: { exercise: Exe
         <FormProvider {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col items-center justify-between h-full w-full space-y-3">
                 <div className="text-center w-full">
-                    <h2 className="text-2xl sm:text-3xl font-bold truncate">{exercise.name}</h2>
+                    <h2 className="text-2xl sm:text-3xl font-bold">{exercise.name}</h2>
                     <div className="text-base space-y-1 bg-background/50 p-3 rounded-md mt-2">
                          <p><span className="font-semibold">Target:</span> {set.value} {set.metric}</p>
                          {set.target && <p className="text-sm text-muted-foreground"><span className="font-semibold">Note:</span> {set.target}</p>}

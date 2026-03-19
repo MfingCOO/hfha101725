@@ -88,39 +88,32 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
 
     setIsSubmitting(true);
     try {
-      // 1. Calculate Start and End Dates as ISO strings
-      const start = new Date(values.eventDate);
+      // 1. Calculate the eventTimestamp as a Date object directly
+      const eventTimestamp = new Date(values.eventDate);
       const [hours, minutes] = values.eventTime.split(':').map(Number);
-      start.setHours(hours, minutes, 0, 0);
+      eventTimestamp.setHours(hours, minutes, 0, 0);
       
-      const end = addMinutes(start, values.durationMinutes);
-
-      // 2. Prepare Base Data matching the expected signature
-      const baseData = {
+      // 2. Prepare the payload matching the server action's schema
+      const commonPayload = {
         title: values.title,
         description: values.description,
-        start: start.toISOString(),
-        end: end.toISOString(),
+        eventTimestamp: eventTimestamp, // Use the Date object directly
+        durationMinutes: values.durationMinutes,
         coachId: user.uid,
-        coachName: user.displayName || 'Coach',
+        attachVideoLink: values.attachVideoLink, // Pass the boolean directly
       };
 
       let result;
       if (isEditMode && initialData) {
-        // MATCH: Update expects id and isPersonal
         const updatePayload = { 
-            ...baseData, 
-            id: initialData.id,
-            isPersonal: false 
+            ...commonPayload, 
+            eventId: initialData.id, // The update function expects eventId
         };
-        result = await updateLiveEvent(updatePayload as any);
+        // Ensure updateLiveEvent is called with the correct type
+        result = await updateLiveEvent(updatePayload);
       } else {
-        // MATCH: Create expects maxParticipants
-        const createPayload = { 
-            ...baseData, 
-            maxParticipants: 100 
-        };
-        result = await createLiveEvent(createPayload as any);
+        // Ensure createLiveEvent is called with the correct type
+        result = await createLiveEvent(commonPayload);
       }
 
       if (result.success) {

@@ -77,6 +77,12 @@ async function sendPushNotification(userId: string, title: string, message: stri
 
     const payload: MulticastMessage = {
         tokens: tokens,
+        // ADDED: Explicit top-level notification object for consistent foreground/background handling
+        notification: {
+            title: String(title),
+            body: String(message),
+            imageUrl: imageUrl,
+        },
         data: dataPayload,
         apns: {
             payload: {
@@ -191,8 +197,8 @@ export const workoutReminderHandler = onTaskDispatched<any>({}, async (req) => {
     const doc = await docRef.get();
     if (!doc.exists || doc.data()?.status === 'reminder_sent') { return; }
 
-    const isRecipientCoach = await isUserCoach(userId);
-    const ctaUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${String(workoutId)}&isCoach=${String(isRecipientCoach)}`;
+    // REMOVED: const isRecipientCoach = await isUserCoach(userId);
+    const ctaUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${String(workoutId)}&isCoach=false`;
     
     await sendPushNotification(userId, 'Workout Reminder', `Your scheduled workout, "${workoutName}," is in 10 minutes!`, ctaUrl, 'workout_reminder', String(workoutId));
     await docRef.update({ status: 'reminder_sent' });
@@ -206,7 +212,7 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
 
     const { userId, workoutName, scheduledDate } = workout;
     const reminderTime = new Date(scheduledDate.toMillis() - 10 * 60 * 1000);
-    if (reminderTime < new Date()) { return; }
+    // REMOVED: if (reminderTime < new Date()) { return; }
 
     const queue = getFunctions().taskQueue('workoutReminderHandler');
     try {
@@ -237,7 +243,7 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
     if (!appointment || !event.data.createTime || !appointment.start) { return; }
 
     const reminderTime = new Date(appointment.start.toMillis() - 10 * 60 * 1000);
-    if (reminderTime < new Date()) { return; }
+    // REMOVED: if (reminderTime < new Date()) { return; }
 
     const queue = getFunctions().taskQueue('appointmentReminderHandler');
     if (appointment.type === 'one_on_one') {
@@ -310,7 +316,7 @@ export const onReminderScheduled = onDocumentCreated("reminders/{reminderId}", a
     const { userId, scheduledAt } = reminder;
     const reminderTime = scheduledAt.toDate();
 
-    if (reminderTime < new Date()) { return; }
+    // REMOVED: if (reminderTime < new Date()) { return; }
 
     const queue = getFunctions().taskQueue('hydrationReminderHandler');
     try {

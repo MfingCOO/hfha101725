@@ -146,6 +146,13 @@ type Toast = Omit<ToasterToast, "id">
 function toast({ ...props }: Toast) {
   const id = genId()
 
+  // Prepend apology for destructive toasts
+  if (props.variant === 'destructive' && props.description) {
+    props.description = `We apologize, but there was an error: ${props.description}`;
+  } else if (props.variant === 'destructive' && !props.description) {
+      props.description = `We apologize, but an unexpected error occurred.`;
+  }
+
   const update = (props: ToasterToast) =>
     dispatch({
       type: "UPDATE_TOAST",

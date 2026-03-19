@@ -81,11 +81,15 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     router.push(targetUrl);
   }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
 
-  const showInAppNotification = useCallback((title: string | undefined, body: string | undefined, data: { [key: string]: any }) => {
-    log(`[PushProvider] Showing in-app toast. Title: ${title}, Body: ${body}, Data:`, data);
+  const showInAppNotification = useCallback((incomingNotificationTitle: string | undefined, incomingNotificationBody: string | undefined, data: { [key: string]: any }) => {
+    // Robust fallback: prioritize incoming 'notification' title/body, then data payload
+    const finalTitle = incomingNotificationTitle || data.title || 'New Notification';
+    const finalBody = incomingNotificationBody || data.body || '';
+
+    log(`[PushProvider] Showing in-app toast. Final Title: ${finalTitle}, Final Body: ${finalBody}, Data:`, data);
     toast({
-      title: title || 'New Notification',
-      description: body || '',
+      title: finalTitle,
+      description: finalBody,
       action: (
         <ToastAction
           altText="Open"
@@ -94,7 +98,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           Open
         </ToastAction>
       ),
-      duration: 7000, // Added duration for in-app toast
+      duration: 7000,
     });
   }, [handleNotificationAction, toast]);
 
