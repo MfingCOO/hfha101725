@@ -14,14 +14,17 @@ const messaging = getMessaging();
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
     try {
-        const clientDoc = await db.collection('clients').doc(userId).get();
-        if (clientDoc.exists && clientDoc.data()?.fullName) {
-            return clientDoc.data()?.fullName as string;
+        // MODIFIED: Changed collection from 'clients' to 'userProfiles'
+        const userProfileDoc = await db.collection('userProfiles').doc(userId).get();
+        if (userProfileDoc.exists && userProfileDoc.data()?.fullName) {
+            return userProfileDoc.data()?.fullName as string;
         }
     } catch (error) {
-         console.error(`Error fetching user name for ${userId} from 'clients':`, error);
+         // MODIFIED: Updated error message to reflect 'userProfiles' collection
+         console.error(`Error fetching user name for ${userId} from 'userProfiles':`, error);
     }
-    console.log(`getUserName: Could not find a name for userId: ${userId} in 'clients' collection.`);
+    // MODIFIED: Updated log message to reflect 'userProfiles' collection
+    console.log(`getUserName: Could not find a name for userId: ${userId} in 'userProfiles' collection.`);
     return null;
 };
 
@@ -248,8 +251,11 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
     const queue = getFunctions().taskQueue('appointmentReminderHandler');
     if (appointment.type === 'one_on_one') {
         const { clientId, coachId } = appointment;
+        // ADDED: Logging for one_on_one appointment data
+        console.log(`onAppointmentScheduled: Processing one_on_one appointment. appointmentId: ${appointmentId}, clientId: ${clientId}, coachId: ${coachId}`);
         const clientName = await getUserName(clientId);
         const coachName = await getUserName(coachId);
+        console.log(`onAppointmentScheduled: User names fetched. clientName: ${clientName}, coachName: ${coachName}`);
         const tasks: Promise<any>[] = [];
         if (clientId) {
             tasks.push(queue.enqueue({ userId: clientId, appointmentId, isCoach: false, opponentName: coachName || 'your coach' }, { scheduleTime: reminderTime }));

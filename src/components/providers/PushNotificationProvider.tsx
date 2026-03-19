@@ -164,12 +164,16 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             });
 
             PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-                log('Native foreground notification received:', notification);
+                log('Native foreground notification received (raw):', notification);
+                log('Native foreground notification received (title):', notification.title);
+                log('Native foreground notification received (body):', notification.body);
+                log('Native foreground notification received (data):', notification.data);
                 showInAppNotification(notification.title, notification.body, notification.data || {});
             });
 
             PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-                log('Native notification action performed:', action);
+                log('Native notification action performed (raw):', action);
+                log('Native notification action performed (data):', action.notification.data);
                 handleNotificationAction('Native Action', action.notification.data || {});
             });
 
@@ -197,7 +201,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
           // This listener handles messages when the app is in the foreground (active tab)
           const unsubscribeOnMessage = onMessage(messaging, (payload) => {
-            log('PWA: Foreground message received.', payload);
+            log('PWA: Foreground message received (raw payload):', payload);
+            log('PWA: Foreground message received (notification):', payload.notification);
+            log('PWA: Foreground message received (data):', payload.data);
             const { notification, data } = payload;
             showInAppNotification(notification?.title, notification?.body, data || {});
           });
