@@ -61,10 +61,11 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         setNotificationWorkoutId(workoutId);
         queryParams.set('openWorkoutId', workoutId);
         queryParams.set('entityId', workoutId);
-    } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && appointmentId) {
-        setNotificationAppointmentId(appointmentId);
-        queryParams.set('openAppointmentId', appointmentId);
-        queryParams.set('entityId', appointmentId);
+    } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && (appointmentId || data.entityId)) { // MODIFIED: Check data.entityId as fallback
+        const resolvedAppointmentId = appointmentId || String(data.entityId || ''); // MODIFIED: Use entityId as fallback if appointmentId is missing
+        setNotificationAppointmentId(resolvedAppointmentId);
+        queryParams.set('openAppointmentId', resolvedAppointmentId);
+        queryParams.set('entityId', resolvedAppointmentId);
     } else if (notificationType === 'hydration') {
         setTriggerHydrationModal(true);
         queryParams.set('openHydration', 'true');
@@ -180,7 +181,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         }
 
       } else { 
-        // MODIFICATION: Only listen for foreground messages for the PWA bell, don't register for OS push notifications.
+        // MODIFIED: Only listen for foreground messages for the PWA bell, don't register for OS push notifications.
         log('Setting up PWA foreground notifications listener...');
         const isFCMSupported = await isSupported();
         if (!isFCMSupported || !messaging) {
