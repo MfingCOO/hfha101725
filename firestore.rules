@@ -91,16 +91,13 @@ service cloud.firestore {
     // --- NEW RULE FOR APPOINTMENTS COLLECTION ---
     // This rule targets the /coachCalendar/{appointmentId} path
     match /coachCalendar/{appointmentId} {
-      // Allow read access if the authenticated user:
-      // 1. Is the owner (client) of the appointment (by checking if request.auth.uid matches resource.data.clientId)
-      // OR
-      // 2. Is a coach and their UID matches the appointment's coachId
+      // MODIFIED: Simplified allow read access for truly universal coach permissions
       allow read: if request.auth != null && (
-        (isOwner(resource.data.clientId) && request.auth.uid == resource.data.clientId) || 
-        (isCoach(request.auth.uid) && request.auth.uid == resource.data.coachId)
+        request.auth.uid == resource.data.clientId || // Allow client to read their own appointment
+        isCoach(request.auth.uid)                     // Allow ANY coach to read ANY appointment (universal permission)
       );
 
-      // Allow write (create/update) only if the user is the owner (client) or a coach
+      // UNCHANGED: The write rule remains exactly as you confirmed it is working.
       allow write: if request.auth != null && (
         (isOwner(resource.data.clientId) && request.auth.uid == resource.data.clientId) || 
         (isCoach(request.auth.uid) && request.auth.uid == resource.data.coachId)

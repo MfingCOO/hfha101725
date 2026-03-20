@@ -1,4 +1,3 @@
-
 'use server';
 
 import { db as adminDb } from '@/lib/firebaseAdmin';
@@ -140,24 +139,30 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
             const finalTimezone = notificationTimezone || 'UTC';
             const formattedStartTime = formatInTimeZone(dataToSave.start, finalTimezone, 'PPP p');
 
-            if (dataToSave.clientName) {
+            // MODIFIED: Ensure clientName and coachName are explicitly defined, using existing data or generics
+            const resolvedClientName = dataToSave.clientName || 'a client'; // Use generic if not provided
+            const resolvedCoachName = dataToSave.coachName || 'your coach';   // Use generic if not provided
+
+            // This is the "immediate" notification you are receiving
+            if (dataToSave.clientName) { 
                 await createUserNotification(dataToSave.coachId!, {
                     type: 'appointment_booked',
                     title: 'New Appointment Booked',
-                    message: `${dataToSave.clientName} has booked a call with you for ${formattedStartTime}`,
+                    message: `${resolvedClientName} has booked a call with you for ${formattedStartTime}`,
                     pillarId: 'calendar',
-                    deliverAt: Timestamp.now(),
+                    deliverAt: Timestamp.now(), // IMMEDIATE delivery
                     entityId: eventId
                 });
             }
 
             const reminderTime = subMinutes(dataToSave.start, 10);
             if (reminderTime > new Date()) {
+                // This is the 10-minute reminder you are NOT getting
                 if (dataToSave.clientName) {
                     await createUserNotification(dataToSave.coachId!, {
                         type: 'appointment_reminder',
                         title: 'Upcoming Appointment',
-                        message: `Your appointment with ${dataToSave.clientName} is in 10 minutes.`,
+                        message: `Your appointment with ${resolvedClientName} is in 10 minutes.`,
                         pillarId: 'calendar',
                         entityId: eventId,
                         deliverAt: Timestamp.fromDate(reminderTime)
@@ -167,7 +172,7 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                      await createUserNotification(dataToSave.clientId!, {
                         type: 'appointment_reminder',
                         title: 'Upcoming Appointment',
-                        message: `Your appointment with ${dataToSave.coachName} is in 10 minutes.`,
+                        message: `Your appointment with ${resolvedCoachName} is in 10 minutes.`,
                         pillarId: 'calendar',
                         entityId: eventId,
                         deliverAt: Timestamp.fromDate(reminderTime)
