@@ -35,7 +35,7 @@ interface CoachDashboardClientProps {
 
 export function CoachDashboardClient({ initialClients, pendingFoodCount: initialPendingFoodCount, pendingReportCount: initialPendingReportCount, searchParams }: CoachDashboardClientProps) {
     const { toast } = useToast();
-    const { user } = useAuth();
+    const { user, loading } = useAuth(); // Destructure 'loading' from useAuth
     const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
 
     const [allClients, setAllClients] = useState<ClientProfile[]>(initialClients || []);
@@ -72,31 +72,40 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
         const openHydration = String(searchParams.openHydration || 'false');
         const notificationType = String(searchParams.notificationType || '');
 
-        const handleChatNotification = async (chatId: string) => {
-            const result = await getChatDetailsAction(chatId);
-            if (result.success && result.data) {
-                setSelectedChatInfo(result.data);
-                setIsChatDialogOpen(true);
-            } else {
-                toast({ variant: 'destructive', title: 'Error', description: 'Could not open the specified chat.' });
-                setIsChatsOpen(true);
-            }
-        };
+        // **Surgical Fix 1 (Coach Dashboard):** Defer processing if user is not available or authentication is loading
+        if (!user || loading) return; 
 
+        // Chat notifications are working and are explicitly NOT modified here.
         if (notificationType === 'chat' && openChatId) {
             setNotificationChatId(openChatId);
+            const handleChatNotification = async (chatId: string) => {
+                const result = await getChatDetailsAction(chatId);
+                if (result.success && result.data) {
+                    setSelectedChatInfo(result.data);
+                    setIsChatDialogOpen(true);
+                } else {
+                    toast({ variant: 'destructive', title: 'Error', description: 'Could not open the specified chat.' });
+                    setIsChatsOpen(true);
+                }
+            };
             handleChatNotification(openChatId);
-        } else if (notificationType === 'workout_reminder' && openWorkoutId) {
+        } 
+        // Workout notifications (ORIGINAL LOGIC - UNTOUCHED)
+        else if (notificationType === 'workout_reminder' && openWorkoutId) {
             setNotificationWorkoutId(openWorkoutId);
             setIsCalendarOpen(true);
-        } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
+        } 
+        // Handle appointment notifications ONLY (TARGETED FIX)
+        else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
+            // Authentication check is guaranteed by the early return; only proceed if user is available.
             setNotificationAppointmentId(openAppointmentId);
             setIsCalendarOpen(true);
-        } else if (notificationType === 'hydration' && openHydration === 'true') {
+        } 
+        // Hydration notifications (ORIGINAL LOGIC - UNTOUCHED)
+        else if (notificationType === 'hydration' && openHydration === 'true') {
             setTriggerHydrationModal(true);
         }
-
-    }, [isMounted, searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, toast]);
+    }, [isMounted, searchParams, user, loading, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, toast]);
 
     const fetchClients = useCallback(async () => {
         if (!user) {

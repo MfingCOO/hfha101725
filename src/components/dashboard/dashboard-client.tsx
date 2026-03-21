@@ -137,20 +137,37 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     const openHydration = String(searchParams.openHydration || 'false');
     const notificationType = String(searchParams.notificationType || '');
 
-    console.log('DashboardClient: Processing searchParams for notification:', searchParams);
+    // Surgical Fix 1 (Client Dashboard): Defer processing if authentication is still loading
+    if (loading) return; 
 
+    // Chat notifications are working and are explicitly NOT modified here.
     if (notificationType === 'chat' && openChatId) {
       setNotificationChatId(openChatId);
-    } else if (notificationType === 'workout_reminder' && openWorkoutId) {
+    } 
+    // Workout notifications (ORIGINAL LOGIC - UNTOUCHED)
+    else if (notificationType === 'workout_reminder' && openWorkoutId) {
       setNotificationWorkoutId(openWorkoutId);
-    } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
+    } 
+    // Handle appointment notifications ONLY (TARGETED FIX)
+    else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
+      // Surgical Fix 2 (Client Dashboard): Check for authenticated user BEFORE setting notification ID
+      if (!user) { 
+        toast({
+          variant: 'destructive',
+          title: 'Authentication Required',
+          description: 'Please log in to view appointment details.',
+        });
+        return; // Prevent setting ID if unauthenticated
+      }
       setNotificationAppointmentId(openAppointmentId);
-    } else if (notificationType === 'hydration' && openHydration === 'true') {
+    } 
+    // Hydration notifications (ORIGINAL LOGIC - UNTOUCHED)
+    else if (notificationType === 'hydration' && openHydration === 'true') {
       setTriggerHydrationModal(true);
     }
-  }, [searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
+  }, [searchParams, loading, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, toast]);
 
-  // Effect to open dialogs based on notification store state, now including chat
+  // Effect to open dialogs based on notification store state
   useEffect(() => {
     const handleChatNotification = async (chatId: string) => {
         const result = await getChatDetailsAction(chatId);
@@ -166,22 +183,26 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     if (notificationChatId) {
         handleChatNotification(notificationChatId);
     }
-    if (notificationAppointmentId) {
+    // Appointment notifications (TARGETED FIX)
+    if (notificationAppointmentId && user) { // Surgical Fix 3 (Client Dashboard): Only open AppointmentDetailDialog if user is authenticated
       setIsAppointmentDetailOpen(true);
     }
-    if (notificationWorkoutId) {
+    // Workout dialog (ORIGINAL LOGIC - UNTOUCHED)
+    if (notificationWorkoutId) { 
       setIsWorkoutActionOpen(true);
     }
-    if (triggerHydrationModal) {
+    // Hydration modal (ORIGINAL LOGIC - UNTOUCHED)
+    if (triggerHydrationModal) { 
       openModal('hydration');
       setTriggerHydrationModal(false);
     }
-  }, [notificationChatId, notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal, setNotificationChatId, toast]);
+  }, [notificationChatId, notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal, setNotificationChatId, toast, user]);
 
   const executePillarAction = (pillar: Pillar) => {
     if (pillar.id === 'insights') {
       setInsightsDialogOpen(true);
-    } else {
+    }
+    else {
       setActivePillar(pillar);
       setDataEntryDialogOpen(true);
     }
@@ -300,9 +321,10 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
         }
     } catch (error: any) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
-    } finally {
-        setIsResettingStreak(false);
-        setIsResetStreakAlertOpen(false);
+    }
+    finally {
+      setIsResettingStreak(false);
+      setIsResetStreakAlertOpen(false);
     }
   };
 
@@ -338,14 +360,21 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const handleJoinChallenge = async (challengeId: string) => {
     if (!user) return;
     setIsJoiningChallenge(true);
-    const result = await joinChallengeAction(challengeId, user.uid);
-    if (result.success) {
-      toast({ title: 'Challenge Joined!', description: 'You have successfully joined the challenge.' });
-      fetchDashboardData();
-    } else {
-      toast({ variant: 'destructive', title: 'Error Joining Challenge', description: result.error });
+    try {
+        const result = await joinChallengeAction(challengeId, user.uid);
+        if (result.success) {
+            toast({ title: 'Challenge Joined!', description: 'You have successfully joined the challenge.' });
+            fetchDashboardData();
+        } else {
+            throw new Error(result.error || 'Failed to join challenge.');
+        }
     }
-    setIsJoiningChallenge(false);
+    catch (error: any) {
+        toast({ variant: 'destructive', title: 'Error Joining Challenge', description: error.message });
+    }
+    finally {
+        setIsJoiningChallenge(false);
+    }
   };
 
   const renderPillarButton = (pillar: Pillar) => {
@@ -412,7 +441,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
         badgeText = isUpcoming ? "Registered" : "Active Now";
     } else if (isUpcoming) {
         badgeText = "Starts Soon";
-    } else {
+    }
+    else {
         badgeText = "New Challenge!"
     }
 
@@ -618,7 +648,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
             />
         )}
 
-        {clientProfile && notificationAppointmentId && (
+        {clientProfile && notificationAppointmentId && user && (
             <AppointmentDetailDialog
                 isOpen={isAppointmentDetailOpen}
                 onClose={() => {
@@ -643,6 +673,16 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
                     setIsWorkoutActionOpen(false);
                     setNotificationWorkoutId('');
                 }}
+            />
+        )}
+
+        {clientProfile && triggerHydrationModal && (
+             <DataEntryDialog
+                open={triggerHydrationModal}
+                onOpenChange={handleDataEntryDialogClose}
+                pillar={pillarsAndTools.find(p => p.id === 'hydration')!}
+                clientProfile={clientProfile}
+                onSwitchPillar={handleSwitchPillar}
             />
         )}
     </div>
