@@ -183,8 +183,9 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     if (notificationChatId) {
         handleChatNotification(notificationChatId);
     }
-    // Appointment notifications (TARGETED FIX)
-    if (notificationAppointmentId && user) { // Surgical Fix 3 (Client Dashboard): Only open AppointmentDetailDialog if user is authenticated
+    // Appointment notifications (TARGETED FIX - FORCED OPEN)
+    if (notificationAppointmentId && user) {
+      console.log("✅ Forcing AppointmentDetailDialog open - UID:", user.uid, "Appointment ID:", notificationAppointmentId);
       setIsAppointmentDetailOpen(true);
     }
     // Workout dialog (ORIGINAL LOGIC - UNTOUCHED)
