@@ -79,34 +79,23 @@ service cloud.firestore {
         allow read, create: if request.auth != null && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
       }
     }
-    // Rules for the 'notifications' collection - UPDATED FOR SPLIT CREATE/UPDATE/DELETE
+     // Rules for the 'notifications' collection
     match /notifications/{notificationId} {
       // Allow read access if the user is a coach OR is the owner of the notification
-      allow read: if request.auth != null && (isCoach(request.auth.uid) || (resource != null && isOwner(resource.data.userId)));
+      allow read: if request.auth != null && (isCoach(request.auth.uid) || isOwner(resource.data.userId));
       
-      // Allow create: client creates own, coach creates for anyone
-      allow create: if request.auth != null && (
-        request.auth.uid == request.resource.data.userId ||  // client creates own
-        isCoach(request.auth.uid)                             // coach creates for anyone
-      );
-      
-      // Allow update, delete: only owner or coach can update/delete existing notifications
-      allow update, delete: if request.auth != null && resource != null && (
-        isOwner(resource.data.userId) || isCoach(request.auth.uid)
-      );
+      // Allow write access only to the owner of the notification
+      allow write: if request.auth != null && isOwner(resource.data.userId);
     } 
 
     // --- NEW RULE FOR APPOINTMENTS COLLECTION ---
     // This rule targets the /coachCalendar/{appointmentId} path
     match /coachCalendar/{appointmentId} {
-      // Allow single document read (good as-is, added explicit get)
-      allow get: if request.auth != null && resource != null && (
+      // MODIFIED: Simplified allow read access for truly universal coach permissions
+      allow read: if request.auth != null && (
         request.auth.uid == resource.data.clientId || // Allow client to read their own appointment
         isCoach(request.auth.uid)                     // Allow ANY coach to read ANY appointment (universal permission)
       );
-
-      // Allow listing only for coaches (Option 1: Simple & Secure)
-      allow list: if request.auth != null && isCoach(request.auth.uid);
 
       // UNCHANGED: The write rule remains exactly as you confirmed it is working.
       allow write: if request.auth != null && (
