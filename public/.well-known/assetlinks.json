@@ -1,0 +1,14 @@
+[
+    {
+      "relation": [
+        "delegate_permission/common.handle_all_urls"
+      ],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.hungerfreeandhappy.mobile",
+        "sha256_cert_fingerprints": [
+          "CA:AF:39:D6:30:26:4A:29:B7:E8:3A:30:FB:EE:0D:60:AA:A5:DB:90:37:60:57:9B:F3:32:35:4C:29:2C:EC:6D"
+        ]
+      }
+    }
+  ]
