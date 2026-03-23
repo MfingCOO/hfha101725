@@ -148,7 +148,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     else if (notificationType === 'workout_reminder' && openWorkoutId) {
       setNotificationWorkoutId(openWorkoutId);
     } 
-    // Handle appointment notifications ONLY (TARGETED FIX)
+    // Appointment notifications (TARGETED FIX)
     else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
       // Surgical Fix 2 (Client Dashboard): Check for authenticated user BEFORE setting notification ID
       if (!user) { 
@@ -183,9 +183,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     if (notificationChatId) {
         handleChatNotification(notificationChatId);
     }
-    // Appointment notifications (TARGETED FIX - FORCED OPEN)
-    if (notificationAppointmentId && user) {
-      console.log("✅ Forcing AppointmentDetailDialog open - UID:", user.uid, "Appointment ID:", notificationAppointmentId);
+    // Appointment notifications (TARGETED FIX)
+    if (notificationAppointmentId && user) { // Surgical Fix 3 (Client Dashboard): Only open AppointmentDetailDialog if user is authenticated
       setIsAppointmentDetailOpen(true);
     }
     // Workout dialog (ORIGINAL LOGIC - UNTOUCHED)
@@ -320,7 +319,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
         } else {
             throw new Error(result.error || 'Failed to reset streak.');
         }
-    } catch (error: any) {
+    }
+    catch (error: any) {
         toast({ variant: 'destructive', title: 'Error', description: error.message });
     }
     finally {
@@ -440,7 +440,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     let badgeVariant: "secondary" | "default" | "destructive" | "outline" | null | undefined = "secondary";
     if (isParticipant) {
         badgeText = isUpcoming ? "Registered" : "Active Now";
-    } else if (isUpcoming) {
+    }
+    else if (isUpcoming) {
         badgeText = "Starts Soon";
     }
     else {
