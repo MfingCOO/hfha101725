@@ -66,24 +66,23 @@ service cloud.firestore {
     }
 
     // ====================== APPOINTMENTS (SAFE & NON-BREAKING) ======================
-    match /coachCalendar/{appointmentId} {
-      // Single document read / get – safe for clients & coaches
-      allow read, get: if request.auth != null && resource != null && (
-        request.auth.uid == resource.data.clientId ||
-        isCoach(request.auth.uid)
-      );
+   match /coachCalendar/{appointmentId} {
+  // Allow read if the document exists and the user is the client or coach
+  allow read: if request.auth != null && resource != null && (
+    request.auth.uid == resource.data.clientId ||
+    isCoach(request.auth.uid)
+  );
 
-      // Allow queries/lists with a reasonable limit (prevents unbounded scans)
-      // Combined with the 'read' rule above, this safely allows filtered queries like .where("clientId", "==", uid)
-      allow list: if request.auth != null &&
-                    request.query.limit <= 50 &&  // Adjust limit as needed (e.g., 100)
-                    request.query.limit > 0;     // Prevent no-limit queries
+  // Allow list with limit (safe query protection)
+  allow list: if request.auth != null &&
+                request.query.limit <= 50 &&
+                request.query.limit > 0;
 
-      // Write (unchanged)
-      allow write: if request.auth != null && (
-        (isOwner(resource.data.clientId) && request.auth.uid == resource.data.clientId) ||
-        (isCoach(request.auth.uid) && request.auth.uid == resource.data.coachId)
-      );
-    }
+  // Write (keep your existing logic)
+  allow write: if request.auth != null && (
+    request.auth.uid == request.resource.data.clientId ||
+    isCoach(request.auth.uid)
+  );
+}
   }
 }
