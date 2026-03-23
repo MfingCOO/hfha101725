@@ -14,7 +14,10 @@ service cloud.firestore {
     // ====================== USER PROFILES ======================
     match /userProfiles/{userId} {
       allow read: if request.auth != null && (isOwner(userId) || isCoach(request.auth.uid));
-      allow write: if request.auth != null && isOwner(userId);
+      
+      // Separating 'create' allows the Sign-Up page to work for new users
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && isOwner(userId);
     }
 
     // ====================== CHAT METADATA ======================
@@ -26,8 +29,12 @@ service cloud.firestore {
     // ====================== CLIENTS & SUBCOLLECTIONS ======================
     match /clients/{clientId} {
       allow list, read: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
-      allow create, update: if request.auth != null && isOwner(clientId);
+      
+      // This ensures the first-time profile creation is allowed
+      allow create: if request.auth != null && request.auth.uid == clientId;
+      allow update: if request.auth != null && isOwner(clientId); 
       allow delete: if request.auth != null && isCoach(request.auth.uid);
+      
       match /{document=**} {
         allow read, write: if request.auth != null && (isOwner(clientId) || isCoach(request.auth.uid));
       }
@@ -66,23 +73,20 @@ service cloud.firestore {
     }
 
     // ====================== APPOINTMENTS (SAFE & NON-BREAKING) ======================
-   match /coachCalendar/{appointmentId} {
-  // Allow read if the document exists and the user is the client or coach
-  allow read: if request.auth != null && resource != null && (
-    request.auth.uid == resource.data.clientId ||
-    isCoach(request.auth.uid)
-  );
+    match /coachCalendar/{appointmentId} {
+      allow read: if request.auth != null && resource != null && (
+        request.auth.uid == resource.data.clientId ||
+        isCoach(request.auth.uid)
+      );
 
-  // Allow list with limit (safe query protection)
-  allow list: if request.auth != null &&
-                request.query.limit <= 50 &&
-                request.query.limit > 0;
+      allow list: if request.auth != null &&
+                    request.query.limit <= 50 &&
+                    request.query.limit > 0;
 
-  // Write (keep your existing logic)
-  allow write: if request.auth != null && (
-    request.auth.uid == request.resource.data.clientId ||
-    isCoach(request.auth.uid)
-  );
-}
+      allow write: if request.auth != null && (
+        request.auth.uid == request.resource.data.clientId ||
+        isCoach(request.auth.uid)
+      );
+    }
   }
 }
