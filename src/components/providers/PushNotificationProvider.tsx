@@ -155,7 +155,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             log('Native push permission granted.');
             await PushNotifications.register();
 
-            // Handle notifications clicked while app was closed
             const delivered = await PushNotifications.getDeliveredNotifications();
             if (delivered.notifications.length > 0) {
                 log('Found missed notifications on boot:', delivered.notifications);
@@ -172,6 +171,26 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
             PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
                 log('Native foreground notification received (raw):', notification);
+                
+                // --- APPOINTMENT BANNER FIX ---
+                const isAppt = notification.data?.notificationType?.includes('appointment') || 
+                               notification.data?.type === 'appointment' || 
+                               notification.title?.toLowerCase().includes('appointment');
+
+                if (isAppt) {
+                    LocalNotifications.schedule({
+                        notifications: [{
+                            title: notification.title || "New Appointment",
+                            body: notification.body || "Tap to view details",
+                            id: Date.now(),
+                            extra: notification.data,
+                            smallIcon: 'ic_stat_notification',
+                            channelId: 'reminders'
+                        }]
+                    });
+                }
+                // --- END FIX ---
+
                 showInAppNotification(notification.title, notification.body, notification.data || {});
             });
 
