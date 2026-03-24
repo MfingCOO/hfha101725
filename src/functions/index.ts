@@ -1,327 +1,194 @@
 'use strict';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { getMessaging, MulticastMessage, BatchResponse } from 'firebase-admin/messaging';
+import { getMessaging, MulticastMessage } from 'firebase-admin/messaging';
 import { getFunctions } from 'firebase-admin/functions';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
-import { onRequest } from 'firebase-functions/v2/https';
 
 initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 
+// Standardized Name Fetcher from 'clients' collection
 const getUserName = async (userId: string): Promise<string | null> => {
     if (!userId) return null;
     try {
-        // CORRECTED: Now reads from 'clients' collection as per instruction (source of truth)
         const clientDoc = await db.collection('clients').doc(userId).get();
-        if (clientDoc.exists && clientDoc.data()?.fullName) {
-            return clientDoc.data()?.fullName as string;
-        }
+        return clientDoc.exists ? (clientDoc.data()?.fullName as string) : null;
     } catch (error) {
-         // CORRECTED: Updated error message to reflect 'clients' collection
-         console.error(`Error fetching user name for ${userId} from 'clients':`, error);
+        console.error(`Error fetching user name for ${userId}:`, error);
+        return null;
     }
-    // CORRECTED: Updated log message to reflect 'clients' collection
-    console.log(`getUserName: Could not find a name for userId: ${userId} in 'clients' collection.`);
-    return null;
 };
 
-async function isUserCoach(userId: string): Promise<boolean> {
-    if (!userId) return false;
-    try {
-        const clientSnap = await db.collection('clients').doc(userId).get();
-        return clientSnap.exists && clientSnap.data()?.role === 'coach';
-    } catch (error) {
-        console.error(`Error checking if user ${userId} is a coach:`, error);
-        return false;
-    }
-}
-
-async function sendPushNotification(userId: string, title: string, message: string, ctaUrl: string, notificationType: string, entityId: string, imageUrl?: string, senderId?: string, senderName?: string, messageText?: string) {
-    const userDocRef = await db.collection('clients').doc(userId).get();
-
-    if (!userDocRef.exists) {
-        console.log(`sendPushNotification: User profile ${userId} not found in 'clients' collection.`);
+// Universal Push Sender - Standardizes IDs so the PWA Pop-ups trigger correctly
+async function sendPushNotification(
+    userId: string, 
+    title: string, 
+    message: string, 
+    ctaUrl: string, 
+    notificationType: string, 
+    entityId: string, 
+    imageUrl?: string
+) {
+    const userDoc = await db.collection('clients').doc(userId).get();
+    if (!userDoc.exists) {
+        console.log(`Notification aborted: User ${userId} not found in 'clients'.`);
         return;
     }
 
-    const tokens = userDocRef.data()?.fcmTokens?.filter((t: any) => typeof t === 'string' && t) || [];
-    if (tokens.length === 0) {
-        console.log(`sendPushNotification: User ${userId} has no valid FCM tokens.`);
-        return;
-    }
+    const userData = userDoc.data();
+    const tokens = userData?.fcmTokens?.filter((t: any) => typeof t === 'string' && t) || [];
+    if (tokens.length === 0) return;
 
+    const isCoach = userData?.role === 'coach';
     const channelId = notificationType === 'chat' ? 'chat_messages' : 'reminders';
 
+    // payload.data MUST contain these keys for the PWA PushNotificationProvider.tsx to trigger modals
     const dataPayload: { [key: string]: string } = {
         title: String(title),
         body: String(message),
-        url: String(ctaUrl),
         notificationType: String(notificationType),
         entityId: String(entityId),
-        senderId: String(senderId || ''),
-        senderName: String(senderName || ''),
-        messageText: String(messageText || ''),
-        ...(imageUrl && { imageUrl: String(imageUrl) }),
-        isCoach: String(await isUserCoach(userId))
+        chatId: notificationType === 'chat' ? entityId : '',
+        workoutId: notificationType === 'workout_reminder' ? entityId : '',
+        appointmentId: ['appointment_reminder', 'appointment_booked'].includes(notificationType) ? entityId : '',
+        hydration: notificationType === 'hydration' ? 'true' : 'false',
+        isCoach: String(isCoach),
+        link: String(ctaUrl)
     };
-
-    if (notificationType === 'chat') {
-        dataPayload.chatId = entityId;
-    } else if (notificationType === 'workout_reminder') {
-        dataPayload.workoutId = entityId;
-    } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType)) {
-        dataPayload.appointmentId = entityId;
-    } else if (notificationType === 'hydration') {
-        dataPayload.hydration = 'true';
-    }
 
     const payload: MulticastMessage = {
         tokens: tokens,
-        notification: {
-            title: String(title),
-            body: String(message),
-            imageUrl: imageUrl,
+        notification: { 
+            title: String(title), 
+            body: String(message), 
+            imageUrl: imageUrl || undefined 
         },
         data: dataPayload,
+        android: {
+            priority: 'high',
+            notification: {
+                channelId: channelId,
+                sound: 'default',
+                imageUrl: imageUrl || undefined
+            }
+        },
         apns: {
             payload: {
-                aps: {
-                    alert: { title: String(title), body: String(message) },
-                    badge: 1,
-                    sound: 'default',
-                    'mutable-content': 1,
-                },
-            },
-            fcmOptions: {
-                imageUrl: imageUrl,
-            },
-        },
-        android: {
-            priority: 'high' as const,
-            notification: {
-                title: String(title),
-                body: String(message),
-                channelId: String(channelId),
-                imageUrl: imageUrl,
-                sound: 'default',
-            },
-        },
-    };
-
-    let response: BatchResponse;
-    try {
-        response = await messaging.sendEachForMulticast(payload);
-        console.log(`FCM Response for ${userId}. Success: ${response.successCount}, Failure: ${response.failureCount}`);
-
-        if (response.failureCount > 0) {
-            const tokensToRemove: string[] = [];
-            response.responses.forEach((resp: { success: boolean, error?: { code: string } }, idx: number) => {
-                if (!resp.success) {
-                    const errorCode = resp.error?.code;
-                    console.error(`  - Failure for token ${tokens[idx]}: ${errorCode}`);
-                    if (errorCode === 'messaging/invalid-registration-token' || errorCode === 'messaging/registration-token-not-registered') {
-                        tokensToRemove.push(tokens[idx]);
-                    }
+                aps: { 
+                    alert: { title: String(title), body: String(message) }, 
+                    sound: 'default', 
+                    badge: 1 
                 }
-            });
-
-            if (tokensToRemove.length > 0) {
-                const currentTokens = userDocRef.data()?.fcmTokens || [];
-                const updatedTokens = currentTokens.filter((token: string) => !tokensToRemove.includes(token));
-                await db.collection('clients').doc(userId).update({ fcmTokens: updatedTokens });
-                console.log(`Removed ${tokensToRemove.length} invalid tokens for user ${userId}.`);
             }
         }
+    };
+
+    try {
+        await messaging.sendEachForMulticast(payload);
+        console.log(`Successfully sent ${notificationType} to ${userId}`);
     } catch (error) {
-        console.error(`Catastrophic error sending notification to user ${userId}:`, error);
+        console.error(`FCM Multi-send error for ${userId}:`, error);
     }
 }
 
+// --- TRIGGERS ---
+
+// 1. Chat Messages
 export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => {
-    if (!event.data) { return; }
-    const message = event.data.data();
-    if (!message || message.userId === 'system') { return; }
+    const message = event.data?.data();
+    if (!message || message.userId === 'system') return;
 
     const chatId = event.params.chatId;
-    const senderId = message.userId;
-    const messageText = message.text || (message.fileUrl ? 'You received a new attachment' : '[Empty Message]');
-    const imageUrl = message.fileUrl || null;
-
     const chatDoc = await db.collection('chats').doc(chatId).get();
-    if (!chatDoc.exists) { return; }
+    if (!chatDoc.exists) return;
 
     const chatData = chatDoc.data()!;
-    const participants = chatData.participants || [];
-    const recipients = participants.filter((p: string) => p !== senderId && !(chatData.mutedBy && chatData.mutedBy.includes(p)));
-
-    if (recipients.length === 0) { return; }
-
-    const senderName = await getUserName(senderId);
-    const body = messageText.substring(0, 100);
-    let title = senderName ? `New message from ${senderName}` : 'New Message';
-
-    if (chatData.type === 'private_group' || chatData.type === 'open') {
-        title = chatData.name ? `New message in ${chatData.name}` : 'New Group Message';
-    }
-
-    const promises = recipients.map(async (recipientId: string) => {
-        const isRecipientCoach = await isUserCoach(recipientId);
-        const dashboardUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
-        const ctaUrl = `${dashboardUrl}?openChatId=${String(chatId)}&notificationType=chat&isCoach=${String(isRecipientCoach)}`;
-
-        return sendPushNotification(recipientId, title, body, ctaUrl, 'chat', String(chatId), imageUrl || undefined, senderId, senderName || '', body);
-    });
-
-    await Promise.all(promises);
-});
-
-export const testPushNotification = onRequest(async (req, res) => {
-    const userId = req.query.userId as string;
-    if (!userId) {
-        res.status(400).send("Please provide a userId");
-        return;
-    }
-    try {
-        await sendPushNotification(userId, 'Test Notification', 'This is a test message.', '/client/dashboard?notificationType=test', 'test', 'test-id');
-        res.send(`Successfully triggered a test notification for user ${userId}.`);
-    } catch (error) {
-        res.status(500).send(`Failed to send notification.`);
-    }
-});
-
-export const workoutReminderHandler = onTaskDispatched<any>({}, async (req) => {
-    const { userId, workoutId, workoutName } = req.data;
-    const docRef = db.collection('scheduledWorkouts').doc(workoutId);
-    const doc = await docRef.get();
-    if (!doc.exists || doc.data()?.status === 'reminder_sent') { return; }
-
-    const ctaUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${String(workoutId)}&isCoach=false`;
+    const recipients = (chatData.participants || []).filter((p: string) => p !== message.userId);
     
-    await sendPushNotification(userId, 'Workout Reminder', `Your scheduled workout, "${workoutName}," is in 10 minutes!`, ctaUrl, 'workout_reminder', String(workoutId));
-    await docRef.update({ status: 'reminder_sent' });
-});
+    const senderName = await getUserName(message.userId);
+    const title = senderName ? `New message from ${senderName}` : 'New Message';
 
-export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutId}", async (event) => {
-    if (!event.data) { return; }
-    const workout = event.data.data();
-    const workoutId = event.params.workoutId;
-    if (!workout || !event.data.createTime || workout.status !== 'scheduled') { return; }
-
-    const { userId, workoutName, scheduledDate } = workout;
-    const reminderTime = new Date(scheduledDate.toMillis() - 10 * 60 * 1000);
-
-    const queue = getFunctions().taskQueue('workoutReminderHandler');
-    try {
-        await queue.enqueue({ userId, workoutId, workoutName }, { scheduleTime: reminderTime });
-    } catch (error) {
-        console.error(`Error enqueuing task for workout ${workoutId}:`, error);
-    }
-});
-
-export const appointmentReminderHandler = onTaskDispatched<any>({}, async (req) => {
-    const { userId, appointmentId, isCoach, opponentName, eventTitle } = req.data;
-    let title = 'Upcoming Appointment';
-    let message = `Your appointment with ${opponentName || 'your coach/client'} is in 10 minutes.`;
-    if (eventTitle) {
-        title = 'Live Event Starting Soon';
-        message = `The event "${eventTitle}" is starting in 10 minutes!`;
-    }
-    const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
-    const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&openAppointmentId=${appointmentId}&isCoach=${String(isCoach)}`;
-
-    await sendPushNotification(userId, title, message, ctaUrl, 'appointment_reminder', appointmentId);
-});
-
-export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointmentId}", async (event) => {
-    if (!event.data) { return; }
-    const appointment = event.data.data();
-    const appointmentId = event.params.appointmentId;
-    if (!appointment || !event.data.createTime || !appointment.start) { return; }
-
-    const reminderTime = new Date(appointment.start.toMillis() - 10 * 60 * 1000);
-
-    const queue = getFunctions().taskQueue('appointmentReminderHandler');
-    if (appointment.type === 'one_on_one') {
-        const { clientId, coachId } = appointment;
-        // REMOVED: All prior getUserName calls and associated logging for appointments.
+    for (const recipientId of recipients) {
+        const recipientDoc = await db.collection('clients').doc(recipientId).get();
+        const isCoach = recipientDoc.data()?.role === 'coach';
+        const dashboard = isCoach ? '/coach' : '/client';
+        const url = `${dashboard}/dashboard?openChatId=${chatId}`;
         
-        // MODIFIED: Use generic placeholders as names cannot be reliably fetched for appointments.
-        const genericClientName = 'your client';
-        const genericCoachName = 'your coach';
-
-        const tasks: Promise<any>[] = [];
-        if (clientId) {
-            tasks.push(queue.enqueue({ userId: clientId, appointmentId, isCoach: false, opponentName: genericCoachName }, { scheduleTime: reminderTime }));
-        }
-        if (coachId) {
-            tasks.push(queue.enqueue({ userId: coachId, appointmentId, isCoach: true, opponentName: genericClientName }, { scheduleTime: reminderTime }));
-        }
-        await Promise.all(tasks);
-    } else if (appointment.liveEventId) {
-        const liveEventDoc = await db.collection('live-events').doc(appointment.liveEventId).get();
-        if (!liveEventDoc.exists) return;
-        const liveEvent = liveEventDoc.data()!;
-        const attendees = liveEvent.attendees || [];
-        if (attendees.length === 0) return;
-        const eventTitle = liveEvent.title || 'your live event';
-        const attendeeTasks = attendees.map((attendeeId: string) => {
-            return queue.enqueue({ userId: attendeeId, appointmentId, isCoach: false, eventTitle }, { scheduleTime: reminderTime });
-        });
-        await Promise.all(attendeeTasks);
+        await sendPushNotification(recipientId, title, message.text, url, 'chat', chatId);
     }
 });
 
-export const hydrationReminderHandler = onTaskDispatched<any>({}, async (req) => {
+// 2. Appointment Reminders (The Task Handler)
+export const appointmentReminderHandler = onTaskDispatched({ retryConfig: { maxAttempts: 3 } }, async (req) => {
+    const { userId, appointmentId, isCoach, opponentName } = req.data;
+    const dashboard = isCoach ? '/coach' : '/client';
+    const url = `${dashboard}/dashboard?notificationType=appointment_reminder&openAppointmentId=${appointmentId}`;
+    
+    await sendPushNotification(userId, 'Upcoming Session', `Meeting with ${opponentName} in 10m`, url, 'appointment_reminder', appointmentId);
+});
+
+// 3. Appointment Scheduled (The Creator)
+export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointmentId}", async (event) => {
+    const appt = event.data?.data();
+    if (!appt || !appt.start) return;
+
+    const appointmentId = event.params.appointmentId;
+    const reminderTime = new Date(appt.start.toMillis() - 10 * 60 * 1000);
+    const queue = getFunctions().taskQueue('appointmentReminderHandler');
+
+    if (appt.clientId) {
+        await queue.enqueue({ userId: appt.clientId, appointmentId, isCoach: false, opponentName: 'your coach' }, { scheduleTime: reminderTime });
+    }
+    if (appt.coachId) {
+        await queue.enqueue({ userId: appt.coachId, appointmentId, isCoach: true, opponentName: 'your client' }, { scheduleTime: reminderTime });
+    }
+});
+
+// 4. Workout Reminders (The Task Handler)
+export const workoutReminderHandler = onTaskDispatched({ retryConfig: { maxAttempts: 3 } }, async (req) => {
+    const { userId, workoutId, workoutName } = req.data;
+    const url = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${workoutId}`;
+    
+    await sendPushNotification(userId, 'Workout Reminder', `"${workoutName}" starts in 10m`, url, 'workout_reminder', workoutId);
+    await db.collection('scheduledWorkouts').doc(workoutId).update({ status: 'reminder_sent' });
+});
+
+// 5. Workout Scheduled (The Creator)
+export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutId}", async (event) => {
+    const workout = event.data?.data();
+    if (!workout || workout.status !== 'scheduled' || !workout.scheduledDate) return;
+
+    const workoutId = event.params.workoutId;
+    const reminderTime = new Date(workout.scheduledDate.toMillis() - 10 * 60 * 1000);
+    const queue = getFunctions().taskQueue('workoutReminderHandler');
+
+    await queue.enqueue({ 
+        userId: workout.userId, 
+        workoutId, 
+        workoutName: workout.workoutName 
+    }, { scheduleTime: reminderTime });
+});
+
+// 6. Hydration Reminders (The Task Handler)
+export const hydrationReminderHandler = onTaskDispatched({ retryConfig: { maxAttempts: 3 } }, async (req) => {
     const { userId, reminderId } = req.data;
-    const docRef = db.collection('reminders').doc(reminderId);
-    const doc = await docRef.get();
-    if (!doc.exists || doc.data()?.status !== 'scheduled') { return; }
-
-    const reminder = doc.data()!;
-    const scheduledTime = reminder.scheduledAt.toDate();
-    const timeString = scheduledTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-    const message = `This is your ${timeString} hydration reminder.`;
+    const url = '/client/dashboard?openHydration=true&notificationType=hydration';
     
-    const ctaUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
-    const iconUrl = 'https://storage.googleapis.com/hunger-free-and-happy-app.appspot.com/app-assets/water-drop-icon.png';
-
-    // Send the current notification
-    await sendPushNotification(userId, '💧 Time to Hydrate!', message, ctaUrl, 'hydration', 'hydration', iconUrl);
-    
-    // Mark the current reminder as sent
-    await docRef.update({ status: 'sent' });
-
-    // RECURRENCE LOGIC: If the reminder is recurring, schedule the next one for the next day.
-    if (reminder.isRecurring) {
-        const nextScheduledAt = new Date(scheduledTime.getTime());
-        nextScheduledAt.setDate(nextScheduledAt.getDate() + 1);
-
-        // Create a new reminder document for the next day
-        await db.collection('reminders').add({
-            ...reminder,
-            scheduledAt: nextScheduledAt,
-            status: 'scheduled',
-            createdAt: new Date()
-        });
-    }
+    await sendPushNotification(userId, '💧 Hydration', 'Time to log your water intake!', url, 'hydration', 'hydration');
+    await db.collection('reminders').doc(reminderId).update({ status: 'sent' });
 });
 
+// 7. Hydration Scheduled (The Creator)
 export const onReminderScheduled = onDocumentCreated("reminders/{reminderId}", async (event) => {
-    if (!event.data) { return; }
-    const reminder = event.data.data();
-    const { reminderId } = event.params;
-    if (!reminder || reminder.type !== 'hydration_reminder' || reminder.status !== 'scheduled' || !event.data.createTime) { return; }
-
-    const { userId, scheduledAt } = reminder;
-    const reminderTime = scheduledAt.toDate();
+    const rem = event.data?.data();
+    if (!rem || rem.status !== 'scheduled' || !rem.scheduledAt) return;
 
     const queue = getFunctions().taskQueue('hydrationReminderHandler');
-    try {
-        await queue.enqueue({ userId, reminderId }, { scheduleTime: reminderTime });
-    } catch (error) {
-        console.error(`onReminderScheduled: Error enqueuing task for reminder ${reminderId}:`, error);
-    }
+    await queue.enqueue({ 
+        userId: rem.userId, 
+        reminderId: event.params.reminderId 
+    }, { scheduleTime: rem.scheduledAt.toDate() });
 });
