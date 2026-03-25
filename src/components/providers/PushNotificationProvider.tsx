@@ -17,19 +17,33 @@ const log = (message: string, ...data: any[]) => console.log(`[PushProvider] ${m
 const logError = (message: string, ...data: any[]) => console.error(`[PushProvider] ${message}`, ...data);
 
 const createNotificationChannels = async () => {
-    if (Capacitor.getPlatform() !== 'android') return;
-    try {
-        log("Creating Android notification channels...");
-        await LocalNotifications.createChannel({ id: 'chat_messages', name: 'Chat Messages', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-        await LocalNotifications.createChannel({ id: 'reminders', name: 'Reminders', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-        log('Android channels created.');
-    } catch (error) {
-        logError('Error creating channels:', error);
-    }
+  if (Capacitor.getPlatform() !== 'android') return;
+  try {
+    log("Creating Android notification channels...");
+    await LocalNotifications.createChannel({
+      id: 'chat_messages',
+      name: 'Chat Messages',
+      importance: 5,
+      sound: 'default',
+      vibration: true,
+      visibility: 1
+    });
+    await LocalNotifications.createChannel({
+      id: 'reminders',
+      name: 'Reminders',
+      importance: 4,
+      sound: 'default',
+      vibration: true,
+      visibility: 1
+    });
+    log('Android channels created.');
+  } catch (error) {
+    logError('Error creating channels:', error);
+  }
 };
 
 const PushNotificationProvider = ({ children }: { children: React.ReactNode }) => {
-  const { user, loading } = useAuth(); 
+  const { user, loading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
@@ -42,44 +56,45 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     const chatId = String(data.chatId || '');
     const workoutId = String(data.workoutId || '');
     const appointmentId = String(data.appointmentId || '');
-    const link = String(data.link || '');
+    const url = String(data.url || ''); // MODIFIED: Get 'url' from dataPayload (which is ctaUrl)
+    const appointmentStartTimeMillis = String(data.appointmentStartTimeMillis || ''); // NEW: Get appointmentStartTimeMillis
     const isRecipientCoachStr = String(data.isCoach || 'false');
 
-    console.log(`[PushProvider][${context}] Parsed Data: notificationType=${notificationType}, appointmentId=${appointmentId}, entityId=${String(data.entityId || '')}, isCoach=${isRecipientCoachStr}`);
-    
+    // ADDED: Granular logging for parsed data
+    console.log(`[PushProvider][${context}] Parsed Data: notificationType=${notificationType}, appointmentId=${appointmentId}, entityId=${String(data.entityId || '')}, isCoach=${isRecipientCoachStr}, appointmentStartTimeMillis=${appointmentStartTimeMillis}`);
+
     const isRecipientCoach = isRecipientCoachStr === 'true';
     const dashboardBaseUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
 
-    let targetUrl = dashboardBaseUrl;
+    let targetUrl = url; // **MODIFIED:** Start with the 'url' from data, which is the ctaUrl
     const queryParams = new URLSearchParams();
     queryParams.set('notificationType', notificationType);
     queryParams.set('isCoach', isRecipientCoachStr);
 
     if (notificationType === 'chat' && chatId) {
-        setNotificationChatId(chatId);
-        queryParams.set('openChatId', chatId);
-        queryParams.set('entityId', chatId);
+      setNotificationChatId(chatId);
+      queryParams.set('openChatId', chatId);
+      queryParams.set('entityId', chatId);
     } else if (notificationType === 'workout_reminder' && workoutId) {
-        setNotificationWorkoutId(workoutId);
-        queryParams.set('openWorkoutId', workoutId);
-        queryParams.set('entityId', workoutId);
+      setNotificationWorkoutId(workoutId);
+      queryParams.set('openWorkoutId', workoutId);
+      queryParams.set('entityId', workoutId);
     } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && (appointmentId || data.entityId)) {
-        const resolvedAppointmentId = appointmentId || String(data.entityId || '');
-        setNotificationAppointmentId(resolvedAppointmentId);
-        queryParams.set('openAppointmentId', resolvedAppointmentId);
-        queryParams.set('entityId', resolvedAppointmentId);
+      const resolvedAppointmentId = appointmentId || String(data.entityId || '');
+      setNotificationAppointmentId(resolvedAppointmentId);
+      queryParams.set('openAppointmentId', resolvedAppointmentId);
+      queryParams.set('entityId', resolvedAppointmentId);
+      if (appointmentStartTimeMillis) { // **NEW:** Pass appointmentStartTimeMillis
+        queryParams.set('appointmentStartTimeMillis', appointmentStartTimeMillis);
+      }
     } else if (notificationType === 'hydration') {
-        setTriggerHydrationModal(true);
-        queryParams.set('openHydration', 'true');
-        queryParams.set('entityId', 'hydration');
-    } else if (link) {
-        targetUrl = link;
-        log(`[${context}] Direct link navigation to: ${targetUrl}`);
-        router.push(targetUrl);
-        return;
+      setTriggerHydrationModal(true);
+      queryParams.set('openHydration', 'true');
+      queryParams.set('entityId', 'hydration');
     }
+    // Removed the old `if (link)` block, as `url` now holds the direct link
 
-    targetUrl = `${dashboardBaseUrl}?${queryParams.toString()}`;
+    targetUrl = `${dashboardBaseUrl}?${queryParams.toString()}`; // Rebuild URL with dashboardBaseUrl and all query params
     log(`[${context}] Final Navigating URL: ${targetUrl}. IsRecipientCoach: ${isRecipientCoach}`);
     router.push(targetUrl);
   }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
@@ -107,38 +122,40 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('notificationType')) {
-        log("PWA: Detected notification in URL. Parsing...");
+      log("PWA: Detected notification in URL. Parsing...");
 
-        const notificationType = urlParams.get('notificationType');
-        const openChatId = urlParams.get('openChatId');
-        const openWorkoutId = urlParams.get('openWorkoutId');
-        const openAppointmentId = urlParams.get('openAppointmentId');
-        const openHydration = urlParams.get('openHydration');
+      const notificationType = urlParams.get('notificationType');
+      const openChatId = urlParams.get('openChatId');
+      const openWorkoutId = urlParams.get('openWorkoutId');
+      const openAppointmentId = urlParams.get('openAppointmentId');
+      const openHydration = urlParams.get('openHydration');
+      const appointmentStartTimeMillis = urlParams.get('appointmentStartTimeMillis'); // **NEW:** Get appointmentStartTimeMillis from URL
 
-        if (notificationType === 'chat' && openChatId) {
-            setNotificationChatId(openChatId);
-        } else if (notificationType === 'workout_reminder' && openWorkoutId) {
-            setNotificationWorkoutId(openWorkoutId);
-        } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType || '') && openAppointmentId) {
-            setNotificationAppointmentId(openAppointmentId);
-        } else if (notificationType === 'hydration' && openHydration === 'true') {
-            setTriggerHydrationModal(true);
-        }
+      if (notificationType === 'chat' && openChatId) {
+        setNotificationChatId(openChatId);
+      } else if (notificationType === 'workout_reminder' && openWorkoutId) {
+        setNotificationWorkoutId(openWorkoutId);
+      } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType || '') && openAppointmentId) {
+        setNotificationAppointmentId(openAppointmentId);
+      } else if (notificationType === 'hydration' && openHydration === 'true') {
+        setTriggerHydrationModal(true);
+      }
 
-        const newParams = new URLSearchParams(window.location.search);
-        newParams.delete('notificationType');
-        newParams.delete('openChatId');
-        newParams.delete('openWorkoutId');
-        newParams.delete('openAppointmentId');
-        newParams.delete('openHydration');
-        newParams.delete('entityId');
-        newParams.delete('isCoach');
-        
-        const queryString = newParams.toString();
-        const cleanUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
-        
-        log(`PWA URL: State updated. Cleaning URL to: ${cleanUrl}`);
-        router.replace(cleanUrl, { scroll: false });
+      const newParams = new URLSearchParams(window.location.search);
+      newParams.delete('notificationType');
+      newParams.delete('openChatId');
+      newParams.delete('openWorkoutId');
+      newParams.delete('openAppointmentId');
+      newParams.delete('openHydration');
+      newParams.delete('entityId');
+      newParams.delete('isCoach');
+      newParams.delete('appointmentStartTimeMillis'); // **NEW:** Clear from URL
+      
+      const queryString = newParams.toString();
+      const cleanUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
+      
+      log(`PWA URL: State updated. Cleaning URL to: ${cleanUrl}`);
+      router.replace(cleanUrl, { scroll: false });
     }
   }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
 
@@ -155,60 +172,38 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             log('Native push permission granted.');
             await PushNotifications.register();
 
-            const delivered = await PushNotifications.getDeliveredNotifications();
-            if (delivered.notifications.length > 0) {
-                log('Found missed notifications on boot:', delivered.notifications);
-                handleNotificationAction('Boot Recovery', delivered.notifications[0].data || {});
-                await PushNotifications.removeAllDeliveredNotifications();
-            }
-
             PushNotifications.addListener('registration', async (token: Token) => {
-                log('Native registration success, token:', token.value.substring(0,10) + '...');
-                if (user?.uid) {
-                  await addFcmTokenAction({ userId: user.uid, token: token.value });
-                }
+              log('Native registration success, token:', token.value.substring(0,10) + '...');
+              if (user?.uid) {
+                await addFcmTokenAction({ userId: user.uid, token: token.value });
+              }
             });
 
             PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-                log('Native foreground notification received (raw):', notification);
-                
-                // --- APPOINTMENT BANNER FIX ---
-                const isAppt = notification.data?.notificationType?.includes('appointment') || 
-                               notification.data?.type === 'appointment' || 
-                               notification.title?.toLowerCase().includes('appointment');
-
-                if (isAppt) {
-                    LocalNotifications.schedule({
-                        notifications: [{
-                            title: notification.title || "New Appointment",
-                            body: notification.body || "Tap to view details",
-                            id: Date.now(),
-                            extra: notification.data,
-                            smallIcon: 'ic_stat_notification',
-                            channelId: 'reminders'
-                        }]
-                    });
-                }
-                // --- END FIX ---
-
-                showInAppNotification(notification.title, notification.body, notification.data || {});
+              log('Native foreground notification received (raw):', notification);
+              log('Native foreground notification received (title):', notification.title);
+              log('Native foreground notification received (body):', notification.body);
+              log('Native foreground notification received (data):', notification.data);
+              showInAppNotification(notification.title, notification.body, notification.data || {});
             });
 
             PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-                log('Native notification action performed (data):', action.notification.data);
-                handleNotificationAction('Native Action', action.notification.data || {});
+              log('Native notification action performed (raw):', action);
+              log('Native notification action performed (data):', action.notification.data);
+              handleNotificationAction('Native Action', action.notification.data || {});
             });
 
             cleanupRef.current = () => {
-                log(`Cleaning up NATIVE push listeners.`);
-                PushNotifications.removeAllListeners();
+              log(`Cleaning up NATIVE push listeners.`);
+              PushNotifications.removeAllListeners();
             };
           }
         } catch (error) {
           logError('Error setting up native push notification listeners:', error);
         }
 
-      } else { 
+      } else {
+        // MODIFIED: Only listen for foreground messages for the PWA bell, don't register for OS push notifications.
         log('Setting up PWA foreground notifications listener...');
         const isFCMSupported = await isSupported();
         if (!isFCMSupported || !messaging) {
@@ -217,18 +212,23 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         }
 
         try {
+          // Register the service worker to allow it to listen for messages
           await navigator.serviceWorker.register('/sw.js');
 
+          // This listener handles messages when the app is in the foreground (active tab)
           const unsubscribeOnMessage = onMessage(messaging, (payload) => {
             log('PWA: Foreground message received (raw payload):', payload);
+            log('PWA: Foreground message received (notification):', payload.notification);
+            log('PWA: Foreground message received (data):', payload.data);
             const { notification, data } = payload;
             showInAppNotification(notification?.title, notification?.body, data || {});
           });
 
+          // This listener handles the click event if a notification is somehow displayed and clicked
           const handleServiceWorkerMessage = (event: MessageEvent) => {
             if (event.data?.type === 'notification_clicked') {
-                log('PWA: Received notification_clicked event from service worker.');
-                handleNotificationAction('PWA Click', event.data.data || {});
+              log('PWA: Received notification_clicked event from service worker.');
+              handleNotificationAction('PWA Click', event.data.data || {});
             }
           };
           navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
@@ -246,7 +246,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     };
 
     if (!loading && user) {
-        setupNotifications();
+      setupNotifications();
     }
 
     return () => {
@@ -256,7 +256,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         cleanupRef.current = null;
       }
     };
-
   }, [user, loading, showInAppNotification, handleNotificationAction]);
 
   return <>{children}</>;
