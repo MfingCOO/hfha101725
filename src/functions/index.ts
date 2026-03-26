@@ -91,7 +91,8 @@ async function sendPushNotification(userId: string, title: string, message: stri
             title: String(title),
             body: String(message),
             imageUrl: imageUrl, // FCM notification object expects string or undefined
-        },
+            android_channel_id: String(channelId), // **CRITICAL ADDITION FOR BACKGROUND NOTIFICATIONS (with type assertion)**
+        } as any, // Type assertion to allow android_channel_id in top-level notification object
         data: dataPayload, // Your custom data payload, now all strings
         apns: {
             payload: {
