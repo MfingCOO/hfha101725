@@ -101,7 +101,18 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
   const showInAppNotification = useCallback((incomingNotificationTitle: string | undefined, incomingNotificationBody: string | undefined, data: { [key: string]: any }) => {
     const finalTitle = incomingNotificationTitle || data.title || 'New Notification';
-    const finalBody = incomingNotificationBody || data.body || '';
+    let finalBody = incomingNotificationBody || data.body || ''; // Use let for modification
+
+    // **NEW SURGICAL FIX:** Enhance appointment toast description with localized time
+    const notificationType = String(data.notificationType || '');
+    const appointmentStartTimeMillis = String(data.appointmentStartTimeMillis || '');
+
+    if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && appointmentStartTimeMillis) {
+      const date = new Date(Number(appointmentStartTimeMillis));
+      const localizedTime = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
+      // Prepend or append the localized time to the existing body
+      finalBody = `⏰ ${localizedTime} - ${finalBody}`;
+    }
 
     log(`[PushProvider] Showing in-app toast. Final Title: ${finalTitle}, Final Body: ${finalBody}, Data:`, data);
     toast({
