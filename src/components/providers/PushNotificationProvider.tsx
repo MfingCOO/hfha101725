@@ -36,6 +36,15 @@ const createNotificationChannels = async () => {
       vibration: true,
       visibility: 1
     });
+    // **NEW:** Add channel for 'appointment_booked' notifications
+    await LocalNotifications.createChannel({
+      id: 'appointment_booked',
+      name: 'Appointment Booked',
+      importance: 5, // Corresponds to Android's NotificationManager.IMPORTANCE_HIGH for banner notifications
+      sound: 'default',
+      vibration: true,
+      visibility: 1, // VISIBILITY_PUBLIC (content shown on lock screen)
+    });
     log('Android channels created.');
   } catch (error) {
     logError('Error creating channels:', error);
