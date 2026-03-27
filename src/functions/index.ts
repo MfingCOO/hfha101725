@@ -274,11 +274,11 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
         if (coachId) {
             tasks.push(queue.enqueue({ userId: coachId, appointmentId, isCoach: true, opponentName: genericClientName, appointmentStartTimeMillis: appointment.start.toMillis() }, { scheduleTime: reminderTime }));
         }
-             try {
-                 await Promise.all(tasks);
-             } catch (error) {
-                 console.error(`onAppointmentScheduled: Error enqueuing one-on-one appointment tasks for appointment ${appointmentId}:`, error);
-             }
+        try {
+            await Promise.all(tasks);
+        } catch (error) {
+            console.error(`onAppointmentScheduled: Error enqueuing one-on-one appointment tasks for appointment ${appointmentId}:`, error);
+        }
             
     } else if (appointment.liveEventId) {
         const liveEventDoc = await db.collection('live-events').doc(appointment.liveEventId).get();
@@ -290,11 +290,11 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
         const attendeeTasks = attendees.map((attendeeId: string) => {
             return queue.enqueue({ userId: attendeeId, appointmentId, isCoach: false, eventTitle, appointmentStartTimeMillis: appointment.start.toMillis() }, { scheduleTime: reminderTime });
         });
-            try {
-                 await Promise.all(attendeeTasks);
-             } catch (error) {
-                 console.error(`onAppointmentScheduled: Error enqueuing live event tasks for appointment ${appointmentId}:`, error);
-            }
+        try {
+            await Promise.all(attendeeTasks);
+        } catch (error) {
+            console.error(`onAppointmentScheduled: Error enqueuing live event tasks for appointment ${appointmentId}:`, error);
+        }
             
     }
 });
