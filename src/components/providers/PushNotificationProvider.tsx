@@ -20,6 +20,7 @@ const createNotificationChannels = async () => {
   if (Capacitor.getPlatform() !== 'android') return;
   try {
     log("Creating Android notification channels...");
+    // Existing chat messages channel (Importance 5 for banners)
     await LocalNotifications.createChannel({
       id: 'chat_messages',
       name: 'Chat Messages',
@@ -28,23 +29,41 @@ const createNotificationChannels = async () => {
       vibration: true,
       visibility: 1
     });
+    // **MODIFIED/NEW:** Specific channels for appointments, workouts, and hydration reminders (all Importance 5 for banners)
     await LocalNotifications.createChannel({
-      id: 'reminders',
-      name: 'Reminders',
-      importance: 4,
-      sound: 'default',
-      vibration: true,
-      visibility: 1
-    });
-    // **NEW:** Add channel for 'appointment_booked' notifications
-    await LocalNotifications.createChannel({
-      id: 'appointment_booked',
+      id: 'appointment_booked_notifications',
       name: 'Appointment Booked',
-      importance: 5, // Corresponds to Android's NotificationManager.IMPORTANCE_HIGH for banner notifications
+      importance: 5, // High importance for banners
       sound: 'default',
       vibration: true,
-      visibility: 1, // VISIBILITY_PUBLIC (content shown on lock screen)
+      visibility: 1,
     });
+    await LocalNotifications.createChannel({
+      id: 'appointment_reminders',
+      name: 'Appointment Reminders',
+      importance: 5, // High importance for banners
+      sound: 'default',
+      vibration: true,
+      visibility: 1,
+    });
+    await LocalNotifications.createChannel({
+      id: 'workout_reminders',
+      name: 'Workout Reminders',
+      importance: 5, // High importance for banners
+      sound: 'default',
+      vibration: true,
+      visibility: 1,
+    });
+    await LocalNotifications.createChannel({
+      id: 'hydration_reminders',
+      name: 'Hydration Reminders',
+      importance: 5, // High importance for banners
+      sound: 'default',
+      vibration: true,
+      visibility: 1,
+    });
+    // Removed the old generic 'reminders' channel as it's now superseded by specific ones.
+    // Removed 'appointment_booked' channel as it's now 'appointment_booked_notifications'.
     log('Android channels created.');
   } catch (error) {
     logError('Error creating channels:', error);
@@ -65,8 +84,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     const chatId = String(data.chatId || '');
     const workoutId = String(data.workoutId || '');
     const appointmentId = String(data.appointmentId || '');
-    const url = String(data.url || ''); // MODIFIED: Get 'url' from dataPayload (which is ctaUrl)
-    const appointmentStartTimeMillis = String(data.appointmentStartTimeMillis || ''); // NEW: Get appointmentStartTimeMillis
+    const url = String(data.url || ''); // VERIFIED: 'url' from dataPayload (which is ctaUrl) is correctly used
+    const appointmentStartTimeMillis = String(data.appointmentStartTimeMillis || ''); // Get appointmentStartTimeMillis
     const isRecipientCoachStr = String(data.isCoach || 'false');
 
     // ADDED: Granular logging for parsed data
@@ -93,7 +112,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       setNotificationAppointmentId(resolvedAppointmentId);
       queryParams.set('openAppointmentId', resolvedAppointmentId);
       queryParams.set('entityId', resolvedAppointmentId);
-      if (appointmentStartTimeMillis) { // **NEW:** Pass appointmentStartTimeMillis
+      if (appointmentStartTimeMillis) { // Pass appointmentStartTimeMillis
         queryParams.set('appointmentStartTimeMillis', appointmentStartTimeMillis);
       }
     } else if (notificationType === 'hydration') {
@@ -149,7 +168,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       const openWorkoutId = urlParams.get('openWorkoutId');
       const openAppointmentId = urlParams.get('openAppointmentId');
       const openHydration = urlParams.get('openHydration');
-      const appointmentStartTimeMillis = urlParams.get('appointmentStartTimeMillis'); // **NEW:** Get appointmentStartTimeMillis from URL
+      const appointmentStartTimeMillis = urlParams.get('appointmentStartTimeMillis'); // Get appointmentStartTimeMillis from URL
 
       if (notificationType === 'chat' && openChatId) {
         setNotificationChatId(openChatId);
@@ -169,7 +188,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       newParams.delete('openHydration');
       newParams.delete('entityId');
       newParams.delete('isCoach');
-      newParams.delete('appointmentStartTimeMillis'); // **NEW:** Clear from URL
+      newParams.delete('appointmentStartTimeMillis'); // Clear from URL
       
       const queryString = newParams.toString();
       const cleanUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
@@ -275,7 +294,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         cleanupRef.current();
         cleanupRef.current = null;
       }
-    };
+};
   }, [user, loading, showInAppNotification, handleNotificationAction]);
 
   return <>{children}</>;

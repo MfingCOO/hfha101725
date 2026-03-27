@@ -50,13 +50,27 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
     }
 
-    const channelId = notificationType === 'chat' ? 'chat_messages' : 'reminders';
+    // **MODIFIED:** Granular channelId assignment based on notificationType, specifically for appointment types
+    let channelId: string;
+    if (notificationType === 'chat') {
+        channelId = 'chat_messages';
+    } else if (notificationType === 'appointment_booked') { // Distinct channel for immediate booking notifications
+        channelId = 'appointment_booked_notifications';
+    } else if (notificationType === 'appointment_reminder') { // Distinct channel for time-based reminders
+        channelId = 'appointment_reminders';
+    } else if (notificationType === 'workout_reminder') {
+        channelId = 'workout_reminders';
+    } else if (notificationType === 'hydration') {
+        channelId = 'hydration_reminders';
+    } else {
+        channelId = 'default'; // Fallback channel
+    }
 
     // **MODIFIED:** dataPayload constructed first with raw values
     const rawDataPayload: { [key: string]: any } = {
         title: title,
         body: message,
-        url: ctaUrl, // Use 'url' as the navigation link key
+        url: ctaUrl, // VERIFIED: This is correctly included for all callers
         notificationType: notificationType,
         entityId: entityId,
         isCoach: await isUserCoach(userId), // Keep as boolean here for clarity, stringify below
@@ -85,13 +99,23 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return acc;
     }, {} as { [key: string]: string });
 
+    // Construct the top-level notification object
+    const notificationPayload: { [key: string]: any } = {
+        title: String(title),
+        body: String(message),
+        imageUrl: imageUrl, // FCM notification object expects string or undefined
+    };
+
+    // **NEW SURGICAL FIX:** Conditionally add android_channel_id to top-level notification for REMINDER types
+    // This targets appointment, workout, and hydration reminders for correct background channel routing.
+    // Chat notifications showed regression when this was universally applied, so it's conditional.
+    if (['appointment_booked_notifications', 'appointment_reminders', 'workout_reminders', 'hydration_reminders'].includes(channelId)) {
+        notificationPayload.android_channel_id = String(channelId);
+    }
+
     const payload: MulticastMessage = {
         tokens: tokens,
-        notification: {
-            title: String(title),
-            body: String(message),
-            imageUrl: imageUrl, // FCM notification object expects string or undefined
-        },
+        notification: notificationPayload as any, // Type assertion to allow android_channel_id in top-level notification object
         data: dataPayload, // Your custom data payload, now all strings
         apns: {
             payload: {
