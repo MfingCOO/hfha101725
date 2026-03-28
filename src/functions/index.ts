@@ -1,11 +1,12 @@
 'use strict';
 import { initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore'; // MODIFIED: Added Timestamp
 import { getMessaging, MulticastMessage, BatchResponse } from 'firebase-admin/messaging';
 import { getFunctions } from 'firebase-admin/functions';
-import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { onRequest } from 'firebase-functions/v2/https';
+import { createUserNotification } from '../services/reminders'; // MODIFIED: Changed import path to relative
 
 initializeApp();
 const db = getFirestore();
@@ -36,7 +37,8 @@ async function isUserCoach(userId: string): Promise<boolean> {
     }
 }
 
-async function sendPushNotification(userId: string, title: string, message: string, ctaUrl: string, notificationType: string, entityId: string, imageUrl?: string, senderId?: string, senderName?: string, messageText?: string, appointmentStartTimeMillis?: number) {
+// **CRITICAL FIX:** Export sendPushNotification so it can be imported by other files
+export async function sendPushNotification(userId: string, title: string, message: string, ctaUrl: string, notificationType: string, entityId: string, imageUrl?: string, senderId?: string, senderName?: string, messageText?: string, appointmentStartTimeMillis?: number, isCoachParam?: string) {
     const userDocRef = await db.collection('clients').doc(userId).get();
 
     if (!userDocRef.exists) {
@@ -50,7 +52,7 @@ async function sendPushNotification(userId: string, title: string, message: stri
         return;
     }
 
-    // **MODIFIED:** Granular channelId assignment based on notificationType, specifically for appointment types
+    // **MODIFIED:** Granular channelId assignment based on notificationType, specifically for new notification types
     let channelId: string;
     if (notificationType === 'chat') {
         channelId = 'chat_messages';
@@ -62,18 +64,27 @@ async function sendPushNotification(userId: string, title: string, message: stri
         channelId = 'workout_reminders';
     } else if (notificationType === 'hydration') {
         channelId = 'hydration_reminders';
-    } else {
+    } else if (notificationType === 'custom-popup') { 
+        channelId = 'custom_popups'; 
+    } else if (notificationType.includes('indulgence_')) { // Covers indulgence_prep, indulgence_checkin, indulgence_recover
+        channelId = 'indulgence_notifications';
+    } else if (notificationType === 'challenge_checkin') {
+        channelId = 'challenge_notifications';
+    } else if (notificationType === 'streak_congrats') {
+        channelId = 'streak_notifications';
+    }
+    else {
         channelId = 'default'; // Fallback channel
     }
 
-    // **MODIFIED:** dataPayload constructed first with raw values
+    // **MODIFIED:** rawDataPayload constructed first with raw values
     const rawDataPayload: { [key: string]: any } = {
         title: title,
         body: message,
         url: ctaUrl, // VERIFIED: This is correctly included for all callers
         notificationType: notificationType,
         entityId: entityId,
-        isCoach: await isUserCoach(userId), // Keep as boolean here for clarity, stringify below
+        isCoach: isCoachParam, // **CRITICAL FIX:** Use the passed isCoachParam directly
     };
 
     if (senderId) rawDataPayload.senderId = senderId;
@@ -91,7 +102,15 @@ async function sendPushNotification(userId: string, title: string, message: stri
         rawDataPayload.appointmentId = entityId;
     } else if (notificationType === 'hydration') {
         rawDataPayload.hydration = 'true';
+    } else if (notificationType.includes('indulgence_')) {
+        rawDataPayload.indulgenceId = entityId;
+        // Optionally add start/end times if needed by frontend for context
+        if (appointmentStartTimeMillis) rawDataPayload.indulgenceStartTimeMillis = appointmentStartTimeMillis; // Reusing param name for convenience
+    } else if (['challenge_checkin', 'streak_congrats'].includes(notificationType)) {
+        rawDataPayload.challengeId = entityId; // Or streakId if separate
+        rawDataPayload.openChallengeList = 'true'; // To indicate opening challenge list directly
     }
+
 
     // **NEW:** Universally stringify all values in dataPayload to prevent ClassCastException
     const dataPayload: { [key: string]: string } = Object.keys(rawDataPayload).reduce((acc, key) => {
@@ -107,9 +126,9 @@ async function sendPushNotification(userId: string, title: string, message: stri
     };
 
     // **NEW SURGICAL FIX:** Conditionally add android_channel_id to top-level notification for REMINDER types
-    // This targets appointment, workout, and hydration reminders for correct background channel routing.
+    // This targets all non-chat notifications for correct background channel routing.
     // Chat notifications showed regression when this was universally applied, so it's conditional.
-    if (['appointment_booked_notifications', 'appointment_reminders', 'workout_reminders', 'hydration_reminders'].includes(channelId)) {
+    if (['appointment_booked_notifications', 'appointment_reminders', 'workout_reminders', 'hydration_reminders', 'custom_popups', 'indulgence_notifications', 'challenge_notifications', 'streak_notifications'].includes(channelId)) {
         notificationPayload.android_channel_id = String(channelId);
     }
 
@@ -207,7 +226,9 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
         const dashboardUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
         const ctaUrl = `${dashboardUrl}?openChatId=${String(chatId)}&notificationType=chat&isCoach=${String(isRecipientCoach)}`;
 
-        return sendPushNotification(recipientId, title, body, ctaUrl, 'chat', String(chatId), imageUrl || undefined, senderId, senderName || '', body);
+        // **CRITICAL FIX:** Corrected argument passing for sendPushNotification for chat
+        // Passes 'messageText' for 'messageText' (9th param) and 'undefined' for 'appointmentStartTimeMillis' (10th param)
+        return sendPushNotification(recipientId, title, body, ctaUrl, 'chat', String(chatId), imageUrl || undefined, senderId, senderName || '', messageText, undefined, isRecipientCoach ? String(true) : String(false));
     });
 
     await Promise.all(promises);
@@ -220,8 +241,8 @@ export const testPushNotification = onRequest(async (req, res) => {
         return;
     }
     try {
-        await sendPushNotification(userId, 'Test Notification', 'This is a test message.', '/client/dashboard?notificationType=test', 'test', 'test-id');
-        res.send(`Successfully triggered a test notification for user ${userId}.`);
+        // **CRITICAL FIX:** Corrected argument passing for sendPushNotification
+        return await sendPushNotification(userId, 'Test Notification', 'This is a test message.', '/client/dashboard?notificationType=test', 'test', 'test-id', undefined, undefined, undefined, 'This is a test message.', undefined, String(false));
     } catch (error) {
         res.status(500).send("Failed to send notification.");
     }
@@ -235,7 +256,8 @@ export const workoutReminderHandler = onTaskDispatched<any>({}, async (req) => {
 
     const ctaUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${String(workoutId)}&isCoach=false`;
 
-    await sendPushNotification(userId, 'Workout Reminder', `Your scheduled workout, "${workoutName}," is in 10 minutes!`, ctaUrl, 'workout_reminder', String(workoutId));
+    // **CRITICAL FIX:** Corrected argument passing for sendPushNotification
+    await sendPushNotification(userId, 'Workout Reminder', `Your scheduled workout, "${workoutName}," is in 10 minutes!`, ctaUrl, 'workout_reminder', String(workoutId), undefined, undefined, undefined, `Your scheduled workout, "${workoutName}," is in 10 minutes!`, undefined, String(false));
     await docRef.update({ status: 'reminder_sent' });
 });
 
@@ -257,7 +279,6 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
 });
 
 export const appointmentReminderHandler = onTaskDispatched<any>({}, async (req) => {
-    // MODIFIED: Destructure appointmentStartTimeMillis
     const { userId, appointmentId, isCoach, opponentName, eventTitle, appointmentStartTimeMillis } = req.data;
     let title = 'Upcoming Appointment';
     let message = `Your appointment with ${opponentName || 'your coach/client'} is in 10 minutes.`;
@@ -268,8 +289,8 @@ export const appointmentReminderHandler = onTaskDispatched<any>({}, async (req) 
     const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
     const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&openAppointmentId=${appointmentId}&isCoach=${String(isCoach)}`;
 
-    // **MODIFIED:** Pass appointmentStartTimeMillis to sendPushNotification
-    await sendPushNotification(userId, title, message, ctaUrl, 'appointment_reminder', appointmentId, undefined, undefined, undefined, undefined, appointmentStartTimeMillis);
+    // **CRITICAL FIX:** Corrected argument passing for sendPushNotification, Number() conversion for appointmentStartTimeMillis
+    await sendPushNotification(userId, title, message, ctaUrl, 'appointment_reminder', appointmentId, undefined, undefined, undefined, message, Number(appointmentStartTimeMillis), String(isCoach));
 
 
 });
@@ -285,9 +306,6 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
     const queue = getFunctions().taskQueue('appointmentReminderHandler');
     if (appointment.type === 'one_on_one') { // **MODIFIED:** Pass appointmentStartTimeMillis
         const { clientId, coachId } = appointment;
-        // REMOVED: All prior getUserName calls and associated logging for appointments.
-
-        // MODIFIED: Use generic placeholders as names cannot be reliably fetched for appointments.
         const genericClientName = 'your client';
         const genericCoachName = 'your coach';
 
@@ -336,8 +354,7 @@ export const hydrationReminderHandler = onTaskDispatched<any>({}, async (req) =>
     const ctaUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
     const iconUrl = 'https://storage.googleapis.com/hunger-free-and-happy-app.appspot.com/app-assets/water-drop-icon.png';
 
-    // Send the current notification
-    await sendPushNotification(userId, '💧 Time to Hydrate!', message, ctaUrl, 'hydration', 'hydration', iconUrl);
+    await sendPushNotification(userId, '💧 Time to Hydrate!', message, ctaUrl, 'hydration', 'hydration', iconUrl, undefined, undefined, message, undefined, String(false)); // Pass messageText, Assume not coach for hydration
 
     // Mark the current reminder as sent
     docRef.update({ status: 'sent' }); // This updates the status of the *current* reminder (which triggered this handler)
@@ -371,5 +388,167 @@ export const onReminderScheduled = onDocumentCreated("reminders/{reminderId}", a
         await queue.enqueue({ userId, reminderId }, { scheduleTime: reminderTime });
     } catch (error) {
         console.error(`onReminderScheduled: Error enqueuing task for reminder ${reminderId}:`, error);
+    }
+});
+
+// --- Indulgence Planner Notifications (Phase 2, Step 2.2) ---
+
+export const indulgenceReminderHandler = onTaskDispatched<any>({}, async (req) => {
+    const { userId, indulgenceId, type, indulgenceStartTimeMillis, indulgenceEndTimeMillis } = req.data;
+    let title: string;
+    let message: string;
+    let relevantTimeMillis: number | undefined;
+
+    const ctaUrl = `/client/dashboard?notificationType=${type}&openIndulgenceId=${indulgenceId}&isCoach=false`;
+
+    switch (type) {
+        case 'indulgence_prep':
+            title = 'Indulgence Prep Reminder';
+            message = 'Your indulgence event is coming up! Time to get ready.';
+            relevantTimeMillis = indulgenceStartTimeMillis;
+            break;
+        case 'indulgence_checkin':
+            title = 'Indulgence Check-in';
+            message = 'Your indulgence event is happening soon. How are you feeling?';
+            relevantTimeMillis = indulgenceStartTimeMillis;
+            break;
+        case 'indulgence_recover':
+            title = 'Indulgence Recovery';
+            message = 'Your indulgence event has passed. Time to reflect and recover.';
+            relevantTimeMillis = indulgenceEndTimeMillis;
+            break;
+        default:
+            console.error(`Unknown indulgence notification type: ${type}`);
+            return;
+    }
+
+    await sendPushNotification(userId, title, message, ctaUrl, type, indulgenceId, undefined, undefined, undefined, message, relevantTimeMillis, String(false));
+    console.log(`Indulgence notification sent to user ${userId} for type ${type}`);
+});
+
+export const onIndulgencePlanCreated = onDocumentCreated("indulgencePlans/{planId}", async (event) => {
+    if (!event.data) { return; }
+    const indulgencePlan = event.data.data();
+    const indulgenceId = event.params.planId;
+    if (!indulgencePlan || !indulgencePlan.userId || !indulgencePlan.startTime || !indulgencePlan.endTime) { return; }
+
+    const { userId, startTime, endTime } = indulgencePlan;
+    const indulgenceStartTimeMillis = startTime.toMillis();
+    const indulgenceEndTimeMillis = endTime.toMillis();
+
+    const queue = getFunctions().taskQueue('indulgenceReminderHandler');
+    const tasks: Promise<any>[] = [];
+
+    // 12 hours before start (Prep)
+    const prepTime = new Date(indulgenceStartTimeMillis - 12 * 60 * 60 * 1000);
+    if (prepTime > new Date()) {
+        tasks.push(queue.enqueue({ userId, indulgenceId, type: 'indulgence_prep', indulgenceStartTimeMillis, indulgenceEndTimeMillis }, { scheduleTime: prepTime }));
+    }
+
+    // 2 hours before start (Check-in)
+    const checkinTime = new Date(indulgenceStartTimeMillis - 2 * 60 * 60 * 1000);
+    if (checkinTime > new Date()) {
+        tasks.push(queue.enqueue({ userId, indulgenceId, type: 'indulgence_checkin', indulgenceStartTimeMillis, indulgenceEndTimeMillis }, { scheduleTime: checkinTime }));
+    }
+
+    // 8 hours after end (Recovery)
+    const recoverTime = new Date(indulgenceEndTimeMillis + 8 * 60 * 60 * 1000);
+    if (recoverTime > new Date()) {
+        tasks.push(queue.enqueue({ userId, indulgenceId, type: 'indulgence_recover', indulgenceStartTimeMillis, indulgenceEndTimeMillis }, { scheduleTime: recoverTime }));
+    }
+
+    try {
+        await Promise.all(tasks);
+        console.log(`Scheduled indulgence reminders for plan ${indulgenceId}`);
+    } catch (error) {
+        console.error(`Error scheduling indulgence reminders for plan ${indulgenceId}:`, error);
+    }
+});
+
+
+// --- Challenge Check-in Notification (Phase 2, Step 2.3) ---
+
+export const challengeCheckinHandler = onTaskDispatched<any>({}, async (req) => {
+    const { userId, challengeId } = req.data;
+    const title = 'Challenge Check-in';
+    const message = 'Don\'t forget to check in on your challenge progress today!';
+    const ctaUrl = `/client/dashboard?notificationType=challenge_checkin&openChallengeList=true&isCoach=false`;
+
+    await sendPushNotification(userId, title, message, ctaUrl, 'challenge_checkin', challengeId, undefined, undefined, undefined, message, undefined, String(false));
+    console.log(`Challenge check-in notification sent to user ${userId} for challenge ${challengeId}`);
+});
+
+export const onChallengeEnrollmentCreated = onDocumentCreated("challenges/{challengeId}/enrollments/{enrollmentId}", async (event) => {
+    if (!event.data) { return; }
+    const enrollment = event.data.data();
+    // const challengeId = event.params.challengeId; // REMOVED: Unused variable
+    const enrollmentId = event.params.enrollmentId;
+    if (!enrollment || !enrollment.userId) { return; }
+
+    const userId = enrollment.userId;
+
+    // Fetch user's sleep time for scheduling (simplistic for now, assuming a default or configured value)
+    const clientDoc = await db.collection('clients').doc(userId).get();
+    const clientData = clientDoc.data();
+    // Assuming sleepTimeMillis is stored directly or derived. For this example, let's use a fixed time for demonstration.
+    // In a real app, this would be dynamic per user.
+    const userSleepHour = clientData?.sleepTimeHour || 22; // Default to 10 PM
+    const userSleepMinute = clientData?.sleepTimeMinute || 0;
+
+    const now = new Date();
+    let checkinTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), userSleepHour, userSleepMinute, 0);
+    checkinTime = new Date(checkinTime.getTime() - 2 * 60 * 60 * 1000); // 2 hours before sleep
+
+    // If checkinTime is in the past for today, schedule for tomorrow
+    if (checkinTime < now) {
+        checkinTime.setDate(checkinTime.getDate() + 1);
+    }
+
+    const queue = getFunctions().taskQueue('challengeCheckinHandler');
+    try {
+        // Schedule a task for challenge check-in. For recurring, a more complex cron-like setup would be needed.
+        // For now, schedule for the next opportune time.
+        await queue.enqueue({ userId, challengeId: enrollmentId }, { scheduleTime: checkinTime });
+        console.log(`Scheduled initial challenge check-in for user ${userId} at ${checkinTime.toISOString()}`);
+    } catch (error) {
+        console.error(`Error scheduling challenge check-in for user ${userId}:`, error);
+    }
+});
+
+
+// --- Streak Congrats Notification (Phase 2, Step 2.4) ---
+
+export const onStreakAchieved = onDocumentUpdated("clients/{userId}", async (event) => {
+    if (!event.data) { return; }
+    const beforeData = event.data.before.data();
+    const afterData = event.data.after.data();
+    const userId = event.params.userId;
+
+    // Assuming a 'currentStreak' field on the client document
+    const previousStreak = beforeData?.currentStreak || 0;
+    const currentStreak = afterData?.currentStreak || 0;
+
+    if (currentStreak > previousStreak) {
+        // Only trigger for significant milestones or any increase if desired
+        // For simplicity, let's trigger for any increase for now.
+        // You could add conditions here: if (currentStreak % 7 === 0 || currentStreak === 30) { ... }
+
+        const title = '🎉 Streak Achieved!';
+        const message = `Congratulations on your ${currentStreak}-day streak! Keep up the great work.`;
+        const ctaUrl = `/client/dashboard?notificationType=streak_congrats&openChallengeList=true&isCoach=false`;
+        const streakId = `streak-${userId}-${currentStreak}`; // Unique ID for this streak milestone
+
+        await createUserNotification(userId, {
+            type: 'streak-congrats',
+            title: title,
+            message: message,
+            pillarId: 'challenges', // Assuming challenges is the pillar for streaks
+            entityId: streakId,
+            deliverAt: Timestamp.now(), // Immediate delivery
+            url: ctaUrl,
+            isCoach: String(false), // Streaks are client-facing
+            appointmentStartTimeMillis: undefined,
+        });
+        console.log(`Streak congrats notification sent to user ${userId} for ${currentStreak}-day streak.`);
     }
 });

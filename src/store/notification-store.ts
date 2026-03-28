@@ -17,6 +17,10 @@ interface NotificationState {
   setTriggerHydrationModal: (trigger: boolean) => void;
   hasUnreadNotifications: boolean;
   setHasUnreadNotifications: (status: boolean) => void;
+  notificationIndulgenceId: string | null; // ADDED
+  setNotificationIndulgenceId: (id: string | null) => void; // ADDED
+  openChallengeList: boolean; // ADDED
+  setOpenChallengeList: (status: boolean) => void; // ADDED
 }
 
 export const useNotificationStore = create<NotificationState>((set) => ({
@@ -34,4 +38,8 @@ export const useNotificationStore = create<NotificationState>((set) => ({
   setTriggerHydrationModal: (trigger) => set({ triggerHydrationModal: trigger }),
   hasUnreadNotifications: false,
   setHasUnreadNotifications: (status) => set({ hasUnreadNotifications: status }),
+  notificationIndulgenceId: null, // ADDED
+  setNotificationIndulgenceId: (id) => set({ notificationIndulgenceId: id }), // ADDED
+  openChallengeList: false, // ADDED
+  setOpenChallengeList: (status) => set({ openChallengeList: status }), // ADDED
 }));

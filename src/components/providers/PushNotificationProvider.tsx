@@ -62,8 +62,39 @@ const createNotificationChannels = async () => {
       vibration: true,
       visibility: 1,
     });
-    // Removed the old generic 'reminders' channel as it's now superseded by specific ones.
-    // Removed 'appointment_booked' channel as it's now 'appointment_booked_notifications'.
+    // ADDED: New channels for custom popups, indulgence, challenge, and streak notifications
+    await LocalNotifications.createChannel({
+      id: 'custom_popups',
+      name: 'Custom Popups',
+      importance: 5,
+      sound: 'default',
+      vibration: true,
+      visibility: 1,
+    });
+    await LocalNotifications.createChannel({
+      id: 'indulgence_notifications',
+      name: 'Indulgence Reminders',
+      importance: 5,
+      sound: 'default',
+      vibration: true,
+      visibility: 1,
+    });
+    await LocalNotifications.createChannel({
+      id: 'challenge_notifications',
+      name: 'Challenge Reminders',
+      importance: 5,
+      sound: 'default',
+      vibration: true,
+      visibility: 1,
+    });
+    await LocalNotifications.createChannel({
+      id: 'streak_notifications',
+      name: 'Streak Accomplishments',
+      importance: 5,
+      sound: 'default',
+      vibration: true,
+      visibility: 1,
+    });
     log('Android channels created.');
   } catch (error) {
     logError('Error creating channels:', error);
@@ -74,7 +105,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const { user, loading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
+  const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList } = useNotificationStore(); // MODIFIED: Added new setters
 
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -84,12 +115,15 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     const chatId = String(data.chatId || '');
     const workoutId = String(data.workoutId || '');
     const appointmentId = String(data.appointmentId || '');
+    const indulgenceId = String(data.indulgenceId || ''); // ADDED
+    const challengeId = String(data.challengeId || ''); // ADDED
+    const openChallengeList = String(data.openChallengeList || 'false'); // ADDED
     const url = String(data.url || ''); // VERIFIED: 'url' from dataPayload (which is ctaUrl) is correctly used
     const appointmentStartTimeMillis = String(data.appointmentStartTimeMillis || ''); // Get appointmentStartTimeMillis
     const isRecipientCoachStr = String(data.isCoach || 'false');
 
     // ADDED: Granular logging for parsed data
-    console.log(`[PushProvider][${context}] Parsed Data: notificationType=${notificationType}, appointmentId=${appointmentId}, entityId=${String(data.entityId || '')}, isCoach=${isRecipientCoachStr}, appointmentStartTimeMillis=${appointmentStartTimeMillis}`);
+    console.log(`[PushProvider][${context}] Parsed Data: notificationType=${notificationType}, appointmentId=${appointmentId}, entityId=${String(data.entityId || '')}, isCoach=${isRecipientCoachStr}, appointmentStartTimeMillis=${appointmentStartTimeMillis}, indulgenceId=${indulgenceId}, challengeId=${challengeId}, openChallengeList=${openChallengeList}`);
 
     const isRecipientCoach = isRecipientCoachStr === 'true';
     const dashboardBaseUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
@@ -119,13 +153,43 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       setTriggerHydrationModal(true);
       queryParams.set('openHydration', 'true');
       queryParams.set('entityId', 'hydration');
+    } else if (notificationType.includes('indulgence_') && indulgenceId) { // ADDED: Indulgence Planner notifications
+      setNotificationIndulgenceId(indulgenceId);
+      queryParams.set('openIndulgenceId', indulgenceId);
+      queryParams.set('entityId', indulgenceId);
+      if (appointmentStartTimeMillis) { // Indulgence might also use this for context
+        queryParams.set('indulgenceStartTimeMillis', appointmentStartTimeMillis); // Renamed for clarity
+      }
+    } else if (['challenge_checkin', 'streak_congrats'].includes(notificationType) && openChallengeList === 'true') { // ADDED: Challenge and Streak notifications
+      setOpenChallengeList(true);
+      queryParams.set('openChallengeList', 'true');
+      if (challengeId) queryParams.set('entityId', challengeId); // Use challengeId as entityId
+    } else if (notificationType === 'custom-popup' && url) { // ADDED: Custom popup navigation
+      // For custom popups, the 'url' from the data payload is the direct target.
+      targetUrl = url;
+      // Clear any dashboard base URL if the custom URL is absolute or external
+      if (url.startsWith('http') || (url.startsWith('/') && url.length > 1 && url[1] !== '/')) { // Check for absolute or root-relative external URL
+        // If it's a full external URL, or a root-relative URL not intended for dashboard
+        // we might want to just navigate to it directly without dashboardBaseUrl prefix
+        // For now, let's keep it simple and ensure the queryParams are still added to the *base* dashboard if it's an internal link.
+        // If it's a truly external link, we'll let the 'router.push(targetUrl)' handle it directly.
+        log(`[${context}] Custom Popup with direct URL: ${targetUrl}`);
+      }
     }
     // Removed the old `if (link)` block, as `url` now holds the direct link
 
-    targetUrl = `${dashboardBaseUrl}?${queryParams.toString()}`; // Rebuild URL with dashboardBaseUrl and all query params
+    // If targetUrl is not an external URL, or it's empty, use the dashboard base URL with query params
+    // This ensures that if a custom popup has an external URL, it's used directly.
+    // If it's an internal link (like to /client/dashboard), then query params are correctly appended.
+    if (!targetUrl.startsWith('http') && !url.startsWith('/')) { // Only append query params if it's not an external URL or a root relative one already
+      targetUrl = `${dashboardBaseUrl}?${queryParams.toString()}`;
+    } else if (!targetUrl.startsWith('http') && url.startsWith('/') && queryParams.toString().length > 0) { // If root relative and has params, append them
+        targetUrl = `${targetUrl}?${queryParams.toString()}`;
+    }
+
     log(`[${context}] Final Navigating URL: ${targetUrl}. IsRecipientCoach: ${isRecipientCoach}`);
     router.push(targetUrl);
-  }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
+  }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]); // MODIFIED: Added new setters to deps
 
   const showInAppNotification = useCallback((incomingNotificationTitle: string | undefined, incomingNotificationBody: string | undefined, data: { [key: string]: any }) => {
     const finalTitle = incomingNotificationTitle || data.title || 'New Notification';
@@ -140,6 +204,12 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       const localizedTime = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
       // Prepend or append the localized time to the existing body
       finalBody = `⏰ ${localizedTime} - ${finalBody}`;
+    }
+    // ADDED: Handle custom popup imageUrl for richer toasts if needed. (Optional, current toast doesn't support image)
+    const imageUrl = data.imageUrl || undefined;
+    if (imageUrl) {
+        log(`[PushProvider] Notification has image: ${imageUrl}`);
+        // You might extend your toast component to display images if desired.
     }
 
     log(`[PushProvider] Showing in-app toast. Final Title: ${finalTitle}, Final Body: ${finalBody}, Data:`, data);
@@ -168,6 +238,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       const openWorkoutId = urlParams.get('openWorkoutId');
       const openAppointmentId = urlParams.get('openAppointmentId');
       const openHydration = urlParams.get('openHydration');
+      const openIndulgenceId = urlParams.get('openIndulgenceId'); // ADDED
+      const openChallengeList = urlParams.get('openChallengeList'); // ADDED
       const appointmentStartTimeMillis = urlParams.get('appointmentStartTimeMillis'); // Get appointmentStartTimeMillis from URL
 
       if (notificationType === 'chat' && openChatId) {
@@ -178,6 +250,10 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         setNotificationAppointmentId(openAppointmentId);
       } else if (notificationType === 'hydration' && openHydration === 'true') {
         setTriggerHydrationModal(true);
+      } else if (notificationType?.includes('indulgence_') && openIndulgenceId) { // ADDED
+        setNotificationIndulgenceId(openIndulgenceId);
+      } else if (['challenge_checkin', 'streak_congrats'].includes(notificationType || '') && openChallengeList === 'true') { // ADDED
+        setOpenChallengeList(true);
       }
 
       const newParams = new URLSearchParams(window.location.search);
@@ -189,6 +265,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       newParams.delete('entityId');
       newParams.delete('isCoach');
       newParams.delete('appointmentStartTimeMillis'); // Clear from URL
+      newParams.delete('openIndulgenceId'); // ADDED
+      newParams.delete('indulgenceStartTimeMillis'); // ADDED
+      newParams.delete('openChallengeList'); // ADDED
       
       const queryString = newParams.toString();
       const cleanUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
@@ -196,7 +275,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       log(`PWA URL: State updated. Cleaning URL to: ${cleanUrl}`);
       router.replace(cleanUrl, { scroll: false });
     }
-  }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
+  }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]); // MODIFIED: Added new setters to deps
 
   useEffect(() => {
     log("PushNotificationProvider useEffect (native/web setup) triggered.");
@@ -295,7 +374,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         cleanupRef.current = null;
       }
 };
-  }, [user, loading, showInAppNotification, handleNotificationAction]);
+  }, [user, loading, showInAppNotification, handleNotificationAction, setNotificationIndulgenceId, setOpenChallengeList]); // MODIFIED: Added new setters to deps
 
   return <>{children}</>;
 };

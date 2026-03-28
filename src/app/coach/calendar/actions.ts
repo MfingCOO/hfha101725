@@ -7,6 +7,7 @@ import { endOfDay, subMinutes } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import type { AvailabilitySettings, SiteSettings } from '@/types/index';
 import { createUserNotification } from '@/services/reminders';
+import type { Reminder } from '@/services/reminders'; // ADDED
 
 const eventSchema = z.object({
     id: z.string().optional(),
@@ -143,6 +144,10 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
             const resolvedClientName = dataToSave.clientName || 'a client'; // Use generic if not provided
             const resolvedCoachName = dataToSave.coachName || 'your coach';   // Use generic if not provided
 
+            // Define CTA URLs for coach and client
+            const ctaUrlCoach = `/coach/dashboard?notificationType=appointment_booked&openAppointmentId=${eventId}&isCoach=true`; // ADDED
+            const ctaUrlClient = `/client/dashboard?notificationType=appointment_booked&openAppointmentId=${eventId}&isCoach=false`; // ADDED
+
             // This is the "immediate" notification you are receiving
             if (dataToSave.clientName) { 
                 await createUserNotification(dataToSave.coachId!, {
@@ -151,8 +156,11 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                     message: `${resolvedClientName} has booked a call with you for ${formattedStartTime}`,
                     pillarId: 'calendar',
                     deliverAt: Timestamp.now(), // IMMEDIATE delivery
-                    entityId: eventId
-                });
+                    entityId: eventId,
+                    url: ctaUrlCoach, // ADDED
+                    appointmentStartTimeMillis: dataToSave.start.getTime(), // ADDED
+                    isCoach: String(true) // ADDED
+                } as Omit<Reminder, 'id'>); // ADDED type assertion
             }
 
             const reminderTime = subMinutes(dataToSave.start, 10);
@@ -165,8 +173,11 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                         message: `Your appointment with ${resolvedClientName} is in 10 minutes.`,
                         pillarId: 'calendar',
                         entityId: eventId,
-                        deliverAt: Timestamp.fromDate(reminderTime)
-                    });
+                        deliverAt: Timestamp.fromDate(reminderTime),
+                        url: ctaUrlCoach, // ADDED
+                        appointmentStartTimeMillis: dataToSave.start.getTime(), // ADDED
+                        isCoach: String(true) // ADDED
+                    } as Omit<Reminder, 'id'>); // ADDED type assertion
                 }
                 if (dataToSave.coachName) {
                      await createUserNotification(dataToSave.clientId!, {
@@ -175,8 +186,11 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                         message: `Your appointment with ${resolvedCoachName} is in 10 minutes.`,
                         pillarId: 'calendar',
                         entityId: eventId,
-                        deliverAt: Timestamp.fromDate(reminderTime)
-                    });
+                        deliverAt: Timestamp.fromDate(reminderTime),
+                        url: ctaUrlClient, // ADDED
+                        appointmentStartTimeMillis: dataToSave.start.getTime(), // ADDED
+                        isCoach: String(false) // ADDED
+                    } as Omit<Reminder, 'id'>); // ADDED type assertion
                 }
             }
         }
