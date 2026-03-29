@@ -7,7 +7,7 @@ import { endOfDay, subMinutes } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import type { AvailabilitySettings, SiteSettings } from '@/types/index';
 import { createUserNotification } from '@/services/reminders';
-import type { Reminder } from '@/services/reminders'; // ADDED
+import type { Reminder } from '@/services/reminders';
 
 const eventSchema = z.object({
     id: z.string().optional(),
@@ -140,58 +140,66 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
             const finalTimezone = notificationTimezone || 'UTC';
             const formattedStartTime = formatInTimeZone(dataToSave.start, finalTimezone, 'PPP p');
 
-            // MODIFIED: Ensure clientName and coachName are explicitly defined, using existing data or generics
-            const resolvedClientName = dataToSave.clientName || 'a client'; // Use generic if not provided
-            const resolvedCoachName = dataToSave.coachName || 'your coach';   // Use generic if not provided
+            const resolvedClientName = dataToSave.clientName || 'a client';
+            const resolvedCoachName = dataToSave.coachName || 'your coach';
 
-            // Define CTA URLs for coach and client
-            const ctaUrlCoach = `/coach/dashboard?notificationType=appointment_booked&openAppointmentId=${eventId}&isCoach=true`; // ADDED
-            const ctaUrlClient = `/client/dashboard?notificationType=appointment_booked&openAppointmentId=${eventId}&isCoach=false`; // ADDED
+            const ctaUrlCoach = `/coach/dashboard?notificationType=appointment_booked&openAppointmentId=${eventId}&isCoach=true`;
+            const ctaUrlClient = `/client/dashboard?notificationType=appointment_booked&openAppointmentId=${eventId}&isCoach=false`;
 
-            // This is the "immediate" notification you are receiving
-            if (dataToSave.clientName) { 
-                await createUserNotification(dataToSave.coachId!, {
-                    type: 'appointment_booked',
-                    title: 'New Appointment Booked',
-                    message: `${resolvedClientName} has booked a call with you for ${formattedStartTime}`,
-                    pillarId: 'calendar',
-                    deliverAt: Timestamp.now(), // IMMEDIATE delivery
-                    entityId: eventId,
-                    url: ctaUrlCoach, // ADDED
-                    appointmentStartTimeMillis: dataToSave.start.getTime(), // ADDED
-                    isCoach: String(true) // ADDED
-                } as Omit<Reminder, 'id'>); // ADDED type assertion
-            }
+            // SURGICAL FIX: Removed flawed 'if' conditions. Now, if it's an appointment, notifications will be created.
+            // Notification to the Coach
+            await createUserNotification(dataToSave.coachId!, {
+                type: 'appointment_booked',
+                title: 'New Appointment Booked',
+                message: `${resolvedClientName} has booked a call with you for ${formattedStartTime}`,
+                pillarId: 'calendar',
+                deliverAt: Timestamp.now(),
+                entityId: eventId,
+                url: ctaUrlCoach,
+                appointmentStartTimeMillis: dataToSave.start.getTime(),
+                isCoach: String(true)
+            } as Omit<Reminder, 'id'>);
+
+            // Notification to the Client
+            await createUserNotification(dataToSave.clientId!, {
+                type: 'appointment_booked',
+                title: 'Appointment Confirmed',
+                message: `Your appointment with ${resolvedCoachName} for ${formattedStartTime} is confirmed.`,
+                pillarId: 'calendar',
+                deliverAt: Timestamp.now(),
+                entityId: eventId,
+                url: ctaUrlClient,
+                appointmentStartTimeMillis: dataToSave.start.getTime(),
+                isCoach: String(false)
+            } as Omit<Reminder, 'id'>);
 
             const reminderTime = subMinutes(dataToSave.start, 10);
             if (reminderTime > new Date()) {
-                // This is the 10-minute reminder you are NOT getting
-                if (dataToSave.clientName) {
-                    await createUserNotification(dataToSave.coachId!, {
-                        type: 'appointment_reminder',
-                        title: 'Upcoming Appointment',
-                        message: `Your appointment with ${resolvedClientName} is in 10 minutes.`,
-                        pillarId: 'calendar',
-                        entityId: eventId,
-                        deliverAt: Timestamp.fromDate(reminderTime),
-                        url: ctaUrlCoach, // ADDED
-                        appointmentStartTimeMillis: dataToSave.start.getTime(), // ADDED
-                        isCoach: String(true) // ADDED
-                    } as Omit<Reminder, 'id'>); // ADDED type assertion
-                }
-                if (dataToSave.coachName) {
-                     await createUserNotification(dataToSave.clientId!, {
-                        type: 'appointment_reminder',
-                        title: 'Upcoming Appointment',
-                        message: `Your appointment with ${resolvedCoachName} is in 10 minutes.`,
-                        pillarId: 'calendar',
-                        entityId: eventId,
-                        deliverAt: Timestamp.fromDate(reminderTime),
-                        url: ctaUrlClient, // ADDED
-                        appointmentStartTimeMillis: dataToSave.start.getTime(), // ADDED
-                        isCoach: String(false) // ADDED
-                    } as Omit<Reminder, 'id'>); // ADDED type assertion
-                }
+                // 10-minute reminder for the Coach
+                await createUserNotification(dataToSave.coachId!, {
+                    type: 'appointment_reminder',
+                    title: 'Upcoming Appointment',
+                    message: `Your appointment with ${resolvedClientName} is in 10 minutes.`,
+                    pillarId: 'calendar',
+                    entityId: eventId,
+                    deliverAt: Timestamp.fromDate(reminderTime),
+                    url: ctaUrlCoach,
+                    appointmentStartTimeMillis: dataToSave.start.getTime(),
+                    isCoach: String(true)
+                } as Omit<Reminder, 'id'>);
+                
+                // 10-minute reminder for the Client
+                 await createUserNotification(dataToSave.clientId!, {
+                    type: 'appointment_reminder',
+                    title: 'Upcoming Appointment',
+                    message: `Your appointment with ${resolvedCoachName} is in 10 minutes.`,
+                    pillarId: 'calendar',
+                    entityId: eventId,
+                    deliverAt: Timestamp.fromDate(reminderTime),
+                    url: ctaUrlClient,
+                    appointmentStartTimeMillis: dataToSave.start.getTime(),
+                    isCoach: String(false)
+                } as Omit<Reminder, 'id'>);
             }
         }
 
