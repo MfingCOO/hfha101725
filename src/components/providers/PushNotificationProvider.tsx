@@ -105,7 +105,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const { user, loading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList } = useNotificationStore(); // MODIFIED: Added new setters
+  const { setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList } = useNotificationStore();
 
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -115,101 +115,90 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     const chatId = String(data.chatId || '');
     const workoutId = String(data.workoutId || '');
     const appointmentId = String(data.appointmentId || '');
-    const indulgenceId = String(data.indulgenceId || ''); // ADDED
-    const challengeId = String(data.challengeId || ''); // ADDED
-    const openChallengeList = String(data.openChallengeList || 'false'); // ADDED
-    const url = String(data.url || ''); // VERIFIED: 'url' from dataPayload (which is ctaUrl) is correctly used
-    const appointmentStartTimeMillis = String(data.appointmentStartTimeMillis || ''); // Get appointmentStartTimeMillis
+    const indulgenceId = String(data.indulgenceId || '');
+    const challengeId = String(data.challengeId || '');
+    const openChallengeList = String(data.openChallengeList || 'false');
+    const backendCtaUrl = String(data.url || ''); // This is the URL provided directly by your backend
+    const appointmentStartTimeMillis = String(data.appointmentStartTimeMillis || '');
     const isRecipientCoachStr = String(data.isCoach || 'false');
 
-    // ADDED: Granular logging for parsed data
     console.log(`[PushProvider][${context}] Parsed Data: notificationType=${notificationType}, appointmentId=${appointmentId}, entityId=${String(data.entityId || '')}, isCoach=${isRecipientCoachStr}, appointmentStartTimeMillis=${appointmentStartTimeMillis}, indulgenceId=${indulgenceId}, challengeId=${challengeId}, openChallengeList=${openChallengeList}`);
 
     const isRecipientCoach = isRecipientCoachStr === 'true';
     const dashboardBaseUrl = isRecipientCoach ? '/coach/dashboard' : '/client/dashboard';
 
-    let targetUrl = url; // **MODIFIED:** Start with the 'url' from data, which is the ctaUrl
-    const queryParams = new URLSearchParams();
-    queryParams.set('notificationType', notificationType);
-    queryParams.set('isCoach', isRecipientCoachStr);
+    let finalNavigationUrl = backendCtaUrl; // Start with the URL provided by the backend
 
-    if (notificationType === 'chat' && chatId) {
-      setNotificationChatId(chatId);
-      queryParams.set('openChatId', chatId);
-      queryParams.set('entityId', chatId);
-    } else if (notificationType === 'workout_reminder' && workoutId) {
-      setNotificationWorkoutId(workoutId);
-      queryParams.set('openWorkoutId', workoutId);
-      queryParams.set('entityId', workoutId);
-    } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && (appointmentId || data.entityId)) {
-      const resolvedAppointmentId = appointmentId || String(data.entityId || '');
-      setNotificationAppointmentId(resolvedAppointmentId);
-      queryParams.set('openAppointmentId', resolvedAppointmentId);
-      queryParams.set('entityId', resolvedAppointmentId);
-      if (appointmentStartTimeMillis) { // Pass appointmentStartTimeMillis
-        queryParams.set('appointmentStartTimeMillis', appointmentStartTimeMillis);
-      }
-    } else if (notificationType === 'hydration') {
-      setTriggerHydrationModal(true);
-      queryParams.set('openHydration', 'true');
-      queryParams.set('entityId', 'hydration');
-    } else if (notificationType.includes('indulgence_') && indulgenceId) { // ADDED: Indulgence Planner notifications
-      setNotificationIndulgenceId(indulgenceId);
-      queryParams.set('openIndulgenceId', indulgenceId);
-      queryParams.set('entityId', indulgenceId);
-      if (appointmentStartTimeMillis) { // Indulgence might also use this for context
-        queryParams.set('indulgenceStartTimeMillis', appointmentStartTimeMillis); // Renamed for clarity
-      }
-    } else if (['challenge_checkin', 'streak_congrats'].includes(notificationType) && openChallengeList === 'true') { // ADDED: Challenge and Streak notifications
-      setOpenChallengeList(true);
-      queryParams.set('openChallengeList', 'true');
-      if (challengeId) queryParams.set('entityId', challengeId); // Use challengeId as entityId
-    } else if (notificationType === 'custom-popup' && url) { // ADDED: Custom popup navigation
-      // For custom popups, the 'url' from the data payload is the direct target.
-      targetUrl = url;
-      // Clear any dashboard base URL if the custom URL is absolute or external
-      if (url.startsWith('http') || (url.startsWith('/') && url.length > 1 && url[1] !== '/')) { // Check for absolute or root-relative external URL
-        // If it's a full external URL, or a root-relative URL not intended for dashboard
-        // we might want to just navigate to it directly without dashboardBaseUrl prefix
-        // For now, let's keep it simple and ensure the queryParams are still added to the *base* dashboard if it's an internal link.
-        // If it's a truly external link, we'll let the 'router.push(targetUrl)' handle it directly.
-        log(`[${context}] Custom Popup with direct URL: ${targetUrl}`);
-      }
+    // If the backend did not provide a complete URL, or if it provided a relative path that needs parameters,
+    // then construct the URL with dynamic query parameters.
+    if (!finalNavigationUrl || (finalNavigationUrl.startsWith('/') && !finalNavigationUrl.includes('?'))) {
+        const queryParams = new URLSearchParams();
+        queryParams.set('notificationType', notificationType);
+        queryParams.set('isCoach', isRecipientCoachStr);
+
+        if (notificationType === 'chat' && chatId) {
+            setNotificationChatId(chatId);
+            queryParams.set('openChatId', chatId);
+            queryParams.set('entityId', chatId);
+        } else if (notificationType === 'workout_reminder' && workoutId) {
+            setNotificationWorkoutId(workoutId);
+            queryParams.set('openWorkoutId', workoutId);
+            queryParams.set('entityId', workoutId);
+        } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && (appointmentId || data.entityId)) {
+            const resolvedAppointmentId = appointmentId || String(data.entityId || '');
+            setNotificationAppointmentId(resolvedAppointmentId);
+            queryParams.set('openAppointmentId', resolvedAppointmentId);
+            queryParams.set('entityId', resolvedAppointmentId);
+            if (appointmentStartTimeMillis) {
+                queryParams.set('appointmentStartTimeMillis', appointmentStartTimeMillis);
+            }
+        } else if (notificationType === 'hydration') {
+            setTriggerHydrationModal(true);
+            queryParams.set('openHydration', 'true');
+            queryParams.set('entityId', 'hydration');
+        } else if (notificationType.includes('indulgence_') && indulgenceId) {
+            setNotificationIndulgenceId(indulgenceId);
+            queryParams.set('openIndulgenceId', indulgenceId);
+            queryParams.set('entityId', indulgenceId);
+            if (appointmentStartTimeMillis) {
+                queryParams.set('indulgenceStartTimeMillis', appointmentStartTimeMillis);
+            }
+        } else if (['challenge_checkin', 'streak_congrats'].includes(notificationType) && openChallengeList === 'true') {
+            setOpenChallengeList(true);
+            queryParams.set('openChallengeList', 'true');
+            if (challengeId) queryParams.set('entityId', challengeId);
+        } else if (notificationType === 'custom-popup') {
+            // For custom popups, if backendCtaUrl is not absolute, it should still go to dashboard with params
+            // If backendCtaUrl is empty, it will construct a default dashboard URL.
+            // If backendCtaUrl is a relative path (e.g., '/some/page'), it will append params to it.
+        }
+
+        const queryString = queryParams.toString();
+        // Append query params to backendCtaUrl if it's a relative path, or start fresh if empty
+        finalNavigationUrl = `${finalNavigationUrl || dashboardBaseUrl}${queryString ? (finalNavigationUrl.includes('?') ? '&' : '?') + queryString : ''}`;
+
     }
-    // Removed the old `if (link)` block, as `url` now holds the direct link
+    // else: finalNavigationUrl already contains a complete, possibly absolute URL from backendCtaUrl
 
-    // If targetUrl is not an external URL, or it's empty, use the dashboard base URL with query params
-    // This ensures that if a custom popup has an external URL, it's used directly.
-    // If it's an internal link (like to /client/dashboard), then query params are correctly appended.
-    if (!targetUrl.startsWith('http') && !url.startsWith('/')) { // Only append query params if it's not an external URL or a root relative one already
-      targetUrl = `${dashboardBaseUrl}?${queryParams.toString()}`;
-    } else if (!targetUrl.startsWith('http') && url.startsWith('/') && queryParams.toString().length > 0) { // If root relative and has params, append them
-        targetUrl = `${targetUrl}?${queryParams.toString()}`;
-    }
-
-    log(`[${context}] Final Navigating URL: ${targetUrl}. IsRecipientCoach: ${isRecipientCoach}`);
-    router.push(targetUrl);
-  }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]); // MODIFIED: Added new setters to deps
+    log(`[${context}] Final Navigating URL: ${finalNavigationUrl}. IsRecipientCoach: ${isRecipientCoach}`);
+    router.push(finalNavigationUrl);
+  }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
 
   const showInAppNotification = useCallback((incomingNotificationTitle: string | undefined, incomingNotificationBody: string | undefined, data: { [key: string]: any }) => {
     const finalTitle = incomingNotificationTitle || data.title || 'New Notification';
-    let finalBody = incomingNotificationBody || data.body || ''; // Use let for modification
+    let finalBody = incomingNotificationBody || data.body || '';
 
-    // **NEW SURGICAL FIX:** Enhance appointment toast description with localized time
     const notificationType = String(data.notificationType || '');
     const appointmentStartTimeMillis = String(data.appointmentStartTimeMillis || '');
 
     if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && appointmentStartTimeMillis) {
       const date = new Date(Number(appointmentStartTimeMillis));
       const localizedTime = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
-      // Prepend or append the localized time to the existing body
       finalBody = `⏰ ${localizedTime} - ${finalBody}`;
     }
-    // ADDED: Handle custom popup imageUrl for richer toasts if needed. (Optional, current toast doesn't support image)
     const imageUrl = data.imageUrl || undefined;
     if (imageUrl) {
         log(`[PushProvider] Notification has image: ${imageUrl}`);
-        // You might extend your toast component to display images if desired.
     }
 
     log(`[PushProvider] Showing in-app toast. Final Title: ${finalTitle}, Final Body: ${finalBody}, Data:`, data);
@@ -238,9 +227,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       const openWorkoutId = urlParams.get('openWorkoutId');
       const openAppointmentId = urlParams.get('openAppointmentId');
       const openHydration = urlParams.get('openHydration');
-      const openIndulgenceId = urlParams.get('openIndulgenceId'); // ADDED
-      const openChallengeList = urlParams.get('openChallengeList'); // ADDED
-      const appointmentStartTimeMillis = urlParams.get('appointmentStartTimeMillis'); // Get appointmentStartTimeMillis from URL
+      const openIndulgenceId = urlParams.get('openIndulgenceId');
+      const openChallengeList = urlParams.get('openChallengeList');
+      const appointmentStartTimeMillis = urlParams.get('appointmentStartTimeMillis');
 
       if (notificationType === 'chat' && openChatId) {
         setNotificationChatId(openChatId);
@@ -250,9 +239,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         setNotificationAppointmentId(openAppointmentId);
       } else if (notificationType === 'hydration' && openHydration === 'true') {
         setTriggerHydrationModal(true);
-      } else if (notificationType?.includes('indulgence_') && openIndulgenceId) { // ADDED
+      } else if (notificationType?.includes('indulgence_') && openIndulgenceId) {
         setNotificationIndulgenceId(openIndulgenceId);
-      } else if (['challenge_checkin', 'streak_congrats'].includes(notificationType || '') && openChallengeList === 'true') { // ADDED
+      } else if (['challenge_checkin', 'streak_congrats'].includes(notificationType || '') && openChallengeList === 'true') {
         setOpenChallengeList(true);
       }
 
@@ -264,10 +253,10 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       newParams.delete('openHydration');
       newParams.delete('entityId');
       newParams.delete('isCoach');
-      newParams.delete('appointmentStartTimeMillis'); // Clear from URL
-      newParams.delete('openIndulgenceId'); // ADDED
-      newParams.delete('indulgenceStartTimeMillis'); // ADDED
-      newParams.delete('openChallengeList'); // ADDED
+      newParams.delete('appointmentStartTimeMillis');
+      newParams.delete('openIndulgenceId');
+      newParams.delete('indulgenceStartTimeMillis');
+      newParams.delete('openChallengeList');
       
       const queryString = newParams.toString();
       const cleanUrl = queryString ? `${window.location.pathname}?${queryString}` : window.location.pathname;
@@ -275,7 +264,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       log(`PWA URL: State updated. Cleaning URL to: ${cleanUrl}`);
       router.replace(cleanUrl, { scroll: false });
     }
-  }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]); // MODIFIED: Added new setters to deps
+  }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
 
   useEffect(() => {
     log("PushNotificationProvider useEffect (native/web setup) triggered.");
@@ -321,7 +310,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         }
 
       } else {
-        // MODIFIED: Only listen for foreground messages for the PWA bell, don't register for OS push notifications.
         log('Setting up PWA foreground notifications listener...');
         const isFCMSupported = await isSupported();
         if (!isFCMSupported || !messaging) {
@@ -330,10 +318,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         }
 
         try {
-          // Register the service worker to allow it to listen for messages
           await navigator.serviceWorker.register('/sw.js');
 
-          // This listener handles messages when the app is in the foreground (active tab)
           const unsubscribeOnMessage = onMessage(messaging, (payload) => {
             log('PWA: Foreground message received (raw payload):', payload);
             log('PWA: Foreground message received (notification):', payload.notification);
@@ -342,7 +328,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             showInAppNotification(notification?.title, notification?.body, data || {});
           });
 
-          // This listener handles the click event if a notification is somehow displayed and clicked
           const handleServiceWorkerMessage = (event: MessageEvent) => {
             if (event.data?.type === 'notification_clicked') {
               log('PWA: Received notification_clicked event from service worker.');
@@ -373,8 +358,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         cleanupRef.current();
         cleanupRef.current = null;
       }
-};
-  }, [user, loading, showInAppNotification, handleNotificationAction, setNotificationIndulgenceId, setOpenChallengeList]); // MODIFIED: Added new setters to deps
+    };
+  }, [user, loading, showInAppNotification, handleNotificationAction, setNotificationIndulgenceId, setOpenChallengeList]);
 
   return <>{children}</>;
 };
