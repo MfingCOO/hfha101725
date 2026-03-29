@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState, ReactNode } from 'react';
@@ -20,22 +19,31 @@ export function AppCheckProvider({ children }: AppCheckProviderProps) {
     };
     window.addEventListener('unhandledrejection', handleRejection);
 
-    if (process.env.NODE_ENV === 'development') {
-        console.log("App Check is DISABLED in development environment.");
+    const isLocalDevelopment = process.env.NODE_ENV === 'development';
+    const isLocalProductionLike = process.env.NODE_ENV === 'production' && typeof window !== 'undefined' && window.location.hostname === 'localhost';
+    const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+
+    if (isAppCheckInitialized) {
+      return; // Already initialized or bypassed
+    }
+
+    if (isLocalDevelopment || isLocalProductionLike) { // MODIFIED: Simplified bypass condition for localhost in dev/prod
+        console.log(`App Check is DISABLED for local environment (NODE_ENV: ${process.env.NODE_ENV}, Host: ${typeof window !== 'undefined' ? window.location.hostname : 'N/A'}).`);
         setIsAppCheckInitialized(true);
         return;
     }
 
-    if (typeof window !== 'undefined' && !isAppCheckInitialized) {
-      const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+    // Proceed with initialization only if not a local bypass scenario
+    if (typeof window !== 'undefined') {
       if (!recaptchaSiteKey) {
-          console.error("CRITICAL: `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` is missing.");
-          return;
+          console.error("CRITICAL: `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` is missing. App Check will fail.");
+          // For production deployment, this should ideally be an unrecoverable error.
+          // For local testing in production-like mode, it's handled by the bypass above.
       }
 
       try {
         initializeAppCheck(auth.app, {
-          provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+          provider: new ReCaptchaV3Provider(recaptchaSiteKey!),
           isTokenAutoRefreshEnabled: true
         });
         setIsAppCheckInitialized(true);

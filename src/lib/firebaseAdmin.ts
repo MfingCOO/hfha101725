@@ -1,10 +1,13 @@
-
 import admin from 'firebase-admin';
 
-// Use a global object (globalThis) to ensure the Firebase Admin SDK is initialized only once.
-// In Next.js server environment, modules can be re-evaluated, but globalThis persists across these.
-if (!globalThis.firebaseAdminApp) { // MODIFIED: Changed variable name to avoid potential conflicts
-  console.log("No Firebase Admin app found in globalThis. Initializing new app.");
+// Add detailed logging to track the initialization process
+console.log("Initializing Firebase Admin SDK...");
+
+// Check if the default app is already initialized
+let app;
+
+if (!admin.apps.length) {
+  console.log("No Firebase app initialized yet. Starting new initialization.");
   const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
   if (!serviceAccountString) {
@@ -26,24 +29,25 @@ if (!globalThis.firebaseAdminApp) { // MODIFIED: Changed variable name to avoid 
       console.log("Private key formatted.");
     }
 
-    console.log("Initializing Firebase Admin app with credentials...");
-    globalThis.firebaseAdminApp = admin.initializeApp({
+    console.log("Initializing Firebase app with credentials...");
+    app = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       storageBucket: 'hunger-free-and-happy-app.firebasestorage.app'
     });
-    console.log("Firebase Admin app initialized successfully.");
+    console.log("Firebase app initialized successfully.");
 
   } catch (error) {
     console.error("CRITICAL: Failed to parse or initialize Firebase Admin SDK:", error);
+    // Log a snippet of the key for verification, but not the whole thing for security.
     console.error("Raw FIREBASE_SERVICE_ACCOUNT_KEY (first 50 chars):", serviceAccountString.substring(0, 50));
-    throw new Error("Could not initialize Firebase Admin SDK. The FIREBASE_SERVICE_ACCOUNT_KEY is likely malformed or missing.");
+    throw new Error("Could not initialize Firebase Admin SDK. The FIREBASE_SERVICE_ACCOUNT_KEY is likely malformed.");
   }
 
 } else {
-  console.log("Firebase Admin app already initialized in globalThis. Reusing existing app.");
+  console.log("Firebase app already initialized. Getting existing app.");
+  app = admin.app();
 }
 
-const app = globalThis.firebaseAdminApp; // Use the globally stored app instance
 const db = admin.firestore();
 const auth = admin.auth();
 const storage = admin.storage();

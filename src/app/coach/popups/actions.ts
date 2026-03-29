@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { Timestamp } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
 import { db as adminDb } from '@/lib/firebaseAdmin';
-import { createUserNotification } from '@/services/reminders'; // ADDED
 
 const popupSchema = z.object({
     id: z.string().optional(),
@@ -32,38 +31,36 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
         }
 
         const { name, targetType, targetValue, ctaText, ctaUrl, imageUrl, ...popupData } = validation.data;
-        const campaignId = data.id || adminDb.collection('temp').doc().id; // Generate ID if not present
+        const campaignId = data.id || adminDb.collection('temp').doc().id;
 
         const targetUserIds = await getTargetUserIds(targetType, targetValue);
         if (targetUserIds.length === 0) {
             return { success: false, error: "No clients found for the selected target." };
         }
 
-        // MODIFIED: Replace batch write with calls to createUserNotification
-        const promises = targetUserIds.map(userId => 
-            createUserNotification(userId, {
-                type: 'custom-popup',
+        const batch = adminDb.batch();
+        for (const userId of targetUserIds) {
+            const messageRef = adminDb.collection('user_scheduled_reminders').doc(); 
+            batch.set(messageRef, {
+                userId,
+                type: 'coach_popup',
                 title: popupData.title,
                 message: popupData.message,
-                pillarId: 'megaphone', // Assuming 'megaphone' as pillar for popups
-                deliverAt: Timestamp.fromDate(popupData.scheduledAt),
-                entityId: campaignId, // Use campaignId as entityId
-                url: ctaUrl || '',
-                data: { // Original data from popupSchema might be useful for frontend or debugging
-                    id: campaignId,
-                    imageUrl: imageUrl || '',
-                    ctaText: ctaText,
-                    ctaUrl: ctaUrl || '',
-                    campaignName: name,
-                    targetType: targetType,
-                    targetValue: targetValue || null,
-                },
-                isCoach: String(false), // Assuming custom popups are generally client-facing
-                appointmentStartTimeMillis: undefined, // Not relevant for popups
-            })
-        );
+                ...(ctaUrl && { ctaUrl: ctaUrl, ctaType: 'openUrl' }), // FIX: Add ctaType: 'openUrl'
+                ctaText: ctaText, 
+                imageUrl: imageUrl || '',
+                scheduledAt: Timestamp.fromDate(popupData.scheduledAt),
+                status: 'scheduled',
+                isRecurring: false,
+                createdAt: Timestamp.now(),
+                campaignId,
+                campaignName: name, 
+                targetType: targetType,
+                targetValue: targetValue || null,
+            });
+        }
 
-        await Promise.all(promises);
+        await batch.commit();
 
         revalidatePath('/coach/popups');
         return { success: true, campaignId };
@@ -98,51 +95,33 @@ async function getTargetUserIds(targetType: string, targetValue?: string): Promi
 
 export async function getPopupsForCoach(): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
-        // MODIFIED: Fetch from client notifications where type is 'custom-popup' and pillarId is 'megaphone'
-        // This assumes createUserNotification stored it under this structure.
-        const allClientsSnapshot = await adminDb.collection('clients').get();
-        const allPopups: any[] = [];
+        const messagesSnapshot = await adminDb.collection('user_scheduled_reminders').where('type', '==', 'coach_popup').orderBy('createdAt', 'desc').get();
+        
+        const campaigns = messagesSnapshot.docs.reduce((acc, doc) => {
+            const data = doc.data();
+            const campaignId = data.campaignId;
+            if (!campaignId) return acc;
 
-        for (const clientDoc of allClientsSnapshot.docs) {
-            const userId = clientDoc.id;
-            const popupNotificationsSnapshot = await adminDb.collection(`clients/${userId}/notifications`)
-                .where('type', '==', 'custom-popup')
-                .where('pillarId', '==', 'megaphone')
-                .orderBy('createdAt', 'desc')
-                .get();
-            
-            popupNotificationsSnapshot.docs.forEach(doc => {
-                const data = doc.data();
-                // Reconstruct the original popup campaign structure for display
-                // Assuming the data field in the reminder contains the original popup data
-                if (data.data && data.data.campaignName) {
-                    allPopups.push({
-                        id: data.entityId, // entityId stores campaignId
-                        name: data.data.campaignName,
-                        title: data.title,
-                        message: data.message,
-                        ctaText: data.data.ctaText,
-                        ctaUrl: data.data.ctaUrl,
-                        imageUrl: data.data.imageUrl,
-                        scheduledAt: (data.deliverAt as Timestamp).toDate().toISOString(),
-                        status: data.status || 'sent', // Assuming it's sent if fetched from notifications
-                        targetType: data.data.targetType,
-                        targetValue: data.data.targetValue,
-                        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-                    });
-                }
-            });
-        }
-
-        // Deduplicate by campaignId, taking the latest scheduledAt if multiple entries exist for the same campaign
-        const uniqueCampaignsMap = new Map<string, any>();
-        for (const popup of allPopups) {
-            if (!uniqueCampaignsMap.has(popup.id) || new Date(popup.scheduledAt) > new Date(uniqueCampaignsMap.get(popup.id).scheduledAt)) {
-                uniqueCampaignsMap.set(popup.id, popup);
+            if (!acc[campaignId]) {
+                acc[campaignId] = {
+                    id: campaignId,
+                    name: data.campaignName,
+                    title: data.title,
+                    message: data.message,
+                    ctaText: data.ctaText,
+                    ctaUrl: data.ctaUrl,
+                    imageUrl: data.imageUrl,
+                    scheduledAt: (data.scheduledAt as Timestamp).toDate().toISOString(),
+                    status: data.status,
+                    targetType: data.targetType,
+                    targetValue: data.targetValue,
+                    createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+                };
             }
-        }
+            return acc;
+        }, {} as { [key: string]: any });
 
-        const campaignList = Array.from(uniqueCampaignsMap.values());
+        const campaignList = Object.values(campaigns);
         return { success: true, data: campaignList };
 
     } catch (error: any) {
@@ -155,23 +134,14 @@ export async function deletePopupAction(campaignId: string): Promise<{ success: 
     try {
         if (!campaignId) throw new Error("No campaign ID provided for deletion.");
 
-        // MODIFIED: Delete from client notifications where entityId is campaignId and type is 'custom-popup'
-        const allClientsSnapshot = await adminDb.collection('clients').get();
-        const deletePromises: Promise<any>[] = [];
-
-        for (const clientDoc of allClientsSnapshot.docs) {
-            const userId = clientDoc.id;
-            const messagesToDeleteSnapshot = await adminDb.collection(`clients/${userId}/notifications`)
-                .where('entityId', '==', campaignId)
-                .where('type', '==', 'custom-popup')
-                .get();
-            
-            messagesToDeleteSnapshot.docs.forEach(doc => {
-                deletePromises.push(adminDb.collection(`clients/${userId}/notifications`).doc(doc.id).delete());
-            });
-        }
+        const messagesToDelete = await adminDb.collection('user_scheduled_reminders').where('campaignId', '==', campaignId).get();
         
-        await Promise.all(deletePromises);
+        if (messagesToDelete.empty) return { success: true };
+
+        const batch = adminDb.batch();
+        messagesToDelete.forEach(doc => batch.delete(doc.ref));
+
+        await batch.commit();
 
         revalidatePath('/coach/popups');
         return { success: true };
