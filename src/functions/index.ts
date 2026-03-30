@@ -125,9 +125,8 @@ export async function sendPushNotification(userId: string, title: string, messag
                     'mutable-content': 1,
                 },
             },
-            fcmOptions: {
-                imageUrl: imageUrl,
-            },
+            // Conditionally include fcmOptions if imageUrl is provided
+            ...(imageUrl && { fcmOptions: { imageUrl: imageUrl } }),
         },
         android: {
             priority: 'high' as const,
@@ -135,8 +134,9 @@ export async function sendPushNotification(userId: string, title: string, messag
                 title: String(title),
                 body: String(message),
                 channelId: String(channelId),
-                imageUrl: imageUrl,
                 sound: 'default',
+                // Conditionally include imageUrl if provided
+                ...(imageUrl && { imageUrl: imageUrl }),
             },
         },
     };
@@ -148,9 +148,6 @@ export async function sendPushNotification(userId: string, title: string, messag
         console.error(`[sendPushNotification] Catastrophic error sending notification to user ${userId}:`, error);
     }
 }
-
-// THIS FUNCTION IS THE ROOT CAUSE OF THE FAILURES. IT IS NO LONGER USED.
-// export const onNotificationCreated = onDocumentCreated("clients/{userId}/notifications/{notificationId}", async (event) => {});
 
 export const scheduledNotificationHandler = onTaskDispatched<any>({}, async (req) => {
     const { userId, title, message, ctaUrl, notificationType, entityId, imageUrl, isCoachParam, appointmentStartTimeMillis } = req.data;
@@ -269,7 +266,7 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
                 await queue.enqueue(clientReminderPayload, { scheduleTime: reminderTime });
             }
         } catch (e) {
-            console.error(`[onAppointmentScheduled] Failed to send appointment notifications for ${appointmentId}`, e);
+            console.error("Failed to send appointment notification documents", e);
         }
     }
 });
@@ -438,11 +435,10 @@ export const onChallengeEnrollmentCreated = onDocumentCreated("challenges/{chall
     try {
         await queue.enqueue({ userId, challengeId: enrollmentId }, { scheduleTime: checkinTime });
     } catch (error) {
-        console.error(`Error scheduling challenge check-in for user ${userId}:`, error);
+        console.error(`Error enqueuing task for user ${userId}:`, error);
     }
 });
 
-// Adding a test function for immediate testing if needed.
 export const testPushNotification = onRequest(async (req, res) => {
     const userId = req.query.userId as string;
     if (!userId) {
