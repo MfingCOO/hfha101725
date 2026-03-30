@@ -8,7 +8,7 @@ import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { onRequest } from 'firebase-functions/v2/https';
 // SURGICAL FIX: Removed the toxic import below that was breaking the Cloud Functions build
 // import { createUserNotification } from '../services/reminders'; 
-import { admin } from '../lib/firebaseAdmin'; 
+import { admin } from '../lib/firebaseAdmin';
 import { formatInTimeZone } from 'date-fns-tz';
 
 // initializeApp(); // Removed, Admin SDK initialized via firebaseAdmin.ts
@@ -65,8 +65,8 @@ export async function sendPushNotification(userId: string, title: string, messag
         channelId = 'workout_reminders';
     } else if (notificationType === 'hydration') {
         channelId = 'hydration_reminders';
-    } else if (notificationType === 'custom-popup') { 
-        channelId = 'custom_popups'; 
+    } else if (notificationType === 'custom-popup') {
+        channelId = 'custom_popups';
     } else if (notificationType.includes('indulgence_')) {
         channelId = 'indulgence_notifications';
     } else if (notificationType === 'challenge_checkin') {
@@ -115,7 +115,7 @@ export async function sendPushNotification(userId: string, title: string, messag
         }
         return acc;
     }, {} as { [key: string]: string });
-    
+
     const payload: MulticastMessage = {
         tokens: tokens,
         data: dataPayload,
@@ -146,49 +146,76 @@ export async function sendPushNotification(userId: string, title: string, messag
 
     try {
         await messaging.sendEachForMulticast(payload);
+        console.log(`[sendPushNotification] Successfully sent notification of type '${notificationType}' to user ${userId}.`);
     } catch (error) {
-        console.error(`Catastrophic error sending notification to user ${userId}:`, error);
+        console.error(`[sendPushNotification] Catastrophic error sending notification to user ${userId}:`, error);
     }
 }
 
 export const onNotificationCreated = onDocumentCreated("clients/{userId}/notifications/{notificationId}", async (event) => {
-    if (!event.data) { return; }
-    const notification = event.data.data();
-    const userId = event.params.userId;
+    const { userId, notificationId } = event.params;
+    console.log(`[onNotificationCreated] Triggered for user: ${userId}, notification: ${notificationId}`);
 
-    const deliverAt = (notification.deliverAt as Timestamp).toDate();
-    const now = new Date();
+    try {
+        if (!event.data) {
+            console.log(`[onNotificationCreated] Event data is missing for notificationId: ${notificationId}. Exiting.`);
+            return;
+        }
+        const notification = event.data.data();
+        console.log(`[onNotificationCreated] Notification document data:`, JSON.stringify(notification, null, 2));
 
-    const payload = {
-        userId,
-        title: notification.title,
-        message: notification.message,
-        ctaUrl: notification.url,
-        notificationType: notification.type,
-        entityId: notification.entityId,
-        imageUrl: notification.data?.imageUrl,
-        isCoachParam: notification.isCoach,
-        appointmentStartTimeMillis: notification.appointmentStartTimeMillis,
-    };
+        if (!notification.deliverAt || typeof notification.deliverAt.toDate !== 'function') {
+            console.error(`[onNotificationCreated] Invalid or missing 'deliverAt' field for notificationId: ${notificationId}. It must be a Firestore Timestamp. Value:`, notification.deliverAt);
+            return;
+        }
+        if (!notification.title || !notification.message || !notification.url || !notification.type || !notification.entityId) {
+            console.error(`[onNotificationCreated] Notification document for notificationId: ${notificationId} is missing one or more required fields (title, message, url, type, entityId).`);
+            return;
+        }
+        console.log(`[onNotificationCreated] Essential payload fields validated.`);
 
-    if (deliverAt <= now) {
-        await sendPushNotification(
-            payload.userId,
-            payload.title,
-            payload.message,
-            payload.ctaUrl,
-            payload.notificationType,
-            payload.entityId,
-            payload.imageUrl,
-            undefined, 
-            undefined, 
-            payload.message,
-            payload.appointmentStartTimeMillis,
-            payload.isCoachParam
-        );
-    } else {
-        const queue = getFunctions().taskQueue('scheduledNotificationHandler');
-        await queue.enqueue(payload, { scheduleTime: deliverAt });
+        const deliverAt = notification.deliverAt.toDate();
+        const now = new Date();
+
+        const payload = {
+            userId,
+            title: notification.title,
+            message: notification.message,
+            ctaUrl: notification.url,
+            notificationType: notification.type,
+            entityId: notification.entityId,
+            imageUrl: notification.imageUrl, // CORRECTED: Removed incorrect ".data" access
+            isCoachParam: notification.isCoach,
+            appointmentStartTimeMillis: notification.appointmentStartTimeMillis,
+        };
+        console.log(`[onNotificationCreated] Constructed payload:`, JSON.stringify(payload, null, 2));
+
+        if (deliverAt <= now) {
+            console.log(`[onNotificationCreated] Delivering notification immediately for notificationId: ${notificationId}`);
+            await sendPushNotification(
+                payload.userId,
+                payload.title,
+                payload.message,
+                payload.ctaUrl,
+                payload.notificationType,
+                payload.entityId,
+                payload.imageUrl,
+                undefined,
+                undefined,
+                payload.message,
+                payload.appointmentStartTimeMillis,
+                payload.isCoachParam
+            );
+            console.log(`[onNotificationCreated] IMMEDIATE notification processing complete for notificationId: ${notificationId}.`);
+
+        } else {
+            console.log(`[onNotificationCreated] Scheduling notification for ${deliverAt.toISOString()} for notificationId: ${notificationId}`);
+            const queue = getFunctions().taskQueue('scheduledNotificationHandler');
+            await queue.enqueue(payload, { scheduleTime: deliverAt });
+            console.log(`[onNotificationCreated] SCHEDULED notification processing complete for notificationId: ${notificationId}.`);
+        }
+    } catch (error) {
+        console.error(`[onNotificationCreated] CRITICAL UNCAUGHT ERROR for user: ${userId}, notification: ${notificationId}.`, error);
     }
 });
 
@@ -303,15 +330,15 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
         const appointmentStartTime = (appointment.start as Timestamp).toDate();
         const finalTimezone = clientTimezone || 'UTC';
         const formattedStartTime = formatInTimeZone(appointmentStartTime, finalTimezone, 'PPP p');
-        
+
         const resolvedClientName = clientName || await getUserName(clientId) || 'a client';
         const resolvedCoachName = coachName || await getUserName(coachId) || 'your coach';
-        
+
         const ctaUrlCoach = `/coach/dashboard?notificationType=appointment_booked&openAppointmentId=${appointmentId}&isCoach=true`;
         const ctaUrlClient = `/client/dashboard?notificationType=appointment_booked&openAppointmentId=${appointmentId}&isCoach=false`;
 
         const notifPromises: Promise<any>[] = [];
-        
+
         notifPromises.push(db.collection(`clients/${coachId}/notifications`).add({
             type: 'appointment_booked',
             title: 'New Appointment Booked',
@@ -323,7 +350,7 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
             appointmentStartTimeMillis: appointmentStartTime.getTime(),
             isCoach: String(true)
         }));
-        
+
         notifPromises.push(db.collection(`clients/${clientId}/notifications`).add({
             type: 'appointment_booked',
             title: 'Appointment Confirmed',
@@ -349,7 +376,7 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
                 appointmentStartTimeMillis: appointmentStartTime.getTime(),
                 isCoach: String(true)
             }));
-            
+
             notifPromises.push(db.collection(`clients/${clientId}/notifications`).add({
                 type: 'appointment_reminder',
                 title: 'Upcoming Appointment',
@@ -365,7 +392,7 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
 
         try {
             await Promise.all(notifPromises);
-        } catch(e) {
+        } catch (e) {
             console.error("Failed to create appointment notification documents", e);
         }
     }
@@ -506,7 +533,7 @@ export const onStreakAchieved = onDocumentUpdated("clients/{userId}", async (eve
         const message = `Congratulations on your ${currentStreak}-day streak! Keep up the great work.`;
         const ctaUrl = `/client/dashboard?notificationType=streak_congrats&openChallengeList=true&isCoach=false`;
         const streakId = `streak-${userId}-${currentStreak}`;
-        
+
         // SURGICAL FIX: Inlined logic from createUserNotification
         const reminderPayload = {
             type: 'streak-congrats',
