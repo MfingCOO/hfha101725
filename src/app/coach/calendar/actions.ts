@@ -3,11 +3,8 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { endOfDay, subMinutes } from 'date-fns';
-import { formatInTimeZone } from 'date-fns-tz';
+import { endOfDay } from 'date-fns';
 import type { AvailabilitySettings, SiteSettings } from '@/types/index';
-import { createUserNotification } from '@/services/reminders';
-import type { Reminder } from '@/services/reminders';
 
 const eventSchema = z.object({
     id: z.string().optional(),
@@ -83,7 +80,8 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         end: Timestamp.fromDate(dataToSave.end),
         videoCallLink: null,
     };
-    delete finalEventData.clientTimezone;
+    // We keep clientTimezone in the data now, so the Cloud Function can use it
+    // delete finalEventData.clientTimezone; 
 
     if (dataToSave.attachVideoLink) {
         const settingsDocRef = adminDb.collection('siteSettings').doc('v1');
@@ -126,82 +124,7 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
             eventId = createdEventId;
         }
 
-        const isAppointment = dataToSave.coachId && dataToSave.clientId;
-
-        if (isAppointment) {
-            let notificationTimezone = dataToSave.clientTimezone;
-            if (!notificationTimezone && dataToSave.coachId) {
-                const coachProfileSnap = await adminDb.collection('clients').doc(dataToSave.coachId).get();
-                const coachProfile = coachProfileSnap.data();
-                if (coachProfile?.timezone) {
-                    notificationTimezone = coachProfile.timezone;
-                }
-            }
-            const finalTimezone = notificationTimezone || 'UTC';
-            const formattedStartTime = formatInTimeZone(dataToSave.start, finalTimezone, 'PPP p');
-
-            const resolvedClientName = dataToSave.clientName || 'a client';
-            const resolvedCoachName = dataToSave.coachName || 'your coach';
-
-            const ctaUrlCoach = `/coach/dashboard?notificationType=appointment_booked&openAppointmentId=${eventId}&isCoach=true`;
-            const ctaUrlClient = `/client/dashboard?notificationType=appointment_booked&openAppointmentId=${eventId}&isCoach=false`;
-
-            // SURGICAL FIX: Removed flawed 'if' conditions. Now, if it's an appointment, notifications will be created.
-            // Notification to the Coach
-            await createUserNotification(dataToSave.coachId!, {
-                type: 'appointment_booked',
-                title: 'New Appointment Booked',
-                message: `${resolvedClientName} has booked a call with you for ${formattedStartTime}`,
-                pillarId: 'calendar',
-                deliverAt: Timestamp.now(),
-                entityId: eventId,
-                url: ctaUrlCoach,
-                appointmentStartTimeMillis: dataToSave.start.getTime(),
-                isCoach: String(true)
-            } as Omit<Reminder, 'id'>);
-
-            // Notification to the Client
-            await createUserNotification(dataToSave.clientId!, {
-                type: 'appointment_booked',
-                title: 'Appointment Confirmed',
-                message: `Your appointment with ${resolvedCoachName} for ${formattedStartTime} is confirmed.`,
-                pillarId: 'calendar',
-                deliverAt: Timestamp.now(),
-                entityId: eventId,
-                url: ctaUrlClient,
-                appointmentStartTimeMillis: dataToSave.start.getTime(),
-                isCoach: String(false)
-            } as Omit<Reminder, 'id'>);
-
-            const reminderTime = subMinutes(dataToSave.start, 10);
-            if (reminderTime > new Date()) {
-                // 10-minute reminder for the Coach
-                await createUserNotification(dataToSave.coachId!, {
-                    type: 'appointment_reminder',
-                    title: 'Upcoming Appointment',
-                    message: `Your appointment with ${resolvedClientName} is in 10 minutes.`,
-                    pillarId: 'calendar',
-                    entityId: eventId,
-                    deliverAt: Timestamp.fromDate(reminderTime),
-                    url: ctaUrlCoach,
-                    appointmentStartTimeMillis: dataToSave.start.getTime(),
-                    isCoach: String(true)
-                } as Omit<Reminder, 'id'>);
-                
-                // 10-minute reminder for the Client
-                 await createUserNotification(dataToSave.clientId!, {
-                    type: 'appointment_reminder',
-                    title: 'Upcoming Appointment',
-                    message: `Your appointment with ${resolvedCoachName} is in 10 minutes.`,
-                    pillarId: 'calendar',
-                    entityId: eventId,
-                    deliverAt: Timestamp.fromDate(reminderTime),
-                    url: ctaUrlClient,
-                    appointmentStartTimeMillis: dataToSave.start.getTime(),
-                    isCoach: String(false)
-                } as Omit<Reminder, 'id'>);
-            }
-        }
+        // All notification logic has been removed. The onAppointmentScheduled Cloud Function will handle it.
 
         return { success: true, id: eventId };
 

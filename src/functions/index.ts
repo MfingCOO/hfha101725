@@ -9,6 +9,7 @@ import { onRequest } from 'firebase-functions/v2/https';
 // SURGICAL FIX: Removed the toxic import below that was breaking the Cloud Functions build
 // import { createUserNotification } from '../services/reminders'; 
 import { admin } from '../lib/firebaseAdmin'; 
+import { formatInTimeZone } from 'date-fns-tz';
 
 // initializeApp(); // Removed, Admin SDK initialized via firebaseAdmin.ts
 const db = getFirestore(admin.app()); // MODIFIED: Use globally initialized app instance
@@ -114,20 +115,9 @@ export async function sendPushNotification(userId: string, title: string, messag
         }
         return acc;
     }, {} as { [key: string]: string });
-
-    const notificationPayload: { [key: string]: any } = {
-        title: String(title),
-        body: String(message),
-        imageUrl: imageUrl,
-    };
-
-    if (['appointment_booked_notifications', 'appointment_reminders', 'workout_reminders', 'hydration_reminders', 'custom_popups', 'indulgence_notifications', 'challenge_notifications', 'streak_notifications'].includes(channelId)) {
-        notificationPayload.android_channel_id = String(channelId);
-    }
-
+    
     const payload: MulticastMessage = {
         tokens: tokens,
-        notification: notificationPayload as any,
         data: dataPayload,
         apns: {
             payload: {
@@ -155,23 +145,7 @@ export async function sendPushNotification(userId: string, title: string, messag
     };
 
     try {
-        const response = await messaging.sendEachForMulticast(payload);
-        if (response.failureCount > 0) {
-            const tokensToRemove: string[] = [];
-            response.responses.forEach((resp, idx) => {
-                if (!resp.success) {
-                    const errorCode = resp.error?.code;
-                    if (errorCode === 'messaging/invalid-registration-token' || errorCode === 'messaging/registration-token-not-registered') {
-                        tokensToRemove.push(tokens[idx]);
-                    }
-                }
-            });
-            if (tokensToRemove.length > 0) {
-                const currentTokens = userDocRef.data()?.fcmTokens || [];
-                const updatedTokens = currentTokens.filter((token: string) => !tokensToRemove.includes(token));
-                await db.collection('clients').doc(userId).update({ fcmTokens: updatedTokens });
-            }
-        }
+        await messaging.sendEachForMulticast(payload);
     } catch (error) {
         console.error(`Catastrophic error sending notification to user ${userId}:`, error);
     }
@@ -315,54 +289,84 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
     }
 });
 
-export const appointmentReminderHandler = onTaskDispatched<any>({}, async (req) => {
-    const { userId, appointmentId, isCoach, opponentName, eventTitle, appointmentStartTimeMillis } = req.data;
-    let title = 'Upcoming Appointment';
-    let message = `Your appointment with ${opponentName || 'your coach/client'} is in 10 minutes.`;
-    if (eventTitle) {
-        title = 'Live Event Starting Soon';
-        message = `The event "${eventTitle}" is starting in 10 minutes!`;
-    }
-    const dashboardUrl = isCoach ? '/coach/dashboard' : '/client/dashboard';
-    const ctaUrl = `${dashboardUrl}?notificationType=appointment_reminder&openAppointmentId=${appointmentId}&isCoach=${String(isCoach)}`;
-    await sendPushNotification(userId, title, message, ctaUrl, 'appointment_reminder', appointmentId, undefined, undefined, undefined, message, Number(appointmentStartTimeMillis), String(isCoach));
-});
-
 export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointmentId}", async (event) => {
     if (!event.data) { return; }
     const appointment = event.data.data();
     const appointmentId = event.params.appointmentId;
     if (!appointment || !event.data.createTime || !appointment.start) { return; }
-    const reminderTime = new Date(appointment.start.toMillis() - 10 * 60 * 1000);
-    const queue = getFunctions().taskQueue('appointmentReminderHandler');
-    if (appointment.type === 'one_on_one') {
-        const { clientId, coachId } = appointment;
-        const tasks: Promise<any>[] = [];
-        if (clientId) {
-            tasks.push(queue.enqueue({ userId: clientId, appointmentId, isCoach: false, opponentName: 'your coach', appointmentStartTimeMillis: appointment.start.toMillis() }, { scheduleTime: reminderTime }));
+
+    const { clientId, coachId, clientName, coachName, clientTimezone } = appointment;
+
+    const isAppointment = coachId && clientId;
+
+    if (isAppointment) {
+        const appointmentStartTime = (appointment.start as Timestamp).toDate();
+        const finalTimezone = clientTimezone || 'UTC';
+        const formattedStartTime = formatInTimeZone(appointmentStartTime, finalTimezone, 'PPP p');
+        
+        const resolvedClientName = clientName || await getUserName(clientId) || 'a client';
+        const resolvedCoachName = coachName || await getUserName(coachId) || 'your coach';
+        
+        const ctaUrlCoach = `/coach/dashboard?notificationType=appointment_booked&openAppointmentId=${appointmentId}&isCoach=true`;
+        const ctaUrlClient = `/client/dashboard?notificationType=appointment_booked&openAppointmentId=${appointmentId}&isCoach=false`;
+
+        const notifPromises = [];
+        
+        notifPromises.push(db.collection(`clients/${coachId}/notifications`).add({
+            type: 'appointment_booked',
+            title: 'New Appointment Booked',
+            message: `${resolvedClientName} has booked a call with you for ${formattedStartTime}`,
+            pillarId: 'calendar',
+            deliverAt: Timestamp.now(),
+            entityId: appointmentId,
+            url: ctaUrlCoach,
+            appointmentStartTimeMillis: appointmentStartTime.getTime(),
+            isCoach: String(true)
+        }));
+        
+        notifPromises.push(db.collection(`clients/${clientId}/notifications`).add({
+            type: 'appointment_booked',
+            title: 'Appointment Confirmed',
+            message: `Your appointment with ${resolvedCoachName} for ${formattedStartTime} is confirmed.`,
+            pillarId: 'calendar',
+            deliverAt: Timestamp.now(),
+            entityId: appointmentId,
+            url: ctaUrlClient,
+            appointmentStartTimeMillis: appointmentStartTime.getTime(),
+            isCoach: String(false)
+        }));
+
+        const reminderTime = new Date(appointment.start.toMillis() - 10 * 60 * 1000);
+        if (reminderTime > new Date()) {
+            notifPromises.push(db.collection(`clients/${coachId}/notifications`).add({
+                type: 'appointment_reminder',
+                title: 'Upcoming Appointment',
+                message: `Your appointment with ${resolvedClientName} is in 10 minutes.`,
+                pillarId: 'calendar',
+                entityId: appointmentId,
+                deliverAt: Timestamp.fromDate(reminderTime),
+                url: ctaUrlCoach,
+                appointmentStartTimeMillis: appointmentStartTime.getTime(),
+                isCoach: String(true)
+            }));
+            
+            notifPromises.push(db.collection(`clients/${clientId}/notifications`).add({
+                type: 'appointment_reminder',
+                title: 'Upcoming Appointment',
+                message: `Your appointment with ${resolvedCoachName} is in 10 minutes.`,
+                pillarId: 'calendar',
+                entityId: appointmentId,
+                deliverAt: Timestamp.fromDate(reminderTime),
+                url: ctaUrlClient,
+                appointmentStartTimeMillis: appointmentStartTime.getTime(),
+                isCoach: String(false)
+            }));
         }
-        if (coachId) {
-            tasks.push(queue.enqueue({ userId: coachId, appointmentId, isCoach: true, opponentName: 'your client', appointmentStartTimeMillis: appointment.start.toMillis() }, { scheduleTime: reminderTime }));
-        }
+
         try {
-            await Promise.all(tasks);
-        } catch (error) {
-            console.error(`Error enqueuing one-on-one appointment tasks for appointment ${appointmentId}:`, error);
-        }
-    } else if (appointment.liveEventId) {
-        const liveEventDoc = await db.collection('live-events').doc(appointment.liveEventId).get();
-        if (!liveEventDoc.exists) return;
-        const liveEvent = liveEventDoc.data()!;
-        const attendees = liveEvent.attendees || [];
-        if (attendees.length === 0) return;
-        const eventTitle = liveEvent.title || 'your live event';
-        const attendeeTasks = attendees.map((attendeeId: string) => {
-            return queue.enqueue({ userId: attendeeId, appointmentId, isCoach: false, eventTitle, appointmentStartTimeMillis: appointment.start.toMillis() }, { scheduleTime: reminderTime });
-        });
-        try {
-            await Promise.all(attendeeTasks);
-        } catch (error) {
-            console.error(`Error enqueuing live event tasks for appointment ${appointmentId}:`, error);
+            await Promise.all(notifPromises);
+        } catch(e) {
+            console.error("Failed to create appointment notification documents", e);
         }
     }
 });
@@ -503,7 +507,6 @@ export const onStreakAchieved = onDocumentUpdated("clients/{userId}", async (eve
         const ctaUrl = `/client/dashboard?notificationType=streak_congrats&openChallengeList=true&isCoach=false`;
         const streakId = `streak-${userId}-${currentStreak}`;
         
-        // SURGICAL FIX: Inlined logic from createUserNotification
         const reminderPayload = {
             type: 'streak-congrats',
             title: title,

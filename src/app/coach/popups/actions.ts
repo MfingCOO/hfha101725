@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { Timestamp } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
 import { db as adminDb } from '@/lib/firebaseAdmin';
+import { createUserNotification } from '@/services/reminders';
+import type { Reminder } from '@/services/reminders';
 
 const popupSchema = z.object({
     id: z.string().optional(),
@@ -38,29 +40,26 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
             return { success: false, error: "No clients found for the selected target." };
         }
 
-        const batch = adminDb.batch();
-        for (const userId of targetUserIds) {
-            const messageRef = adminDb.collection('user_scheduled_reminders').doc(); 
-            batch.set(messageRef, {
-                userId,
-                type: 'coach_popup',
-                title: popupData.title,
-                message: popupData.message,
-                ...(ctaUrl && { ctaUrl: ctaUrl, ctaType: 'openUrl' }), // FIX: Add ctaType: 'openUrl'
-                ctaText: ctaText, 
+        const reminderData: Omit<Reminder, 'id'> = {
+            type: 'custom-popup',
+            title: popupData.title,
+            message: popupData.message,
+            pillarId: 'megaphone', // Assuming a pillar for popups
+            deliverAt: Timestamp.fromDate(popupData.scheduledAt),
+            entityId: campaignId,
+            url: ctaUrl || '',
+            isCoach: String(false),
+            data: {
                 imageUrl: imageUrl || '',
-                scheduledAt: Timestamp.fromDate(popupData.scheduledAt),
-                status: 'scheduled',
-                isRecurring: false,
-                createdAt: Timestamp.now(),
-                campaignId,
-                campaignName: name, 
+                ctaText: ctaText,
+                campaignName: name,
                 targetType: targetType,
                 targetValue: targetValue || null,
-            });
-        }
+            }
+        };
 
-        await batch.commit();
+        const promises = targetUserIds.map(userId => createUserNotification(userId, reminderData));
+        await Promise.all(promises);
 
         revalidatePath('/coach/popups');
         return { success: true, campaignId };
@@ -95,33 +94,39 @@ async function getTargetUserIds(targetType: string, targetValue?: string): Promi
 
 export async function getPopupsForCoach(): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
-        const messagesSnapshot = await adminDb.collection('user_scheduled_reminders').where('type', '==', 'coach_popup').orderBy('createdAt', 'desc').get();
+        const clientsSnapshot = await adminDb.collection('clients').get();
+        const allPopups: any[] = [];
         
-        const campaigns = messagesSnapshot.docs.reduce((acc, doc) => {
-            const data = doc.data();
-            const campaignId = data.campaignId;
-            if (!campaignId) return acc;
+        const campaignMap = new Map<string, any>();
 
-            if (!acc[campaignId]) {
-                acc[campaignId] = {
-                    id: campaignId,
-                    name: data.campaignName,
-                    title: data.title,
-                    message: data.message,
-                    ctaText: data.ctaText,
-                    ctaUrl: data.ctaUrl,
-                    imageUrl: data.imageUrl,
-                    scheduledAt: (data.scheduledAt as Timestamp).toDate().toISOString(),
-                    status: data.status,
-                    targetType: data.targetType,
-                    targetValue: data.targetValue,
-                    createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-                };
-            }
-            return acc;
-        }, {} as { [key: string]: any });
+        for (const clientDoc of clientsSnapshot.docs) {
+            const popupsSnapshot = await adminDb.collection(`clients/${clientDoc.id}/notifications`)
+                .where('type', '==', 'custom-popup')
+                .get();
+            
+            popupsSnapshot.forEach(doc => {
+                const data = doc.data();
+                const campaignId = data.entityId;
+                if (campaignId && !campaignMap.has(campaignId)) {
+                    campaignMap.set(campaignId, {
+                        id: campaignId,
+                        name: data.data?.campaignName,
+                        title: data.title,
+                        message: data.message,
+                        ctaText: data.data?.ctaText,
+                        ctaUrl: data.url,
+                        imageUrl: data.data?.imageUrl,
+                        scheduledAt: (data.deliverAt as Timestamp).toDate().toISOString(),
+                        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
+                    });
+                }
+            });
+        }
+        
+        const campaignList = Array.from(campaignMap.values());
+        campaignList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-        const campaignList = Object.values(campaigns);
+
         return { success: true, data: campaignList };
 
     } catch (error: any) {
@@ -134,12 +139,17 @@ export async function deletePopupAction(campaignId: string): Promise<{ success: 
     try {
         if (!campaignId) throw new Error("No campaign ID provided for deletion.");
 
-        const messagesToDelete = await adminDb.collection('user_scheduled_reminders').where('campaignId', '==', campaignId).get();
-        
-        if (messagesToDelete.empty) return { success: true };
-
+        const clientsSnapshot = await adminDb.collection('clients').get();
         const batch = adminDb.batch();
-        messagesToDelete.forEach(doc => batch.delete(doc.ref));
+
+        for (const clientDoc of clientsSnapshot.docs) {
+            const popupsToDelete = await adminDb.collection(`clients/${clientDoc.id}/notifications`)
+                .where('entityId', '==', campaignId)
+                .where('type', '==', 'custom-popup')
+                .get();
+            
+            popupsToDelete.forEach(doc => batch.delete(doc.ref));
+        }
 
         await batch.commit();
 
