@@ -310,7 +310,7 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
         const ctaUrlCoach = `/coach/dashboard?notificationType=appointment_booked&openAppointmentId=${appointmentId}&isCoach=true`;
         const ctaUrlClient = `/client/dashboard?notificationType=appointment_booked&openAppointmentId=${appointmentId}&isCoach=false`;
 
-        const notifPromises = [];
+        const notifPromises: Promise<any>[] = [];
         
         notifPromises.push(db.collection(`clients/${coachId}/notifications`).add({
             type: 'appointment_booked',
@@ -507,6 +507,7 @@ export const onStreakAchieved = onDocumentUpdated("clients/{userId}", async (eve
         const ctaUrl = `/client/dashboard?notificationType=streak_congrats&openChallengeList=true&isCoach=false`;
         const streakId = `streak-${userId}-${currentStreak}`;
         
+        // SURGICAL FIX: Inlined logic from createUserNotification
         const reminderPayload = {
             type: 'streak-congrats',
             title: title,
