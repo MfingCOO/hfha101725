@@ -59,6 +59,9 @@ export async function getCoachEvents(startDate: Date, endDate: Date) {
     }
 }
 
+// ================================================
+// FIXED saveCalendarEvent - this is the only change
+// ================================================
 export async function saveCalendarEvent(eventData: CalendarEventInput) {
     const validation = eventSchema.safeParse({
         ...eventData,
@@ -80,8 +83,6 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         end: Timestamp.fromDate(dataToSave.end),
         videoCallLink: null,
     };
-    // We keep clientTimezone in the data now, so the Cloud Function can use it
-    // delete finalEventData.clientTimezone; 
 
     if (dataToSave.attachVideoLink) {
         const settingsDocRef = adminDb.collection('siteSettings').doc('v1');
@@ -98,8 +99,15 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         let eventId: string;
 
         if (isCoachBooking) {
-            const eventRef = id ? adminDb.collection('coachCalendar').doc(id) : adminDb.collection('coachCalendar').doc();
-            await eventRef.set(finalEventData, { merge: true });
+            const eventRef = id 
+                ? adminDb.collection('coachCalendar').doc(id) 
+                : adminDb.collection('coachCalendar').doc();
+
+            if (id) {
+                await eventRef.set(finalEventData, { merge: true });
+            } else {
+                await eventRef.set(finalEventData);   // ← plain set for new documents
+            }
             eventId = eventRef.id;
 
             const slotDocRef = adminDb.collection('bookedSlots').doc(slotId);
@@ -116,15 +124,20 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
 
                 transaction.set(slotDocRef, { bookedAt: Timestamp.now(), coachId: dataToSave.coachId, clientId: dataToSave.clientId });
                 
-                const eventRef = id ? adminDb.collection('coachCalendar').doc(id) : adminDb.collection('coachCalendar').doc();
-                transaction.set(eventRef, finalEventData, { merge: true });
+                const eventRef = id 
+                    ? adminDb.collection('coachCalendar').doc(id) 
+                    : adminDb.collection('coachCalendar').doc();
+
+                if (id) {
+                    transaction.set(eventRef, finalEventData, { merge: true });
+                } else {
+                    transaction.set(eventRef, finalEventData);   // ← plain set for new documents
+                }
 
                 return eventRef.id;
             });
             eventId = createdEventId;
         }
-
-        // All notification logic has been removed. The onAppointmentScheduled Cloud Function will handle it.
 
         return { success: true, id: eventId };
 
@@ -133,7 +146,6 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
         return { success: false, error: error.message };
     }
 }
-
 
 export async function deleteCalendarEvent(eventId: string, startTime: string): Promise<{ success: boolean; error?: string }> {
     try {
