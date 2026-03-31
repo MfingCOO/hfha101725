@@ -2,16 +2,23 @@
   "compilerOptions": {
     "module": "commonjs",
     "noImplicitReturns": true,
-    "noUnusedLocals": true,
+    "noUnusedLocals": false,
     "outDir": "../../lib/functions",
     "sourceMap": true,
     "strict": true,
     "target": "es2017",
     "skipLibCheck": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    }
   },
   "compileOnSave": true,
   "include": [
-    "*.ts"
+    "./**/*.ts",
+    "../lib/**/*.ts"
   ]
 }

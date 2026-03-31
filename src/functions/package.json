@@ -12,7 +12,7 @@
   "engines": {
     "node": "20"
   },
-  "main": "index.js",
+  "main": "functions/index.js",
   "dependencies": {
     "@types/cors": "^2.8.19",
     "cors": "^2.8.6",

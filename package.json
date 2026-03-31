@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "build:functions": "tsc --project src/functions/tsconfig.json",
+    "build:functions": "cd src/functions && npm run build",
     "postinstall": "patch-package",
     "clean": "rm -rf .next"
   },
