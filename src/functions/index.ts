@@ -103,13 +103,13 @@ export async function sendPushNotification(userId: string, title: string, messag
         return acc;
     }, {} as { [key: string]: string });
     
-    const isChat = notificationType === 'chat';
     const payload: MulticastMessage = {
         tokens: tokens, data: dataPayload,
         apns: {
             payload: {
                 aps: {
-                    ...(isChat && { alert: { title: truncatedTitle, body: truncatedMessage } }),
+                    // ALWAYS show a visible notification on iOS (not just chat)
+                    alert: { title: truncatedTitle, body: truncatedMessage },
                     badge: 1, sound: 'default', 'content-available': 1, 'mutable-content': 1,
                 },
             },
@@ -117,12 +117,15 @@ export async function sendPushNotification(userId: string, title: string, messag
         },
         android: {
             priority: 'high' as const,
-            ...(isChat && {
-                notification: {
-                    title: truncatedTitle, body: truncatedMessage, channelId: String(channelId), sound: 'default',
-                    ...(finalImageUrl && { imageUrl: finalImageUrl }),
-                },
-            }),
+            // ALWAYS include the notification payload on Android so the system tray shows it
+            // (this was the only thing making chat work and everything else silent)
+            notification: {
+                title: truncatedTitle,
+                body: truncatedMessage,
+                channelId: String(channelId),
+                sound: 'default',
+                ...(finalImageUrl && { imageUrl: finalImageUrl }),
+            },
         },
     };
 
