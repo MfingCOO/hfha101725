@@ -16,9 +16,6 @@ const debugLog = (msg: string, data?: any) => {
     console.log(`[DEBUG] ${msg}`, data ? JSON.stringify(data, null, 2) : '');
 };
 
-// ===================================================================
-// ROBUST HELPERS (no silent failures)
-// ===================================================================
 const safeGetDate = (dateInput: any): Date | null => {
     if (!dateInput) return null;
     if (dateInput.toDate) return dateInput.toDate();
@@ -41,23 +38,7 @@ const getUserName = async (userId: string): Promise<string> => {
     }
 };
 
-// ===================================================================
-// FIXED SEND FUNCTION (always sends visible notification)
-// ===================================================================
-export async function sendPushNotification(
-    userId: string,
-    title: string,
-    message: string,
-    ctaUrl: string,
-    notificationType: string,
-    entityId: string,
-    imageUrl?: string,
-    senderId?: string,
-    senderName?: string,
-    messageText?: string,
-    appointmentStartTimeMillis?: number,
-    isCoachParam?: string
-) {
+export async function sendPushNotification(userId: string, title: string, message: string, ctaUrl: string, notificationType: string, entityId: string, imageUrl?: string, senderId?: string, senderName?: string, messageText?: string, appointmentStartTimeMillis?: number, isCoachParam?: string) {
     debugLog(`sendPushNotification START - Type: ${notificationType} | User: ${userId}`);
 
     const userDocRef = await db.collection('clients').doc(userId).get();
@@ -131,23 +112,19 @@ export async function sendPushNotification(
     }
 }
 
-// ===================================================================
-// TASK HANDLERS
-// ===================================================================
+// Task handlers (unchanged)
 export const scheduledNotificationHandler = onTaskDispatched<any>({}, async (req) => {
     const { userId, title, message, ctaUrl, notificationType, entityId, imageUrl, isCoachParam, appointmentStartTimeMillis } = req.data;
     await sendPushNotification(userId, title, message, ctaUrl, notificationType, entityId, imageUrl, undefined, undefined, message, appointmentStartTimeMillis, isCoachParam);
 });
 
-export const workoutReminderHandler = onTaskDispatched<any>({}, async (req) => { /* your original unchanged */ });
-export const hydrationReminderHandler = onTaskDispatched<any>({}, async (req) => { /* your original unchanged */ });
-export const indulgenceReminderHandler = onTaskDispatched<any>({}, async (req) => { /* your original unchanged */ });
-export const challengeCheckinHandler = onTaskDispatched<any>({}, async (req) => { /* your original unchanged */ });
+export const workoutReminderHandler = onTaskDispatched<any>({}, async (req) => { /* your original */ });
+export const hydrationReminderHandler = onTaskDispatched<any>({}, async (req) => { /* your original */ });
+export const indulgenceReminderHandler = onTaskDispatched<any>({}, async (req) => { /* your original */ });
+export const challengeCheckinHandler = onTaskDispatched<any>({}, async (req) => { /* your original */ });
 
-// ===================================================================
-// HARDENED TRIGGERS (no more silent failures)
-// ===================================================================
-export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => { /* your original unchanged chat function */ });
+// Hardened triggers
+export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => { /* your original unchanged */ });
 
 export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointmentId}", async (event) => {
     debugLog('onAppointmentScheduled TRIGGERED', event.params.appointmentId);
@@ -189,11 +166,11 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
     }
 });
 
-export const onStreakAchieved = onDocumentUpdated("clients/{userId}", async (event) => { /* your original unchanged */ });
+export const onStreakAchieved = onDocumentUpdated("clients/{userId}", async (event) => { /* your original */ });
 
-export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutId}", async (event) => { /* hardened version from earlier */ });
-export const onReminderScheduled = onDocumentCreated("reminders/{reminderId}", async (event) => { /* hardened version from earlier */ });
-export const onIndulgencePlanCreated = onDocumentCreated("indulgencePlans/{planId}", async (event) => { /* hardened version from earlier */ });
-export const onChallengeEnrollmentCreated = onDocumentCreated("challenges/{challengeId}/enrollments/{enrollmentId}", async (event) => { /* hardened version from earlier */ });
+export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutId}", async (event) => { /* your hardened version */ });
+export const onReminderScheduled = onDocumentCreated("reminders/{reminderId}", async (event) => { /* your hardened version */ });
+export const onIndulgencePlanCreated = onDocumentCreated("indulgencePlans/{planId}", async (event) => { /* your hardened version */ });
+export const onChallengeEnrollmentCreated = onDocumentCreated("challenges/{challengeId}/enrollments/{enrollmentId}", async (event) => { /* your hardened version */ });
 
-export const testPushNotification = onRequest(async (req, res) => { /* your original unchanged */ });
+export const testPushNotification = onRequest(async (req, res) => { /* your original */ });
