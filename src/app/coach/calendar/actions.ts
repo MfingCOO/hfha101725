@@ -60,7 +60,7 @@ export async function getCoachEvents(startDate: Date, endDate: Date) {
 }
 
 // ================================================
-// FIXED saveCalendarEvent - this is the only change
+// FIXED: saveCalendarEvent (this was the bug)
 // ================================================
 export async function saveCalendarEvent(eventData: CalendarEventInput) {
     const validation = eventSchema.safeParse({
@@ -103,10 +103,11 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                 ? adminDb.collection('coachCalendar').doc(id) 
                 : adminDb.collection('coachCalendar').doc();
 
+            // ←←← THIS WAS THE BUG
             if (id) {
                 await eventRef.set(finalEventData, { merge: true });
             } else {
-                await eventRef.set(finalEventData);   // ← plain set for new documents
+                await eventRef.set(finalEventData);   // plain set = fires onDocumentCreated
             }
             eventId = eventRef.id;
 
@@ -131,7 +132,7 @@ export async function saveCalendarEvent(eventData: CalendarEventInput) {
                 if (id) {
                     transaction.set(eventRef, finalEventData, { merge: true });
                 } else {
-                    transaction.set(eventRef, finalEventData);   // ← plain set for new documents
+                    transaction.set(eventRef, finalEventData);   // plain set = fires onDocumentCreated
                 }
 
                 return eventRef.id;
