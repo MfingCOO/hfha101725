@@ -37,19 +37,27 @@ function ChatUrlController() {
   const router = useRouter();
 
   useEffect(() => {
-    const chatToOpen = searchParams.get('openChat');
+    // Check for both possible naming conventions
+    const chatToOpen = searchParams.get('openChat') || searchParams.get('openChatId');
+    
     if (chatToOpen) {
       openChat(chatToOpen);
-      // Clean the URL by removing the 'openChat' search param
-      const newPath = window.location.pathname;
+      
+      // CLEANING LOGIC: Remove the trigger from the URL immediately
       const newParams = new URLSearchParams(window.location.search);
       newParams.delete('openChat');
-      router.replace(`${newPath}?${newParams.toString()}`, { scroll: false });
+      newParams.delete('openChatId');
+      newParams.delete('notificationType'); // Clean this up too while we are at it
+      
+      const queryString = newParams.toString();
+      const newUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}`;
+      
+      // Use router.replace to update the URL without adding to browser history
+      router.replace(newUrl, { scroll: false });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, openChat, router]);
 
-  return null; // This component does not render anything
+  return null;
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
