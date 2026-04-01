@@ -287,10 +287,13 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             });
 
             PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+              const senderId = notification.data?.senderId;
+              if (senderId && user?.uid && String(senderId) === String(user.uid)) {
+                log('Native: Suppressing self-notification toast.');
+                return;
+              }
+              
               log('Native foreground notification received (raw):', notification);
-              log('Native foreground notification received (title):', notification.title);
-              log('Native foreground notification received (body):', notification.body);
-              log('Native foreground notification received (data):', notification.data);
               showInAppNotification(notification.title, notification.body, notification.data || {});
             });
 
@@ -321,9 +324,13 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           await navigator.serviceWorker.register('/sw.js');
 
           const unsubscribeOnMessage = onMessage(messaging, (payload) => {
+            const senderId = payload.data?.senderId;
+            if (senderId && user?.uid && String(senderId) === String(user.uid)) {
+              log('PWA: Suppressing self-notification toast.');
+              return;
+            }
+
             log('PWA: Foreground message received (raw payload):', payload);
-            log('PWA: Foreground message received (notification):', payload.notification);
-            log('PWA: Foreground message received (data):', payload.data);
             const { notification, data } = payload;
             showInAppNotification(notification?.title, notification?.body, data || {});
           });
