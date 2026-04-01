@@ -168,9 +168,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             queryParams.set('openChallengeList', 'true');
             if (challengeId) queryParams.set('entityId', challengeId);
         } else if (notificationType === 'custom-popup') {
-            // For custom popups, if backendCtaUrl is not absolute, it should still go to dashboard with params
-            // If backendCtaUrl is empty, it will construct a default dashboard URL.
-            // If backendCtaUrl is a relative path (e.g., '/some/page'), it will append params to it.
+            // For custom popups
         }
 
         const queryString = queryParams.toString();
@@ -287,11 +285,13 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
             });
 
             PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-              const senderId = notification.data?.senderId;
-              if (senderId && user?.uid && String(senderId) === String(user.uid)) {
+              // --- SELF-NOTIFICATION FIX ---
+              const sId = notification.data?.senderId;
+              if (sId && user?.uid && String(sId) === String(user.uid)) {
                 log('Native: Suppressing self-notification toast.');
                 return;
               }
+              // ------------------------------
               
               log('Native foreground notification received (raw):', notification);
               showInAppNotification(notification.title, notification.body, notification.data || {});
@@ -324,11 +324,13 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           await navigator.serviceWorker.register('/sw.js');
 
           const unsubscribeOnMessage = onMessage(messaging, (payload) => {
-            const senderId = payload.data?.senderId;
-            if (senderId && user?.uid && String(senderId) === String(user.uid)) {
+            // --- SELF-NOTIFICATION FIX ---
+            const sId = payload.data?.senderId;
+            if (sId && user?.uid && String(sId) === String(user.uid)) {
               log('PWA: Suppressing self-notification toast.');
               return;
             }
+            // ------------------------------
 
             log('PWA: Foreground message received (raw payload):', payload);
             const { notification, data } = payload;
