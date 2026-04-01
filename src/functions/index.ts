@@ -87,7 +87,7 @@ export async function sendPushNotification(
     if (notificationType === 'chat') rawDataPayload.chatId = entityId;
     else if (notificationType === 'workout_reminder') rawDataPayload.workoutId = entityId;
     else if (['appointment_reminder', 'appointment_booked'].includes(notificationType)) rawDataPayload.appointmentId = entityId;
-    else if (notificationType === 'hydration' || notificationType === 'hydration_reminder') rawDataPayload.hydration = 'true';
+    else if (notificationType === 'hydration' || notificationType === 'hydration_reminder') rawDataPayload.openHydration = 'true';
     else if (notificationType.includes('indulgence_')) rawDataPayload.indulgenceId = entityId;
     else if (['challenge_checkin', 'streak_congrats'].includes(notificationType)) {
         rawDataPayload.challengeId = entityId;

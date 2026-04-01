@@ -38,15 +38,28 @@ export function EditWorkoutDialog({ open, onOpenChange, event }: EditWorkoutDial
     },
   });
 
-  useEffect(() => {
-    if (event) {
-      const eventDate = new Date(event.start);
+// The fixed, safe code
+useEffect(() => {
+  if (event && event.start) {
+    const eventDate = new Date(event.start);
+    // THIS IS THE SAFETY CHECK:
+    // Only proceed if the created date is valid.
+    if (!isNaN(eventDate.getTime())) {
       form.reset({
         eventDate: eventDate,
         eventTime: format(eventDate, 'HH:mm'),
       });
+    } else {
+      // If the date is invalid, log an error and use a safe default.
+      console.error("Invalid date received for workout event:", event.start);
+      form.reset({
+        eventDate: new Date(), // Default to today
+        eventTime: '12:00',    // Default to a safe time
+      });
     }
-  }, [event, form]);
+  }
+}, [event, form]);
+
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     setIsSubmitting(true);
