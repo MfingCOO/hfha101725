@@ -16,7 +16,6 @@ import PushNotificationProvider from '@/components/providers/PushNotificationPro
 import { Capacitor } from '@capacitor/core';
 import { Purchases } from '@revenuecat/purchases-capacitor';
 
-// Dynamically import AdBannerProvider
 const AdBannerProvider = dynamic(() => import('@/components/providers/AdBannerProvider'), {
   ssr: false,
   loading: () => null,
@@ -30,33 +29,47 @@ function RevenueCatInitializer() {
   const { user } = useAuth();
 
   useEffect(() => {
-    // FIX: This stops the "Web not supported" error. 
-    // It only runs if the app is actually running on Android or iOS.
+    // This stops the "Web not supported" error on standard web builds
+    // and ensures this logic only runs within a Capacitor environment.
     if (!Capacitor.isNativePlatform()) return;
 
-    if (user?.uid) {
-      const revenueCatApiKey = process.env.NEXT_PUBLIC_REVENUECAT_API_KEY;
+    const initializeRevenueCat = async () => {
+      if (user?.uid) {
+        const revenueCatApiKey = process.env.NEXT_PUBLIC_REVENUECAT_API_KEY;
 
-      if (!revenueCatApiKey) {
-        console.error("RevenueCat API Key is missing from your environment variables.");
-        return;
+        if (!revenueCatApiKey) {
+          console.error("RevenueCat API Key is missing from your environment variables.");
+          return;
+        }
+
+        try {
+          // AWAIT the configuration to complete BEFORE proceeding.
+          await Purchases.configure({ apiKey: revenueCatApiKey, appUserID: user.uid });
+          console.log("RevenueCat configured successfully on native device.");
+
+          // NOW that configuration is complete, we can safely add the listener.
+          Purchases.addCustomerInfoUpdateListener((customerInfo) => {
+            console.log("Subscription status updated:", customerInfo);
+            // TODO: Here you can update your app's state based on the new customerInfo
+          });
+
+        } catch (error) {
+          console.error("RevenueCat failed to configure:", error);
+        }
+
+      } else {
+        // If there is no user, log out of RevenueCat to clear any cached data.
+        try {
+          await Purchases.logOut();
+          console.log("RevenueCat logged out.");
+        } catch (error) {
+          // This can sometimes fail if not configured, so we catch and ignore.
+        }
       }
+    };
 
-      Purchases.configure({ apiKey: revenueCatApiKey, appUserID: user.uid })
-        .then(() => {
-          console.log("RevenueCat ready on native device.");
-        })
-        .catch(error => {
-          console.error("RevenueCat failed to start:", error);
-        });
-
-      Purchases.addCustomerInfoUpdateListener((customerInfo) => {
-        console.log("Subscription status updated:", customerInfo);
-      });
-
-    } else {
-      Purchases.logOut().catch(() => {});
-    }
+    initializeRevenueCat();
+    
   }, [user]);
 
   return null;
@@ -72,7 +85,6 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
   return (
     <QueryProvider>
       <AuthProvider>
-        {/* This is the part we fixed so the build doesn't crash */}
         <RevenueCatInitializer />
         
         <AppCheckProvider>
