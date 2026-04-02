@@ -103,6 +103,10 @@ export async function sendPushNotification(
 
     const payload: MulticastMessage = {
         tokens,
+        notification: {
+            title: truncatedTitle,
+            body: truncatedMessage,
+        },
         data: dataPayload,
         apns: {
             payload: {
@@ -158,11 +162,28 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     const title = chat.name ? `New message in ${chat.name}` : `New message from ${senderName}`;
 
     const recipientDoc = await db.collection('clients').doc(recipientId).get();
-    const isClient = recipientDoc.exists;
-    const dashboardBase = isClient ? '/client/dashboard' : '/coach/dashboard';
-    const ctaUrl = `${dashboardBase}?openChatId=${chatId}&notificationType=chat&isCoach=${!isClient}`;
+    if (!recipientDoc.exists) return;
+    
+    const recipientData = recipientDoc.data();
+    const isCoach = recipientData?.role === 'coach';
+    
+    const dashboardBase = isCoach ? '/coach/dashboard' : '/client/dashboard';
+    const ctaUrl = `${dashboardBase}?openChatId=${chatId}&notificationType=chat&isCoach=${isCoach}`;
 
-    await sendPushNotification(recipientId, title, messageText, ctaUrl, 'chat', chatId, undefined, senderId, senderName, messageText, undefined, String(!isClient));
+    await sendPushNotification(
+        recipientId, 
+        title, 
+        messageText, 
+        ctaUrl, 
+        'chat', 
+        chatId, 
+        undefined, 
+        senderId, 
+        senderName, 
+        messageText, 
+        undefined, 
+        String(isCoach)
+    );
 });
 
 export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointmentId}", async (event) => {
@@ -211,7 +232,6 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
     const workout = event.data.data();
     const workoutId = event.params.workoutId;
 
-    // 1. Send the immediate confirmation
     await sendPushNotification(
         workout.userId, 
         'Workout Scheduled', 
@@ -221,8 +241,6 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
         workoutId
     );
 
-    // 2. NEW: Schedule the 10-minute reminder
-    // Assuming 'workout.start' is a Firestore Timestamp
     const startTimeDate = workout.start?.toDate ? workout.start.toDate() : new Date(workout.start);
     const reminderTime = new Date(startTimeDate.getTime() - 10 * 60 * 1000);
 
@@ -231,7 +249,7 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
         await queue.enqueue({ 
             userId: workout.userId, 
             workoutId,
-            title: workout.title // Passing title so the reminder is personalized
+            title: workout.title 
         }, { scheduleTime: reminderTime });
         
         debugLog(`Workout reminder enqueued for ${reminderTime.toISOString()}`);
@@ -244,7 +262,6 @@ export const onIndulgencePlanCreated = onDocumentCreated("indulgencePlans/{planI
     const planId = event.params.planId;
     const userId = plan.userId;
 
-    // 1. Immediate Notification
     await sendPushNotification(
         userId, 
         'Indulgence Plan Ready', 
@@ -254,11 +271,9 @@ export const onIndulgencePlanCreated = onDocumentCreated("indulgencePlans/{planI
         planId
     );
 
-    // Get the event time (Change 'plan.scheduledAt' to your actual field name if different)
     const eventTime = plan.scheduledAt?.toDate ? plan.scheduledAt.toDate() : new Date(plan.scheduledAt);
     const queue = getFunctions().taskQueue('indulgenceReminderHandler');
 
-    // 2. Schedule: 12 Hours Before (Remind of the plan)
     const twelveHoursBefore = new Date(eventTime.getTime() - 12 * 60 * 60 * 1000);
     if (twelveHoursBefore > new Date()) {
         await queue.enqueue({ 
@@ -268,7 +283,6 @@ export const onIndulgencePlanCreated = onDocumentCreated("indulgencePlans/{planI
         }, { scheduleTime: twelveHoursBefore });
     }
 
-    // 3. Schedule: 2 Hours Before (Encouragement)
     const twoHoursBefore = new Date(eventTime.getTime() - 2 * 60 * 60 * 1000);
     if (twoHoursBefore > new Date()) {
         await queue.enqueue({ 
@@ -278,7 +292,6 @@ export const onIndulgencePlanCreated = onDocumentCreated("indulgencePlans/{planI
         }, { scheduleTime: twoHoursBefore });
     }
 
-    // 4. Schedule: 12 Hours After (Recovery Plan)
     const twelveHoursAfter = new Date(eventTime.getTime() + 12 * 60 * 60 * 1000);
     await queue.enqueue({ 
         userId, planId, 
@@ -327,9 +340,8 @@ export const reminderTaskHandler = onTaskDispatched<any>({}, async (req) => {
 });
 
 export const appointmentReminderHandler = onTaskDispatched<any>({}, async (req) => {
-    const { userId, appointmentId, startTimeMillis } = req.data; // Added startTimeMillis here
+    const { userId, appointmentId, startTimeMillis } = req.data; 
     const ctaUrl = `/client/dashboard?notificationType=appointment_reminder&entityId=${appointmentId}`;
-    // Added startTimeMillis below so it actually sends to the phone
     await sendPushNotification(userId, 'Appointment Reminder', 'Your appointment is in 10 minutes', ctaUrl, 'appointment_reminder', appointmentId, undefined, undefined, undefined, undefined, startTimeMillis);
 });
 
