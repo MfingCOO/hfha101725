@@ -17,10 +17,13 @@ interface NotificationState {
   setTriggerHydrationModal: (trigger: boolean) => void;
   hasUnreadNotifications: boolean;
   setHasUnreadNotifications: (status: boolean) => void;
-  notificationIndulgenceId: string | null; // ADDED
-  setNotificationIndulgenceId: (id: string | null) => void; // ADDED
-  openChallengeList: boolean; // ADDED
-  setOpenChallengeList: (status: boolean) => void; // ADDED
+  notificationIndulgenceId: string | null;
+  setNotificationIndulgenceId: (id: string | null) => void;
+  openChallengeList: boolean;
+  setOpenChallengeList: (status: boolean) => void;
+  // ADDED: The global flag to signal when RevenueCat is ready.
+  isRevenueCatReady: boolean;
+  setIsRevenueCatReady: (isReady: boolean) => void;
 }
 
 export const useNotificationStore = create<NotificationState>((set) => ({
@@ -38,8 +41,11 @@ export const useNotificationStore = create<NotificationState>((set) => ({
   setTriggerHydrationModal: (trigger) => set({ triggerHydrationModal: trigger }),
   hasUnreadNotifications: false,
   setHasUnreadNotifications: (status) => set({ hasUnreadNotifications: status }),
-  notificationIndulgenceId: null, // ADDED
-  setNotificationIndulgenceId: (id) => set({ notificationIndulgenceId: id }), // ADDED
-  openChallengeList: false, // ADDED
-  setOpenChallengeList: (status) => set({ openChallengeList: status }), // ADDED
+  notificationIndulgenceId: null,
+  setNotificationIndulgenceId: (id) => set({ notificationIndulgenceId: id }),
+  openChallengeList: false,
+  setOpenChallengeList: (status) => set({ openChallengeList: status }),
+  // ADDED: The initial state and setter for the new flag.
+  isRevenueCatReady: false,
+  setIsRevenueCatReady: (isReady) => set({ isRevenueCatReady: isReady }),
 }));

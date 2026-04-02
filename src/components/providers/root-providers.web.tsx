@@ -15,22 +15,18 @@ import { ChatProvider } from '@/components/chats/chat-provider';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
 import { Capacitor } from '@capacitor/core';
 import { Purchases } from '@revenuecat/purchases-capacitor';
+import { useNotificationStore } from '@/store/notification-store';
 
 const AdBannerProvider = dynamic(() => import('@/components/providers/AdBannerProvider'), {
   ssr: false,
   loading: () => null,
 });
 
-/**
- * This handles the RevenueCat setup.
- * It's nested inside AuthProvider so it can see who the user is.
- */
 function RevenueCatInitializer() {
   const { user } = useAuth();
+  const { setIsRevenueCatReady } = useNotificationStore();
 
   useEffect(() => {
-    // This stops the "Web not supported" error on standard web builds
-    // and ensures this logic only runs within a Capacitor environment.
     if (!Capacitor.isNativePlatform()) return;
 
     const initializeRevenueCat = async () => {
@@ -38,39 +34,40 @@ function RevenueCatInitializer() {
         const revenueCatApiKey = process.env.NEXT_PUBLIC_REVENUECAT_API_KEY;
 
         if (!revenueCatApiKey) {
-          console.error("RevenueCat API Key is missing from your environment variables.");
+          console.error("RevenueCat API Key is missing.");
           return;
         }
 
         try {
-          // AWAIT the configuration to complete BEFORE proceeding.
           await Purchases.configure({ apiKey: revenueCatApiKey, appUserID: user.uid });
-          console.log("RevenueCat configured successfully on native device.");
+          console.log("RevenueCat configured successfully.");
+          
+          // SET THE GLOBAL FLAG
+          setIsRevenueCatReady(true);
 
-          // NOW that configuration is complete, we can safely add the listener.
           Purchases.addCustomerInfoUpdateListener((customerInfo) => {
             console.log("Subscription status updated:", customerInfo);
-            // TODO: Here you can update your app's state based on the new customerInfo
           });
 
         } catch (error) {
           console.error("RevenueCat failed to configure:", error);
+          setIsRevenueCatReady(false);
         }
 
       } else {
-        // If there is no user, log out of RevenueCat to clear any cached data.
+        setIsRevenueCatReady(false);
         try {
           await Purchases.logOut();
           console.log("RevenueCat logged out.");
         } catch (error) {
-          // This can sometimes fail if not configured, so we catch and ignore.
+          // Ignore errors on logout
         }
       }
     };
 
     initializeRevenueCat();
     
-  }, [user]);
+  }, [user, setIsRevenueCatReady]);
 
   return null;
 }
