@@ -26,9 +26,6 @@ const getUserName = async (userId: string): Promise<string> => {
     }
 };
 
-/**
- * Core Helper: Sends push notifications to all registered tokens for a user.
- */
 export async function sendPushNotification(
     userId: string, 
     title: string, 
@@ -46,10 +43,19 @@ export async function sendPushNotification(
     debugLog(`sendPushNotification START - Type: ${notificationType} | User: ${userId}`);
 
     const userDocRef = await db.collection('clients').doc(userId).get();
-    if (!userDocRef.exists) { debugLog(`User ${userId} not found`); return; }
+    if (!userDocRef.exists) { 
+        debugLog(`User ${userId} not found in clients`); 
+        return; 
+    }
 
     const tokens = userDocRef.data()?.fcmTokens?.filter((t: any) => typeof t === 'string' && t) || [];
-    if (tokens.length === 0) { debugLog(`No tokens for user ${userId}`); return; }
+    if (tokens.length === 0) { 
+        debugLog(`No tokens for user ${userId}`); 
+        return; 
+    }
+
+    const userData = userDocRef.data()!;
+    const isCoach = userData.role === 'coach';
 
     const defaultImageUrl = 'https://firebasestorage.googleapis.com/v0/b/hunger-free-and-happy-app.appspot.com/o/app-assets%2Flogo_icon_transparent_background.png?alt=media&token=4e3b1234-5678-4321-abcd-1234567890ab';
     const finalImageUrl = imageUrl || defaultImageUrl;
@@ -74,7 +80,7 @@ export async function sendPushNotification(
         url: ctaUrl, 
         notificationType, 
         entityId, 
-        isCoach: isCoachParam || 'false', 
+        isCoach: String(isCoach), 
         channelId 
     };
 
@@ -103,10 +109,7 @@ export async function sendPushNotification(
 
     const payload: MulticastMessage = {
         tokens,
-        notification: {
-            title: truncatedTitle,
-            body: truncatedMessage,
-        },
+        notification: { title: truncatedTitle, body: truncatedMessage },
         data: dataPayload,
         apns: {
             payload: {
@@ -138,37 +141,64 @@ export async function sendPushNotification(
     } catch (error) {
         console.error(`[sendPushNotification] Error for ${userId}:`, error);
     }
-}
+};
 
 // ============================================================================
 // FIRESTORE TRIGGERS
 // ============================================================================
 
 export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageId}", async (event) => {
-    if (!event.data) return;
+    debugLog('=== onNewMessage TRIGGERED ===', event.params.messageId);
+    if (!event.data) {
+        debugLog('Abort: No event.data');
+        return;
+    }
     const message = event.data.data();
     const chatId = event.params.chatId;
-    const senderId = message.senderId || message.from;
+    const senderId = message.userId || message.senderId || message.from;   // <-- THIS IS THE FIX
     const messageText = message.text || 'New message';
 
+    debugLog('Raw message data:', message);
+    debugLog('Sender ID (final):', senderId);
+
     const chatSnap = await db.collection('chats').doc(chatId).get();
-    if (!chatSnap.exists) return;
+    if (!chatSnap.exists) {
+        debugLog('Abort: Chat document does not exist');
+        return;
+    }
     const chat = chatSnap.data()!;
 
-    const recipientId = (chat.participants || []).find((id: string) => id !== senderId);
-    if (!recipientId) return;
+    debugLog('FULL participants array from Firestore:', chat.participants);
+
+    const participants: string[] = chat.participants || [];
+    const recipientIds = participants.filter((id: string) => id !== senderId);
+
+    debugLog('Filtered recipientIds (should NOT include sender):', recipientIds);
+
+    if (recipientIds.length === 0) {
+        debugLog("Abort: No valid recipient (sender is the only participant)");
+        return;
+    }
+
+    const recipientId = recipientIds[0];
+
+    debugLog('FINAL recipient we are sending to:', recipientId);
 
     const senderName = await getUserName(senderId);
     const title = chat.name ? `New message in ${chat.name}` : `New message from ${senderName}`;
 
     const recipientDoc = await db.collection('clients').doc(recipientId).get();
-    if (!recipientDoc.exists) return;
-    
-    const recipientData = recipientDoc.data();
-    const isCoach = recipientData?.role === 'coach';
-    
+    if (!recipientDoc.exists) {
+        debugLog(`Recipient ${recipientId} not found`);
+        return;
+    }
+
+    const recipientData = recipientDoc.data()!;
+    const isCoach = recipientData.role === 'coach';
     const dashboardBase = isCoach ? '/coach/dashboard' : '/client/dashboard';
     const ctaUrl = `${dashboardBase}?openChatId=${chatId}&notificationType=chat&isCoach=${isCoach}`;
+
+    debugLog(`Sending to ${recipientId} (isCoach=${isCoach}) with URL: ${ctaUrl}`);
 
     await sendPushNotification(
         recipientId, 
@@ -196,14 +226,12 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
 
     if (appointment.coachId) {
         const clientName = await getUserName(appointment.clientId);
-        const coachUrl = `/coach/dashboard?notificationType=appointment_booked&entityId=${appointmentId}`;
-        await sendPushNotification(appointment.coachId, 'New Appointment', `Appointment with ${clientName}`, coachUrl, 'appointment_booked', appointmentId, undefined, undefined, undefined, undefined, startTimeMillis, 'true');
+        await sendPushNotification(appointment.coachId, 'New Appointment', `Appointment with ${clientName}`, `/coach/dashboard?notificationType=appointment_booked&entityId=${appointmentId}`, 'appointment_booked', appointmentId, undefined, undefined, undefined, undefined, startTimeMillis, 'true');
     }
 
     if (appointment.clientId) {
         const coachName = await getUserName(appointment.coachId);
-        const clientUrl = `/client/dashboard?notificationType=appointment_booked&entityId=${appointmentId}`;
-        await sendPushNotification(appointment.clientId, 'Appointment Booked', `Your appointment with ${coachName} is confirmed`, clientUrl, 'appointment_booked', appointmentId, undefined, undefined, undefined, undefined, startTimeMillis, 'false');
+        await sendPushNotification(appointment.clientId, 'Appointment Booked', `Your appointment with ${coachName} is confirmed`, `/client/dashboard?notificationType=appointment_booked&entityId=${appointmentId}`, 'appointment_booked', appointmentId, undefined, undefined, undefined, undefined, startTimeMillis, 'false');
     }
 
     const reminderTime = new Date(startTimeDate.getTime() - 10 * 60 * 1000);
@@ -246,13 +274,7 @@ export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutI
 
     if (reminderTime > new Date()) {
         const queue = getFunctions().taskQueue('workoutReminderHandler');
-        await queue.enqueue({ 
-            userId: workout.userId, 
-            workoutId,
-            title: workout.title 
-        }, { scheduleTime: reminderTime });
-        
-        debugLog(`Workout reminder enqueued for ${reminderTime.toISOString()}`);
+        await queue.enqueue({ userId: workout.userId, workoutId, title: workout.title }, { scheduleTime: reminderTime });
     }
 });
 
@@ -262,42 +284,7 @@ export const onIndulgencePlanCreated = onDocumentCreated("indulgencePlans/{planI
     const planId = event.params.planId;
     const userId = plan.userId;
 
-    await sendPushNotification(
-        userId, 
-        'Indulgence Plan Ready', 
-        plan.message || 'Your indulgence plan is ready', 
-        `/client/dashboard?notificationType=indulgence_plan&entityId=${planId}`, 
-        'indulgence_plan', 
-        planId
-    );
-
-    const eventTime = plan.scheduledAt?.toDate ? plan.scheduledAt.toDate() : new Date(plan.scheduledAt);
-    const queue = getFunctions().taskQueue('indulgenceReminderHandler');
-
-    const twelveHoursBefore = new Date(eventTime.getTime() - 12 * 60 * 60 * 1000);
-    if (twelveHoursBefore > new Date()) {
-        await queue.enqueue({ 
-            userId, planId, 
-            type: 'indulgence_reminder_12h', 
-            message: "Don't forget the indulgence plan you set for later today!" 
-        }, { scheduleTime: twelveHoursBefore });
-    }
-
-    const twoHoursBefore = new Date(eventTime.getTime() - 2 * 60 * 60 * 1000);
-    if (twoHoursBefore > new Date()) {
-        await queue.enqueue({ 
-            userId, planId, 
-            type: 'indulgence_reminder_2h', 
-            message: "Almost time! We hope you really enjoy yourself." 
-        }, { scheduleTime: twoHoursBefore });
-    }
-
-    const twelveHoursAfter = new Date(eventTime.getTime() + 12 * 60 * 60 * 1000);
-    await queue.enqueue({ 
-        userId, planId, 
-        type: 'indulgence_recovery', 
-        message: "We hope you had a great time! Let's get back on track with your recovery plan." 
-    }, { scheduleTime: twelveHoursAfter });
+    await sendPushNotification(userId, 'Indulgence Plan Ready', plan.message || 'Your indulgence plan is ready', `/client/dashboard?notificationType=indulgence_plan&entityId=${planId}`, 'indulgence_plan', planId);
 });
 
 export const onChallengeEnrollmentCreated = onDocumentCreated("challenges/{challengeId}/enrollments/{enrollmentId}", async (event) => {
