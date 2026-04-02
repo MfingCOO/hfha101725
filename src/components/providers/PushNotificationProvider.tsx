@@ -49,71 +49,72 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   } = useNotificationStore();
 
   const cleanupRef = useRef<(() => void) | null>(null);
+  const hasNavigatedRef = useRef(false);   // Prevents double navigation
 
   const handleNotificationAction = useCallback((context: string, data: { [key: string]: any }) => {
+    if (hasNavigatedRef.current) return;   // Prevent multiple calls
+    hasNavigatedRef.current = true;
+
     log(`[${context}] Handling action. Full Data:`, data);
 
+    // Self-suppression
     const sId = data.senderId || data.userId;
     if (sId && user?.uid && String(sId) === String(user.uid)) {
       log('Suppressing self-notification');
       return;
     }
 
-    const backendCtaUrl = String(data.url || data.ctaUrl || '');
-    const notificationType = String(data.notificationType || '');
+    // Trust the backend URL first
+    let finalUrl = String(data.url || data.ctaUrl || '');
 
-    let finalNavigationUrl = backendCtaUrl;
-
-    if (!finalNavigationUrl || finalNavigationUrl === '/') {
-      finalNavigationUrl = '/client/dashboard';
+    if (!finalUrl || finalUrl === '/') {
+      // Only fallback if backend didn't give us a URL
+      const notificationType = String(data.notificationType || '');
       if (notificationType === 'chat' && data.chatId) {
         setNotificationChatId(data.chatId);
-        finalNavigationUrl = `/client/dashboard?openChatId=${data.chatId}&notificationType=chat&isCoach=false`;
+        finalUrl = `/client/dashboard?openChatId=${data.chatId}&notificationType=chat&isCoach=false`;
       } else if (notificationType === 'workout_reminder' && data.workoutId) {
         setNotificationWorkoutId(data.workoutId);
-        finalNavigationUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${data.workoutId}&isCoach=false`;
+        finalUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${data.workoutId}&isCoach=false`;
       } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && (data.appointmentId || data.entityId)) {
         const id = data.appointmentId || data.entityId;
         setNotificationAppointmentId(id);
-        finalNavigationUrl = `/client/dashboard?notificationType=${notificationType}&openAppointmentId=${id}&isCoach=false`;
+        finalUrl = `/client/dashboard?notificationType=${notificationType}&openAppointmentId=${id}&isCoach=false`;
       } else if (notificationType === 'hydration') {
         setTriggerHydrationModal(true);
-        finalNavigationUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
+        finalUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
       } else if (notificationType.includes('indulgence_') && data.indulgenceId) {
         setNotificationIndulgenceId(data.indulgenceId);
-        finalNavigationUrl = `/client/dashboard?notificationType=${notificationType}&openIndulgenceId=${data.indulgenceId}&isCoach=false`;
+        finalUrl = `/client/dashboard?notificationType=${notificationType}&openIndulgenceId=${data.indulgenceId}&isCoach=false`;
       } else if (['challenge_checkin', 'streak_congrats'].includes(notificationType) && data.openChallengeList === 'true') {
         setOpenChallengeList(true);
-        finalNavigationUrl = `/client/dashboard?notificationType=${notificationType}&openChallengeList=true&isCoach=false`;
+        finalUrl = `/client/dashboard?notificationType=${notificationType}&openChallengeList=true&isCoach=false`;
       }
     }
 
-    log(`[${context}] Final Navigating URL: ${finalNavigationUrl}`);
-    router.push(finalNavigationUrl);
+    log(`[${context}] Final Navigating URL: ${finalUrl}`);
+    router.push(finalUrl);
+
+    // Reset navigation lock after a short delay
+    setTimeout(() => { hasNavigatedRef.current = false; }, 1000);
   }, [router, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
 
-  const showInAppNotification = useCallback((incomingNotificationTitle: string | undefined, incomingNotificationBody: string | undefined, data: { [key: string]: any }) => {
-    const finalTitle = incomingNotificationTitle || data.title || 'New Notification';
-    let finalBody = incomingNotificationBody || data.body || '';
+  const showInAppNotification = useCallback((incomingTitle: string | undefined, incomingBody: string | undefined, data: { [key: string]: any }) => {
+    const title = incomingTitle || data.title || 'New Notification';
+    let body = incomingBody || data.body || '';
 
     const notificationType = String(data.notificationType || '');
     const appointmentStartTimeMillis = String(data.appointmentStartTimeMillis || '');
 
     if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && appointmentStartTimeMillis) {
       const date = new Date(Number(appointmentStartTimeMillis));
-      const localizedTime = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
-      finalBody = `⏰ ${localizedTime} - ${finalBody}`;
+      body = `⏰ ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })} - ${body}`;
     }
 
-    log(`Showing in-app toast. Final Title: ${finalTitle}, Final Body: ${finalBody}`);
     toast({
-      title: finalTitle,
-      description: finalBody,
-      action: (
-        <ToastAction altText="Open" onClick={() => handleNotificationAction('Foreground Click', data)}>
-          Open
-        </ToastAction>
-      ),
+      title,
+      description: body,
+      action: <ToastAction altText="Open" onClick={() => handleNotificationAction('Foreground Click', data)}>Open</ToastAction>,
       duration: 7000,
     });
   }, [handleNotificationAction, toast]);
@@ -182,22 +183,20 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         try {
           await navigator.serviceWorker.register('/sw.js');
 
-          const unsubscribeOnMessage = onMessage(messaging, (payload) => {
+          const unsubscribe = onMessage(messaging, (payload) => {
             const sId = payload.data?.senderId;
             if (sId && user?.uid && String(sId) === String(user.uid)) return;
             showInAppNotification(payload.notification?.title, payload.notification?.body, payload.data || {});
           });
 
-          cleanupRef.current = () => unsubscribeOnMessage();
+          cleanupRef.current = () => unsubscribe();
         } catch (error) {
-          logError('PWA: Error during foreground notification setup:', error);
+          logError('PWA foreground setup error:', error);
         }
       }
     };
 
-    if (!loading && user) {
-      setupNotifications();
-    }
+    if (!loading && user) setupNotifications();
 
     return () => {
       if (cleanupRef.current) {
