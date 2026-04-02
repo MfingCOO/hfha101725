@@ -35,8 +35,6 @@ import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
 import { useNotificationStore } from '@/store/notification-store';
 import { AppointmentDetailDialog } from '../calendar/AppointmentDetailDialog';
 import { WorkoutActionDialog } from '../calendar/WorkoutActionDialog';
-import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialog';
-import { getChatDetailsAction } from '@/app/coach/clients/actions';
 
 export interface Pillar {
   id: string;
@@ -112,8 +110,6 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
   const [isAppointmentDetailOpen, setIsAppointmentDetailOpen] = useState(false);
   const [isWorkoutActionOpen, setIsWorkoutActionOpen] = useState(false);
-  const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
-  const [selectedChatInfo, setSelectedChatInfo] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -121,7 +117,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
   // Effect to process incoming searchParams from notifications and set global state
   useEffect(() => {
-    if (!searchParams) return;
+    if (!searchParams || loading) return;
 
     const openChatId = String(searchParams.openChatId || '');
     const openWorkoutId = String(searchParams.openWorkoutId || '');
@@ -129,66 +125,42 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     const openHydration = String(searchParams.openHydration || 'false');
     const notificationType = String(searchParams.notificationType || '');
 
-    // **Surgical Fix 1 (Client Dashboard):** Defer processing if authentication is still loading
-    if (loading) return;
-
-    // Chat notifications are working and are explicitly NOT modified here.
     if (notificationType === 'chat' && openChatId) {
-      setNotificationChatId(openChatId);
-    }
-    // Workout notifications (ORIGINAL LOGIC - UNTOUCHED)
+        setNotificationChatId(openChatId);
+    } 
     else if (notificationType === 'workout_reminder' && openWorkoutId) {
-      setNotificationWorkoutId(openWorkoutId);
-    }
-    // Handle appointment notifications ONLY (TARGETED FIX)
+        setNotificationWorkoutId(openWorkoutId);
+    } 
     else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
-      // **Surgical Fix 2 (Client Dashboard):** Check for authenticated user BEFORE setting notification ID
-      if (!user) {
-        toast({
-          variant: 'destructive',
-          title: 'Authentication Required',
-          description: 'Please log in to view appointment details.',
-        });
-        return; // Prevent setting ID if unauthenticated
-      }
-      setNotificationAppointmentId(openAppointmentId);
-    }
-    // Hydration notifications (ORIGINAL LOGIC - UNTOUCHED)
+        if (!user) {
+            toast({
+                variant: 'destructive',
+                title: 'Authentication Required',
+                description: 'Please log in to view appointment details.',
+            });
+            return;
+        }
+        setNotificationAppointmentId(openAppointmentId);
+    } 
     else if (notificationType === 'hydration' && openHydration === 'true') {
-      setTriggerHydrationModal(true);
+        setTriggerHydrationModal(true);
     }
   }, [searchParams, loading, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, toast]);
 
-  // Effect to open dialogs based on notification store state
+  // SURGICALLY FIXED: This useEffect now ONLY handles notifications that are NOT chat.
+  // The ChatProvider is the single source of truth for opening chat dialogs.
   useEffect(() => {
-    const handleChatNotification = async (chatId: string) => {
-      const result = await getChatDetailsAction(chatId);
-      if (result.success && result.data) {
-        setSelectedChatInfo(result.data);
-        setIsChatDialogOpen(true);
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: 'Could not open the specified chat.' });
-        setNotificationChatId(''); // Clear the bad ID
-      }
-    };
-
-    if (notificationChatId) {
-      handleChatNotification(notificationChatId);
-    }
-    // Appointment notifications (TARGETED FIX)
-    if (notificationAppointmentId && user) { // Surgical Fix 3 (Client Dashboard): Only open AppointmentDetailDialog if user is authenticated
+    if (notificationAppointmentId && user) {
       setIsAppointmentDetailOpen(true);
     }
-    // Workout dialog (ORIGINAL LOGIC - UNTOUCHED)
     if (notificationWorkoutId) {
       setIsWorkoutActionOpen(true);
     }
-    // Hydration modal (ORIGINAL LOGIC - UNTOUCHED)
     if (triggerHydrationModal) {
       openModal('hydration');
       setTriggerHydrationModal(false);
     }
-  }, [notificationChatId, notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal, setNotificationChatId, toast, user]);
+  }, [notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal, user]);
 
   const executePillarAction = (pillar: Pillar) => {
     if (pillar.id === 'insights') {
@@ -282,11 +254,10 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     setDataEntryDialogOpen(false);
     setActivePillar(null);
     closeModal();
-    // Clear notification states when closing data entry dialog to prevent re-opening
-    setNotificationAppointmentId('');
-    setNotificationWorkoutId('');
+    setNotificationAppointmentId(null);
+    setNotificationWorkoutId(null);
     setTriggerHydrationModal(false);
-    setNotificationChatId('');
+    setNotificationChatId(null);
     if (wasSaved) {
       fetchDashboardData();
     }
@@ -616,25 +587,15 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
           </AlertDialogContent>
       </AlertDialog>
 
-      {selectedChatInfo && (
-          <EmbeddedChatDialog
-              isOpen={isChatDialogOpen}
-              onClose={() => {
-                  setIsChatDialogOpen(false);
-                  setSelectedChatInfo(null);
-                  setNotificationChatId(''); // Clear from store
-              }}
-              chatId={selectedChatInfo.id}
-              chatName={selectedChatInfo.name}
-          />
-      )}
+      {/* SURGICAL FIX: This entire block has been removed to prevent the conflicting dialog. */}
+      {/* The ChatProvider is now the single source of truth for rendering the chat dialog. */}
 
       {clientProfile && notificationAppointmentId && user && (
           <AppointmentDetailDialog
               isOpen={isAppointmentDetailOpen}
               onClose={() => {
                   setIsAppointmentDetailOpen(false);
-                  setNotificationAppointmentId('');
+                  setNotificationAppointmentId(null);
               }}
               appointmentId={notificationAppointmentId}
               client={clientProfile}
@@ -646,13 +607,13 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
               isOpen={isWorkoutActionOpen}
               onClose={() => {
                   setIsWorkoutActionOpen(false);
-                  setNotificationWorkoutId('');
+                  setNotificationWorkoutId(null);
               }}
               workoutId={notificationWorkoutId}
               client={clientProfile}
               onWorkoutStarted={() => {
                   setIsWorkoutActionOpen(false);
-                  setNotificationWorkoutId('');
+                  setNotificationWorkoutId(null);
               }}
           />
       )}
