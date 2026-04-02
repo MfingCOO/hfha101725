@@ -14,6 +14,7 @@ import { EmbeddedChatDialog } from '@/components/chats/embedded-chat-dialog';
 import { getDoc, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '../auth/auth-provider';
+import { useNotificationStore } from '@/store/notification-store';
 
 interface ChatContextType {
   openChat: (chatId: string, chatName?: string) => void;
@@ -37,22 +38,19 @@ function ChatUrlController() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check for both possible naming conventions
     const chatToOpen = searchParams.get('openChat') || searchParams.get('openChatId');
     
     if (chatToOpen) {
       openChat(chatToOpen);
       
-      // CLEANING LOGIC: Remove the trigger from the URL immediately
       const newParams = new URLSearchParams(window.location.search);
       newParams.delete('openChat');
       newParams.delete('openChatId');
-      newParams.delete('notificationType'); // Clean this up too while we are at it
+      newParams.delete('notificationType');
       
       const queryString = newParams.toString();
       const newUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}`;
       
-      // Use router.replace to update the URL without adding to browser history
       router.replace(newUrl, { scroll: false });
     }
   }, [searchParams, openChat, router]);
@@ -64,6 +62,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [chatName, setChatName] = useState<string>('Chat');
+  const { notificationChatId, setNotificationChatId } = useNotificationStore();
+
+  // MOVED UP: Define openChat and closeChat functions before they are used.
+  const openChat = useCallback((chatId: string, name?: string) => {
+    setActiveChatId(chatId);
+    if (name) {
+      setChatName(name);
+    }
+  }, []);
+
+  const closeChat = useCallback(() => {
+    setActiveChatId(null);
+  }, []);
+
+  // This useEffect now correctly uses the pre-defined openChat function.
+  // It watches the notification store and clears the state after opening a chat.
+  useEffect(() => {
+    if (notificationChatId) {
+      openChat(notificationChatId);
+      setNotificationChatId(null);
+    }
+  }, [notificationChatId, openChat, setNotificationChatId]);
 
   // Fetch chat details when a chat is opened
   useEffect(() => {
@@ -78,12 +98,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         if (chatSnap.exists()) {
           const chatData = chatSnap.data();
-          // For group chats, use the chat name
           if (chatData.name) {
             setChatName(chatData.name);
             return;
           }
-          // For 1-on-1 chats, find the other participant's name
           const otherParticipantId = chatData.participants.find(
             (p: string) => p !== user.uid
           );
@@ -103,18 +121,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     fetchChatName();
   }, [activeChatId, user]);
-
-  const openChat = useCallback((chatId: string, name?: string) => {
-    setActiveChatId(chatId);
-    if (name) {
-      setChatName(name);
-    }
-    // If name isn't provided, the useEffect will fetch it.
-  }, []);
-
-  const closeChat = useCallback(() => {
-    setActiveChatId(null);
-  }, []);
 
   const value = { openChat, closeChat };
 
