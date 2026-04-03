@@ -6,20 +6,25 @@
     "outDir": "../../lib/functions",
     "sourceMap": true,
     "strict": true,
-    "target": "es2017",
-    "skipLibCheck": true,
+    "target": "es2022",
     "esModuleInterop": true,
+    "skipLibCheck": true,
     "moduleResolution": "node",
-    "baseUrl": "../..",
+    "rootDir": "../",
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": "../../",
     "paths": {
       "@/*": [
         "src/*"
       ]
     }
   },
-  "compileOnSave": true,
   "include": [
     "./**/*.ts",
     "../lib/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "../../node_modules"
   ]
 }

@@ -6,7 +6,7 @@ import { getFunctions } from 'firebase-admin/functions';
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { onRequest } from 'firebase-functions/v2/https';
-import { admin } from '../lib/firebaseAdmin';
+import { admin } from '@/lib/firebaseAdmin';
 
 const db = getFirestore(admin.app());
 const messaging = getMessaging(admin.app());
@@ -155,7 +155,7 @@ export const onNewMessage = onDocumentCreated("chats/{chatId}/messages/{messageI
     }
     const message = event.data.data();
     const chatId = event.params.chatId;
-    const senderId = message.userId || message.senderId || message.from;   // <-- THIS IS THE FIX
+    const senderId = message.userId || message.senderId || message.from;
     const messageText = message.text || 'New message';
 
     debugLog('Raw message data:', message);
