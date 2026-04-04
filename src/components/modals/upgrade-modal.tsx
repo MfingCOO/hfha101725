@@ -31,33 +31,33 @@ interface UpgradeModalProps {
 // FIXED: Corrected keys to explicitly include both lowercase/kebab-case and PascalCase from UserTier type
 const revenueCatPackageMap: Record<UserTier, { monthly?: string; yearly?: string; free?: string }> = {
   // Lowercase/kebab-case keys
-  'free': { free: 'your_rc_free_web_package_id' }, 
+  'free': { free: 'free_access' }, // Using 'free_access' as a placeholder for a $0 tier if one exists
   'ad-free': {
-    monthly: 'your_rc_ad_free_monthly_package_id',
-    yearly: 'your_rc_ad_free_yearly_package_id',
+    monthly: 'ad_free_monthly',
+    yearly: 'ad_free_yearly',
   },
   'basic': {
-    monthly: 'your_rc_basic_monthly_package_id',
-    yearly: 'your_rc_basic_yearly_package_id',
+    monthly: 'basic_monthly',
+    yearly: 'basic_yearly',
   },
   'premium': {
-    monthly: 'your_rc_premium_monthly_package_id',
-    yearly: 'your_rc_premium_yearly_package_id',
+    monthly: 'premium_monthly',
+    yearly: 'premium_yearly',
   },
   'coaching': {}, 
   // PascalCase keys (for full UserTier compatibility)
-  'Free': { free: 'your_rc_free_web_package_id' }, 
+  'Free': { free: 'free_access' }, // Using 'free_access' as a placeholder for a $0 tier if one exists
   'AdFree': {
-    monthly: 'your_rc_ad_free_monthly_package_id',
-    yearly: 'your_rc_ad_free_yearly_package_id',
+    monthly: 'ad_free_monthly',
+    yearly: 'ad_free_yearly',
   },
   'Basic': {
-    monthly: 'your_rc_basic_monthly_package_id',
-    yearly: 'your_rc_basic_yearly_package_id',
+    monthly: 'basic_monthly',
+    yearly: 'basic_yearly',
   },
   'Premium': {
-    monthly: 'your_rc_premium_monthly_package_id',
-    yearly: 'your_rc_premium_yearly_package_id',
+    monthly: 'premium_monthly',
+    yearly: 'premium_yearly',
   },
   'Coaching': {}, 
 };
