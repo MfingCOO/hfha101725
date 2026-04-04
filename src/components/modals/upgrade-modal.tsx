@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { Loader2, X, Trophy } from 'lucide-react';
 import { UserTier } from '@/types';
 import { Purchases, PACKAGE_TYPE } from '@revenuecat/purchases-capacitor';
+import { Capacitor } from '@capacitor/core'; // Import Capacitor
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -75,6 +76,13 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
     };
 
     const handleUpgrade = async (billingCycle: 'monthly' | 'yearly' = 'monthly') => {
+        // Only attempt upgrade if on a native platform
+        if (!Capacitor.isNativePlatform()) {
+            toast({ variant: 'destructive', title: 'Error', description: "Subscriptions are only available on native mobile apps." });
+            setIsRedirecting(false);
+            return;
+        }
+
         if (!user || !requiredTier || isCoachingTier) return;
         setIsRedirecting(true);
         try {

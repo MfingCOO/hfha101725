@@ -22,6 +22,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Loader2, X, Trophy } from 'lucide-react';
 import { Purchases } from '@revenuecat/purchases-capacitor';
+import { Capacitor } from '@capacitor/core'; // Import Capacitor
 
 interface SmartReminderModalProps {
   isOpen: boolean;
@@ -101,6 +102,13 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
     };
 
     const handleUpgrade = async (billingCycle: 'monthly' | 'yearly' = 'monthly') => {
+        // Only attempt upgrade if on a native platform
+        if (!Capacitor.isNativePlatform()) {
+            toast({ variant: 'destructive', title: 'Error', description: "Subscriptions are only available on native mobile apps." });
+            setIsRedirecting(false);
+            return;
+        }
+
         if (!user || !reminder.requiredTier || isCoachingTier) return;
         setIsRedirecting(true);
         try {

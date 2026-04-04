@@ -28,7 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { Purchases, PurchasesOffering, PurchasesPackage } from '@revenuecat/purchases-capacitor'; // Import RevenueCat Purchases types
-
+import { Capacitor } from '@capacitor/core'; // Import Capacitor
 
 const onboardingSchema = z.object({
     email: z.string().email(),
@@ -124,6 +124,12 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
 
     // ADDED: Fetch offerings on component mount
     useEffect(() => {
+        // Only attempt to fetch offerings if on a native platform
+        if (!Capacitor.isNativePlatform()) {
+            console.log("RevenueCat offerings not fetched: Not a native platform.");
+            return;
+        }
+
         const fetchOfferings = async () => {
             try {
                 if (typeof window !== 'undefined' && (window as any).androidBridge) {
@@ -191,6 +197,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
 
     // ADDED: getPackagePrice function to retrieve price from offerings
     const getPackagePrice = useCallback((tier: Tier, cycle: 'monthly' | 'yearly' | 'free') => {
+        if (!Capacitor.isNativePlatform()) return null; // Guard for web platform
         if (!currentOffering) return null;
 
         // Dynamically select the correct map entry based on `tier`'s casing
@@ -216,6 +223,13 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
     }, [currentOffering]);
 
     const handlePurchase = async (tier: Tier, billingCycle: 'monthly' | 'yearly' | 'free') => {
+        // Only attempt purchase if on a native platform
+        if (!Capacitor.isNativePlatform()) {
+            toast({ variant: 'destructive', title: 'Error', description: "Subscriptions are only available on native mobile apps." });
+            setIsLoading(false);
+            return;
+        }
+
         setIsLoading(true);
         setSelectedTier(tier); // Set selected tier for loading state
 
@@ -300,6 +314,10 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
 
     // ADDED: renderPrice helper function for JSX
     const renderPrice = (tier: Tier, cycle: 'monthly' | 'yearly') => {
+        // Only render price if on a native platform or if currentOffering is loaded (for web to display N/A)
+        if (!Capacitor.isNativePlatform() && !currentOffering) { 
+             return <p className="text-3xl font-bold">Not Applicable on Web</p>;
+        }
         const price = getPackagePrice(tier, cycle);
         if (!currentOffering) { // Show loading state if offerings are not yet loaded
             return <p className="text-3xl font-bold">Loading...</p>;
