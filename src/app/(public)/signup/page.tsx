@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react'; // Added useEffect
+import { useState, useEffect } from 'react';
 import { OnboardingForm } from '@/components/onboarding/onboarding-form';
 import { Logo } from '@/components/icons/logo';
 import { useToast } from '@/hooks/use-toast';
@@ -8,15 +8,16 @@ import { unifiedSignupAction } from '@/app/coach/clients/actions';
 import type { OnboardingValues } from '@/components/onboarding/onboarding-form';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Purchases, LOG_LEVEL } from '@revenuecat/purchases-capacitor'; // Import RevenueCat
-import { Capacitor } from '@capacitor/core'; // To check if we are on a phone
+import { Purchases, LOG_LEVEL } from '@revenuecat/purchases-capacitor';
+import { Capacitor } from '@capacitor/core';
 
 export default function SignupPage() {
     const { toast } = useToast();
     const router = useRouter();
     const [selectedTier] = useState<'free' | 'ad-free' | 'basic' | 'premium' | 'coaching'>('free');
+    const [offerings, setOfferings] = useState<any>(null);
+    const [loading, setLoading] = useState<boolean>(true);
 
-    // INITIALIZATION BLOCK: This tells the Android side to wake up
     useEffect(() => {
         const initRevenueCat = async () => {
             if (Capacitor.isNativePlatform()) {
@@ -25,10 +26,22 @@ export default function SignupPage() {
                     await Purchases.configure({ 
                         apiKey: "goog_NklNVostxEsZmVEiHkgORKJMJgp" 
                     });
-                    console.log("RevenueCat Initialized on Android");
+                    
+                    const ready = await Purchases.isConfigured();
+                    if (ready) {
+                        const result = await Purchases.getOfferings();
+                        if (result && result.current) {
+                            setOfferings(result.current);
+                            console.log("RevenueCat Ready: Offerings loaded.");
+                        }
+                    }
                 } catch (e) {
                     console.error("RevenueCat Init Failed:", e);
+                } finally {
+                    setLoading(false);
                 }
+            } else {
+                setLoading(false);
             }
         };
         initRevenueCat();
@@ -68,7 +81,7 @@ export default function SignupPage() {
             return { success: false, error: { message: errorMessage } };
         }
     };
-    
+
     return (
         <main className="flex min-h-screen flex-col items-center p-4 sm:p-8 bg-background">
             <div className="sticky top-0 z-10 bg-background w-full flex items-center justify-center gap-2 py-2">
@@ -79,6 +92,25 @@ export default function SignupPage() {
             <div className="w-full max-w-2xl mt-6">
                 <OnboardingForm onFormSubmit={handleSignup} />
             </div>
+
+            {Capacitor.isNativePlatform() && (
+                <div className="w-full max-w-2xl mt-4 p-4 border rounded-lg bg-card">
+                    {loading ? (
+                        <p className="text-center text-sm">Connecting to Play Store...</p>
+                    ) : offerings ? (
+                        <div className="space-y-2">
+                            <p className="text-sm font-medium mb-2">Available Plans:</p>
+                            {(offerings as any).availablePackages.map((pkg: any) => (
+                                <button key={pkg.identifier} className="w-full bg-primary text-primary-foreground py-2 rounded-md text-sm">
+                                    {pkg.product.title} - {pkg.product.priceString}
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-center text-xs text-destructive">Sign in with a tester email to see plans.</p>
+                    )}
+                </div>
+            )}
 
             <div className="mt-8 text-center text-xs text-muted-foreground max-w-lg space-y-2">
                 <p>
@@ -95,5 +127,5 @@ export default function SignupPage() {
                 </div>
             </div>
         </main>
-    )
+    );
 }

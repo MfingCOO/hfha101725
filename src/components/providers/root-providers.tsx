@@ -14,8 +14,8 @@ import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 import { ChatProvider } from '@/components/chats/chat-provider';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
 import { Capacitor } from '@capacitor/core';
-import { Purchases } from '@revenuecat/purchases-capacitor';
 import { useNotificationStore } from '@/store/notification-store';
+import { Purchases } from '@revenuecat/purchases-capacitor';
 
 const AdBannerProvider = dynamic(() => import('@/components/providers/AdBannerProvider'), {
   ssr: false,
@@ -27,41 +27,41 @@ function RevenueCatInitializer() {
   const { setIsRevenueCatReady } = useNotificationStore();
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
+    if (!Capacitor.isNativePlatform()) {
+        setIsRevenueCatReady(false);
+        return;
+    }
 
     const initializeRevenueCat = async () => {
-      if (user?.uid) {
-        const revenueCatApiKey = process.env.NEXT_PUBLIC_REVENUECAT_API_KEY;
+      const revenueCatApiKey = process.env.NEXT_PUBLIC_REVENUECAT_API_KEY || "goog_NklNVostxEsZmVEiHkgORKJMJgp";
 
-        if (!revenueCatApiKey) {
-          console.error("RevenueCat API Key is missing.");
-          return;
-        }
-
-        try {
-          await Purchases.configure({ apiKey: revenueCatApiKey, appUserID: user.uid });
-          console.log("RevenueCat configured successfully.");
+      try {
+        if (user?.uid) {
+          // Configure with the logged-in user's UID
+          await Purchases.configure({ 
+            apiKey: revenueCatApiKey, 
+            appUserID: user.uid 
+          });
           
-          // SET THE GLOBAL FLAG
+          console.log("RevenueCat configured for user:", user.uid);
           setIsRevenueCatReady(true);
 
-          Purchases.addCustomerInfoUpdateListener((customerInfo) => {
+          // Listen for subscription changes (e.g., a purchase finishing)
+          await Purchases.addCustomerInfoUpdateListener((customerInfo) => {
             console.log("Subscription status updated:", customerInfo);
           });
-
-        } catch (error) {
-          console.error("RevenueCat failed to configure:", error);
+        } else {
+          // User logged out - clean up RevenueCat session
           setIsRevenueCatReady(false);
+          const isConfigured = await Purchases.isConfigured();
+          if (isConfigured) {
+            await Purchases.logOut();
+            console.log("RevenueCat logged out.");
+          }
         }
-
-      } else {
+      } catch (error) {
+        console.error("RevenueCat initialization error:", error);
         setIsRevenueCatReady(false);
-        try {
-          await Purchases.logOut();
-          console.log("RevenueCat logged out.");
-        } catch (error) {
-          // Ignore errors on logout
-        }
       }
     };
 
