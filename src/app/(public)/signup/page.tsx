@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react'; // Added useEffect
 import { OnboardingForm } from '@/components/onboarding/onboarding-form';
 import { Logo } from '@/components/icons/logo';
 import { useToast } from '@/hooks/use-toast';
@@ -8,27 +8,41 @@ import { unifiedSignupAction } from '@/app/coach/clients/actions';
 import type { OnboardingValues } from '@/components/onboarding/onboarding-form';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Purchases, LOG_LEVEL } from '@revenuecat/purchases-capacitor'; // Import RevenueCat
+import { Capacitor } from '@capacitor/core'; // To check if we are on a phone
 
 export default function SignupPage() {
     const { toast } = useToast();
     const router = useRouter();
-    
-    // We keep a default tier state to satisfy the action, 
-    // but the OnboardingForm will override this if it collects a tier later.
     const [selectedTier] = useState<'free' | 'ad-free' | 'basic' | 'premium' | 'coaching'>('free');
+
+    // INITIALIZATION BLOCK: This tells the Android side to wake up
+    useEffect(() => {
+        const initRevenueCat = async () => {
+            if (Capacitor.isNativePlatform()) {
+                try {
+                    await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
+                    await Purchases.configure({ 
+                        apiKey: "goog_NklNVostxEsZmVEiHkgORKJMJgp" 
+                    });
+                    console.log("RevenueCat Initialized on Android");
+                } catch (e) {
+                    console.error("RevenueCat Init Failed:", e);
+                }
+            }
+        };
+        initRevenueCat();
+    }, []);
 
     const handleSignup = async (data: OnboardingValues) => {
         try {
-            // CORRECTED: The second 'monthly' argument has been removed to match the new function signature.
             const result = await unifiedSignupAction({
                 ...data,
-                // FIX: Accessing tier safely even if not in the base OnboardingValues type
                 tier: (data as any).tier || selectedTier, 
                 coachId: 'default',
             });
 
             if (result.success) {
-                // ... rest of your logic remains the same
                 if (result.checkoutUrl) {
                     window.location.href = result.checkoutUrl;
                     return { success: true };
@@ -63,7 +77,6 @@ export default function SignupPage() {
             </div>
 
             <div className="w-full max-w-2xl mt-6">
-                {/* Tier buttons removed from here to clean up the UI */}
                 <OnboardingForm onFormSubmit={handleSignup} />
             </div>
 
