@@ -206,7 +206,7 @@ export function OnboardingForm({ onFormSubmit }: { onFormSubmit: (data: any) => 
 {/* STEP 4: SUBSCRIPTION TIERS */}
 {step === 4 && (
     <div className="space-y-4 animate-in slide-in-from-bottom-4">
-        {/* Billing Toggle - Only visible on Step 4 */}
+        {/* Billing Toggle */}
         <div className="flex items-center justify-center space-x-4 bg-muted/50 p-2 rounded-full mb-6">
             <Label className={billingCycle === 'monthly' ? "font-bold text-primary text-xs" : "text-xs"}>Monthly</Label>
             <Switch checked={billingCycle === 'annual'} onCheckedChange={(v) => setBillingCycle(v ? 'annual' : 'monthly')} />
@@ -214,74 +214,70 @@ export function OnboardingForm({ onFormSubmit }: { onFormSubmit: (data: any) => 
         </div>
 
         <div className="grid gap-4">
-            {/* FREE TIER */}
-            <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('free')}>
-                <div className="flex justify-between items-center mb-2">
-                    <h4 className="font-bold text-lg">Free</h4>
-                    <span className="font-bold text-lg text-primary">$0</span>
-                </div>
-                <ul className="text-[11px] space-y-1 text-muted-foreground">
-                    <li>• UPF/Gluten Free Nutritional Analysis</li>
-                    <li>• Basic Habit Tracking Hydration, Nutrion, Activity</li>
-                    <li>• Full Calendar Access</li>
-                    <li>• Supported by advertisements</li>
-                </ul>
-            </Card>
-
-            {/* AD-FREE TIER */}
-            <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('ad-free', billingCycle)}>
-                <div className="flex justify-between items-center mb-2">
-                    <h4 className="font-bold text-lg">Ad-Free</h4>
-                    <span className="font-bold text-lg text-primary">
-                        {billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}
-                    </span>
-                </div>
-                <ul className="text-[11px] space-y-1 text-muted-foreground">
-                    <li>• Everything in Free</li>
-                    <li>• <strong>Completely Ad-Free experience</strong></li>
-                    <li>• Cleaner, distraction-free interface</li>
-                </ul>
-            </Card>
-
-            {/* BASIC TIER */}
-            <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('basic', billingCycle)}>
-                <div className="flex justify-between items-center mb-2">
-                    <h4 className="font-bold text-lg">Basic</h4>
-                    <span className="font-bold text-lg text-primary">
-                        {billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}
-                    </span>
-                </div>
-                <ul className="text-[11px] space-y-1 text-muted-foreground">
-                    <li>• Everything From Ad-Free</li>
-                    <li>• Full access to all App tracking tools</li>
-                    <li>• Craving/Binge, Stress Events/Relief Tracking</li>
-                    <li>• Indulgence Planning and 75/20/20 Portion Control Utilization</li>
-                    <li>• Historical progress charts & insights</li>
-                    <li>• Personalized goals & habit building</li>
-                </ul>
-            </Card>
-
-            {/* PREMIUM TIER */}
-            <Card className="p-4 border-2 border-primary bg-primary/5 cursor-pointer shadow-md" onClick={() => handlePurchase('premium', billingCycle)}>
+            {/* 1. PREMIUM TIER (Top) */}
+            <Card className="p-4 border-2 border-primary bg-primary/5 cursor-pointer shadow-md" onClick={() => handlePurchase('premium_tier', billingCycle)}>
                 <div className="flex justify-between items-center mb-2">
                     <div>
                         <h4 className="font-bold text-lg text-primary">Premium</h4>
                         <p className="text-[10px] text-primary font-bold uppercase tracking-tight">Best for Total Transformation</p>
                     </div>
                     <span className="font-bold text-lg text-primary">
-                        {billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}
+                        {offerings?.availablePackages?.find(p => p.identifier === `premium_tier:premium-${billingCycle}`)?.product.priceString || "$--"}
                     </span>
                 </div>
                 <ul className="text-[11px] space-y-1 text-muted-foreground">
-                    <li>• <strong>Full UPF/Gluten Free Nutritional Analysis</strong> (Meal Scanning)</li>
-                    <li>• Full access to all features From Basic Tier</li>
-                    <li>• Exclusive access to Live Events and Classes</li>
-                    <li>• Community Chat Groups</li>
-                    <li>• Access to Workout Programst</li>
+                    <li>• **UPF/Gluten Free Nutritional Analysis** (Meal Scanning)</li>
+                    <li>• Exclusive access to Live Events</li>
+                    <li>• Community Chat Groups & Workout Programs</li>
+                    <li>• Priority Customer Support</li>
                 </ul>
             </Card>
 
-            {/* COACHING - EMAIL TRIGGER */}
+            {/* 2. BASIC TIER */}
+            <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('basic_tier', billingCycle)}>
+                <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-lg">Basic</h4>
+                    <span className="font-bold text-lg text-primary">
+                        {offerings?.availablePackages?.find(p => p.identifier === `basic_tier:basic-${billingCycle}`)?.product.priceString || "$--"}
+                    </span>
+                </div>
+                <ul className="text-[11px] space-y-1 text-muted-foreground">
+                    <li>• Everything From Ad-Free</li>
+                    <li>• Full access to all App tracking tools</li>
+                    <li>• Craving/Binge & Stress Tracking</li>
+                    <li>• Historical progress charts & insights</li>
+                </ul>
+            </Card>
+
+            {/* 3. AD-FREE TIER */}
+            <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('ad_free_tier', billingCycle)}>
+                <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-lg">Ad-Free</h4>
+                    <span className="font-bold text-lg text-primary">
+                        {offerings?.availablePackages?.find(p => p.identifier === `ad_free_tier:ad-free-${billingCycle}`)?.product.priceString || "$--"}
+                    </span>
+                </div>
+                <ul className="text-[11px] space-y-1 text-muted-foreground">
+                    <li>• Everything in Free</li>
+                    <li>• **Completely Ad-Free experience**</li>
+                    <li>• Cleaner, distraction-free interface</li>
+                </ul>
+            </Card>
+
+            {/* 4. FREE TIER */}
+            <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('free')}>
+                <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-lg">Free</h4>
+                    <span className="font-bold text-lg text-primary">$0</span>
+                </div>
+                <ul className="text-[11px] space-y-1 text-muted-foreground">
+                    <li>• Basic Habit Tracking (Hydration, Nutrition, Activity)</li>
+                    <li>• Full Calendar Access</li>
+                    <li>• Supported by advertisements</li>
+                </ul>
+            </Card>
+
+            {/* 5. COACHING (Bottom) */}
             <Card className="p-4 border border-dashed bg-muted/10 text-center flex flex-col items-center">
                 <h4 className="font-bold text-sm mb-1">One-on-One Coaching</h4>
                 <p className="text-[10px] text-muted-foreground mb-4">Get personalized strategy and direct support for your specific journey.</p>
