@@ -4,39 +4,46 @@ import { useState, useEffect } from 'react';
 import { OnboardingForm } from '@/components/onboarding/onboarding-form';
 import { Logo } from '@/components/icons/logo';
 import { useToast } from '@/hooks/use-toast';
-import { unifiedSignupAction } from '@/app/coach/clients/actions';
+import { unifiedSignupAction } from '@/app/coach/clients/actions'; // FIX: Reverted to the correct import path
 import type { OnboardingValues } from '@/components/onboarding/onboarding-form';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Purchases, LOG_LEVEL } from '@revenuecat/purchases-capacitor';
+import type { PurchasesOffering } from '@revenuecat/purchases-capacitor';
 import { Capacitor } from '@capacitor/core';
+import { Loader2 } from 'lucide-react';
 
 export default function SignupPage() {
     const { toast } = useToast();
     const router = useRouter();
-    const [selectedTier] = useState<'free' | 'ad-free' | 'basic' | 'premium' | 'coaching'>('free');
-    const [offerings, setOfferings] = useState<any>(null);
+    const [offerings, setOfferings] = useState<PurchasesOffering | null>(null);
     const [loading, setLoading] = useState<boolean>(true);
+    const [isNative, setIsNative] = useState<boolean>(false);
 
     useEffect(() => {
+        const isNativePlatform = Capacitor.isNativePlatform();
+        setIsNative(isNativePlatform);
+
         const initRevenueCat = async () => {
-            if (Capacitor.isNativePlatform()) {
+            if (isNativePlatform) {
                 try {
                     await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
                     await Purchases.configure({ 
-                        apiKey: "goog_NklNVostxEsZmVEiHkgORKJMJgp" 
+                        apiKey: process.env.NEXT_PUBLIC_REVENUECAT_API_KEY || "goog_NklNVostxEsZmVEiHkgORKJMJgp"
                     });
                     
-                    const ready = await Purchases.isConfigured();
-                    if (ready) {
-                        const result = await Purchases.getOfferings();
-                        if (result && result.current) {
-                            setOfferings(result.current);
-                            console.log("RevenueCat Ready: Offerings loaded.");
-                        }
+                    const offeringsResult = await Purchases.getOfferings();
+                    if (offeringsResult && offeringsResult.current) {
+                        setOfferings(offeringsResult.current);
+                        console.log("RevenueCat Offerings loaded successfully on signup page.");
                     }
                 } catch (e) {
-                    console.error("RevenueCat Init Failed:", e);
+                    console.error("RevenueCat Init or Offerings Fetch Failed:", e);
+                    toast({
+                        variant: 'destructive',
+                        title: 'Could Not Load Plans',
+                        description: 'Please check your connection to the Play Store and try again.'
+                    });
                 } finally {
                     setLoading(false);
                 }
@@ -45,28 +52,23 @@ export default function SignupPage() {
             }
         };
         initRevenueCat();
-    }, []);
+    }, [toast]);
 
     const handleSignup = async (data: OnboardingValues) => {
         try {
             const result = await unifiedSignupAction({
                 ...data,
-                tier: (data as any).tier || selectedTier, 
+                tier: (data as any).tier || 'free', 
                 coachId: 'default',
             });
 
             if (result.success) {
-                if (result.checkoutUrl) {
-                    window.location.href = result.checkoutUrl;
-                    return { success: true };
-                } else {
-                    toast({
-                        title: "Account Created!",
-                        description: "Welcome! Please log in to begin your journey.",
-                    });
-                    router.push('/login');
-                    return { success: true };
-                }
+                toast({
+                    title: "Account Created!",
+                    description: "Welcome! Please log in to begin your journey.",
+                });
+                router.push('/login');
+                return { success: true };
             } else {
                 throw new Error(result.error || "An unknown error occurred during sign up.");
             }
@@ -82,6 +84,15 @@ export default function SignupPage() {
         }
     };
 
+    if (isNative && loading) {
+        return (
+            <div className="flex min-h-screen flex-col items-center justify-center p-4">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="mt-4 text-sm text-muted-foreground">Connecting to app store...</p>
+            </div>
+        );
+    }
+
     return (
         <main className="flex min-h-screen flex-col items-center p-4 sm:p-8 bg-background">
             <div className="sticky top-0 z-10 bg-background w-full flex items-center justify-center gap-2 py-2">
@@ -90,27 +101,8 @@ export default function SignupPage() {
             </div>
 
             <div className="w-full max-w-2xl mt-6">
-                <OnboardingForm onFormSubmit={handleSignup} />
+                <OnboardingForm onFormSubmit={handleSignup} offerings={offerings} />
             </div>
-
-            {Capacitor.isNativePlatform() && (
-                <div className="w-full max-w-2xl mt-4 p-4 border rounded-lg bg-card">
-                    {loading ? (
-                        <p className="text-center text-sm">Connecting to Play Store...</p>
-                    ) : offerings ? (
-                        <div className="space-y-2">
-                            <p className="text-sm font-medium mb-2">Available Plans:</p>
-                            {(offerings as any).availablePackages.map((pkg: any) => (
-                                <button key={pkg.identifier} className="w-full bg-primary text-primary-foreground py-2 rounded-md text-sm">
-                                    {pkg.product.title} - {pkg.product.priceString}
-                                </button>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-center text-xs text-destructive">Sign in with a tester email to see plans.</p>
-                    )}
-                </div>
-            )}
 
             <div className="mt-8 text-center text-xs text-muted-foreground max-w-lg space-y-2">
                 <p>
