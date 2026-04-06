@@ -203,54 +203,103 @@ export function OnboardingForm({ onFormSubmit }: { onFormSubmit: (data: any) => 
                             </div>
                         )}
 
-                        {/* STEP 4: SUBSCRIPTION TIERS */}
-                        {step === 4 && (
-                            <div className="space-y-4 animate-in slide-in-from-bottom-4">
-                                <div className="flex items-center justify-center space-x-4 bg-muted/50 p-2 rounded-full">
-                                    <Label className={billingCycle === 'monthly' ? "font-bold text-primary text-xs" : "text-xs"}>Monthly</Label>
-                                    <Switch checked={billingCycle === 'annual'} onCheckedChange={(v) => setBillingCycle(v ? 'annual' : 'monthly')} />
-                                    <Label className={billingCycle === 'annual' ? "font-bold text-primary text-xs" : "text-xs"}>Yearly</Label>
-                                </div>
+{/* STEP 4: SUBSCRIPTION TIERS */}
+{step === 4 && (
+    <div className="space-y-4 animate-in slide-in-from-bottom-4">
+        {/* Billing Toggle - Only visible on Step 4 */}
+        <div className="flex items-center justify-center space-x-4 bg-muted/50 p-2 rounded-full mb-6">
+            <Label className={billingCycle === 'monthly' ? "font-bold text-primary text-xs" : "text-xs"}>Monthly</Label>
+            <Switch checked={billingCycle === 'annual'} onCheckedChange={(v) => setBillingCycle(v ? 'annual' : 'monthly')} />
+            <Label className={billingCycle === 'annual' ? "font-bold text-primary text-xs" : "text-xs"}>Yearly</Label>
+        </div>
 
-                                <div className="grid gap-3">
-                                    {/* FREE */}
-                                    <Card className="p-3 border cursor-pointer hover:border-primary transition-colors" onClick={() => handlePurchase('free')}>
-                                        <div className="flex justify-between items-center"><h4 className="font-bold text-sm">Free</h4><span className="font-bold text-sm">$0</span></div>
-                                        <p className="text-[10px] text-muted-foreground">Basic tracking features with advertisements.</p>
-                                    </Card>
+        <div className="grid gap-4">
+            {/* FREE TIER */}
+            <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('free')}>
+                <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-lg">Free</h4>
+                    <span className="font-bold text-lg text-primary">$0</span>
+                </div>
+                <ul className="text-[11px] space-y-1 text-muted-foreground">
+                    <li>• UPF/Gluten Free Nutritional Analysis</li>
+                    <li>• Basic Habit Tracking Hydration, Nutrion, Activity</li>
+                    <li>• Full Calendar Access</li>
+                    <li>• Supported by advertisements</li>
+                </ul>
+            </Card>
 
-                                    {/* AD-FREE */}
-                                    <Card className="p-3 border cursor-pointer hover:border-primary transition-colors" onClick={() => handlePurchase('ad-free', billingCycle)}>
-                                        <div className="flex justify-between items-center"><h4 className="font-bold text-sm">Ad-Free</h4><span className="font-bold text-sm">{billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}</span></div>
-                                        <p className="text-[10px] text-muted-foreground">Everything Free has to offer without advertisements.</p>
-                                    </Card>
+            {/* AD-FREE TIER */}
+            <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('ad-free', billingCycle)}>
+                <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-lg">Ad-Free</h4>
+                    <span className="font-bold text-lg text-primary">
+                        {billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}
+                    </span>
+                </div>
+                <ul className="text-[11px] space-y-1 text-muted-foreground">
+                    <li>• Everything in Free</li>
+                    <li>• <strong>Completely Ad-Free experience</strong></li>
+                    <li>• Cleaner, distraction-free interface</li>
+                </ul>
+            </Card>
 
-                                    {/* BASIC */}
-                                    <Card className="p-3 border cursor-pointer hover:border-primary transition-colors" onClick={() => handlePurchase('basic', billingCycle)}>
-                                        <div className="flex justify-between items-center"><h4 className="font-bold text-sm">Basic</h4><span className="font-bold text-sm">{billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}</span></div>
-                                        <p className="text-[10px] text-muted-foreground">All the tools the app has to offer (excludes live events, workout programs, and chat groups).</p>
-                                    </Card>
+            {/* BASIC TIER */}
+            <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('basic', billingCycle)}>
+                <div className="flex justify-between items-center mb-2">
+                    <h4 className="font-bold text-lg">Basic</h4>
+                    <span className="font-bold text-lg text-primary">
+                        {billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}
+                    </span>
+                </div>
+                <ul className="text-[11px] space-y-1 text-muted-foreground">
+                    <li>• Everything From Ad-Free</li>
+                    <li>• Full access to all App tracking tools</li>
+                    <li>• Craving/Binge, Stress Events/Relief Tracking</li>
+                    <li>• Indulgence Planning and 75/20/20 Portion Control Utilization</li>
+                    <li>• Historical progress charts & insights</li>
+                    <li>• Personalized goals & habit building</li>
+                </ul>
+            </Card>
 
-                                    {/* PREMIUM */}
-                                    <Card className="p-3 border-2 border-primary bg-primary/5 cursor-pointer" onClick={() => handlePurchase('premium', billingCycle)}>
-                                        <div className="flex justify-between items-center">
-                                            <div><h4 className="font-bold text-sm">Premium</h4><p className="text-[9px] text-primary font-bold uppercase tracking-wider">Most Popular</p></div>
-                                            <span className="font-bold text-sm text-primary">{billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}</span>
-                                        </div>
-                                        <p className="text-[10px] text-muted-foreground mt-1">Everything in Basic with access to live events, workout programs, chat groups, and nutritional analysis of UPF content of meals.</p>
-                                    </Card>
+            {/* PREMIUM TIER */}
+            <Card className="p-4 border-2 border-primary bg-primary/5 cursor-pointer shadow-md" onClick={() => handlePurchase('premium', billingCycle)}>
+                <div className="flex justify-between items-center mb-2">
+                    <div>
+                        <h4 className="font-bold text-lg text-primary">Premium</h4>
+                        <p className="text-[10px] text-primary font-bold uppercase tracking-tight">Best for Total Transformation</p>
+                    </div>
+                    <span className="font-bold text-lg text-primary">
+                        {billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}
+                    </span>
+                </div>
+                <ul className="text-[11px] space-y-1 text-muted-foreground">
+                    <li>• <strong>Full UPF/Gluten Free Nutritional Analysis</strong> (Meal Scanning)</li>
+                    <li>• Full access to all features From Basic Tier</li>
+                    <li>• Exclusive access to Live Events and Classes</li>
+                    <li>• Community Chat Groups</li>
+                    <li>• Access to Workout Programst</li>
+                </ul>
+            </Card>
 
-                                    {/* COACHING */}
-                                    <Card className="p-3 border border-dashed bg-muted/10 text-center">
-                                        <h4 className="font-bold text-sm">One-on-One Coaching</h4>
-                                        <p className="text-[10px] text-muted-foreground mb-3">Personalized guidance and consultations tailored to your journey.</p>
-                                        <Button variant="outline" size="sm" className="w-full text-xs font-bold" onClick={() => window.location.href='mailto:support@hungerfreehappy.com?subject=Coaching Consultation'}>
-                                            Contact Us Now
-                                        </Button>
-                                    </Card>
-                                </div>
-                            </div>
-                        )}
+            {/* COACHING - EMAIL TRIGGER */}
+            <Card className="p-4 border border-dashed bg-muted/10 text-center flex flex-col items-center">
+                <h4 className="font-bold text-sm mb-1">One-on-One Coaching</h4>
+                <p className="text-[10px] text-muted-foreground mb-4">Get personalized strategy and direct support for your specific journey.</p>
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full text-xs font-bold border-primary text-primary hover:bg-primary hover:text-white"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        window.location.href='mailto:support@hungerfreeandhappy.app?subject=Coaching Consultation Request';
+                    }}
+                >
+                    Contact Us for Coaching
+                </Button>
+            </Card>
+        </div>
+    </div>
+)}
                     </CardContent>
 
                     <CardFooter className="flex flex-col space-y-4">
