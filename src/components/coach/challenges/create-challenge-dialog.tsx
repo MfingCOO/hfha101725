@@ -39,13 +39,14 @@ const customTaskSchema = z.object({
     increaseEvery: z.enum(['week', '2-weeks', 'month']).optional(),
     notes: z.string().optional(),
 }).superRefine((data, ctx) => {
+    // CHANGE 1: Zod Schema updated to allow goals of 0
     if (data.goalType === 'static') {
-        if (!data.goal || data.goal <= 0) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Goal must be at least 1.", path: ["goal"] });
+        if (data.goal === undefined || data.goal === null || data.goal < 0) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Goal must be at least 0.", path: ["goal"] });
         }
     } else if (data.goalType === 'progressive') {
-        if (!data.startingGoal || data.startingGoal <= 0) {
-             ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Starting goal must be at least 1.", path: ["startingGoal"] });
+        if (data.startingGoal === undefined || data.startingGoal === null || data.startingGoal < 0) {
+             ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Starting goal must be at least 0.", path: ["startingGoal"] });
         }
         if (!data.increaseBy || data.increaseBy <= 0) {
              ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Increase must be at least 1.", path: ["increaseBy"] });
@@ -54,6 +55,7 @@ const customTaskSchema = z.object({
              ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Please select a frequency.", path: ["increaseEvery"] });
         }
     }
+    // No validation is needed for 'user-records'
 });
 
 const scheduledPillarSchema = z.object({
@@ -385,13 +387,17 @@ export function CreateChallengeDialog({ open, onOpenChange, onChallengeUpserted,
                         </FormItem>
 
                         <FormItem>
-                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            {/* CHANGE 2: Add AMRAP Button */}
+                            <div className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
                                 <div>
                                     <FormLabel>Custom Daily Exercises</FormLabel>
                                     <FormDescription>Define specific, measurable exercises for this challenge.</FormDescription>
                                 </div>
                                 <Button type="button" variant="outline" size="sm" onClick={() => appendCustomTask({ description: '', startDay: 1, unit: 'reps', goalType: 'static', goal: 10, notes: '' })}>
                                     <PlusCircle className="mr-2 h-4 w-4" />Add Exercise
+                                </Button>
+                                <Button type="button" variant="secondary" size="sm" onClick={() => appendCustomTask({ description: '', startDay: 1, unit: 'reps', goalType: 'user-records', notes: '' })}>
+                                    <Sparkles className="mr-2 h-4 w-4" />Add AMRAP
                                 </Button>
                             </div>
                             <div className="space-y-2 rounded-md border p-4">
@@ -405,12 +411,20 @@ export function CreateChallengeDialog({ open, onOpenChange, onChallengeUpserted,
                                             </div>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                                 <FormField control={form.control} name={`customTasks.${index}.unit`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Unit</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Unit"/></SelectTrigger></FormControl><SelectContent><SelectItem value="reps">Reps</SelectItem><SelectItem value="seconds">Seconds</SelectItem><SelectItem value="minutes">Minutes</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
-                                                <FormField control={form.control} name={`customTasks.${index}.goalType`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Goal Type</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select goal type..." /></SelectTrigger></FormControl><SelectContent><SelectItem value="static">Static Goal</SelectItem><SelectItem value="progressive">Progressive Goal</SelectItem><SelectItem value="user-records">User Records</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
+                                                <FormField control={form.control} name={`customTasks.${index}.goalType`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Goal Type</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Select goal type..." /></SelectTrigger></FormControl>
+                                                    <SelectContent>
+                                                        <SelectItem value="static">Static Goal</SelectItem>
+                                                        <SelectItem value="progressive">Progressive Goal</SelectItem>
+                                                        {/* CHANGE 3: Update Dropdown Label */}
+                                                        <SelectItem value="user-records">User Logs Reps (AMRAP)</SelectItem>
+                                                    </SelectContent>
+                                                </Select><FormMessage /></FormItem>)} />
                                             </div>
-                                            {watchTasks && watchTasks[index]?.goalType === 'static' && <FormField control={form.control} name={`customTasks.${index}.goal`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Goal</FormLabel><FormControl><AppNumberInput {...field} /></FormControl><FormMessage /></FormItem>)} />}
+                                            {/* CHANGE 4: Conditional UI and updated labels */}
+                                            {watchTasks && watchTasks[index]?.goalType === 'static' && <FormField control={form.control} name={`customTasks.${index}.goal`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Goal (can be 0)</FormLabel><FormControl><AppNumberInput {...field} /></FormControl><FormMessage /></FormItem>)} />}
                                             {watchTasks && watchTasks[index]?.goalType === 'progressive' && (
                                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                                    <FormField control={form.control} name={`customTasks.${index}.startingGoal`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Starting Goal</FormLabel><FormControl><AppNumberInput {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                                    <FormField control={form.control} name={`customTasks.${index}.startingGoal`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Starting Goal (can be 0)</FormLabel><FormControl><AppNumberInput {...field} /></FormControl><FormMessage /></FormItem>)} />
                                                     <FormField control={form.control} name={`customTasks.${index}.increaseBy`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Increase By</FormLabel><FormControl><AppNumberInput {...field} /></FormControl><FormMessage /></FormItem>)} />
                                                     <FormField control={form.control} name={`customTasks.${index}.increaseEvery`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Increase Every</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Frequency"/></SelectTrigger></FormControl><SelectContent><SelectItem value="week">Week</SelectItem><SelectItem value="2-weeks">2 Weeks</SelectItem><SelectItem value="month">Month</SelectItem></SelectContent></Select><FormMessage /></FormItem>)} />
                                                 </div>
