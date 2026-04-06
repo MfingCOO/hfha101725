@@ -25,6 +25,7 @@ import { AppNumberInput } from '../ui/number-input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Capacitor } from '@capacitor/core';
+import { Purchases } from '@revenuecat/purchases-capacitor'; // FIXED IMPORT
 import type { PurchasesOffering, PurchasesPackage } from '@revenuecat/purchases-capacitor';
 
 const onboardingSchema = z.object({
@@ -57,6 +58,15 @@ export function OnboardingForm({ onFormSubmit, offerings }: OnboardingFormProps)
     const [isLoading, setIsLoading] = useState(false);
     const [step, setStep] = useState(1);
     const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
+
+    // PASTE THIS NEW BLOCK HERE:
+    useEffect(() => {
+        if (Capacitor.isNativePlatform()) {
+            Purchases.configure({ 
+                apiKey: "goog_pZmsvSInmYvSInmYvSInmYvSInm" // Your Google Key
+            });
+        }
+    }, []);
 
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),
@@ -102,18 +112,27 @@ export function OnboardingForm({ onFormSubmit, offerings }: OnboardingFormProps)
                 return;
             }
 
-            const { Purchases } = await import('@revenuecat/purchases-capacitor');
+            // Get the package from the offerings prop
             const pkg = pkgKey === 'monthly' ? offerings?.monthly : offerings?.annual;
             
-            if (!pkg) throw new Error("Plan not found in store.");
+            if (!pkg) {
+                toast({ variant: "destructive", title: "Error", description: "Plan not found. Please try again." });
+                return;
+            }
 
+            // TRIGGERS GOOGLE PAYMENTS WINDOW
             const { customerInfo } = await Purchases.purchasePackage({ aPackage: pkg });
-            if (customerInfo.entitlements.active) {
+            
+            // Check if they are now premium
+            if (customerInfo.entitlements.active['premium']) {
                 await onFormSubmit({ ...values, tier, billingCycle: pkgKey });
                 router.push('/login');
             }
         } catch (e: any) {
-            if (!e.userCancelled) toast({ variant: "destructive", title: "Error", description: e.message });
+            // Don't show error if they just hit "Cancel" on the Google popup
+            if (!e.userCancelled) {
+                toast({ variant: "destructive", title: "Billing Error", description: e.message });
+            }
         } finally {
             setIsLoading(false);
         }
