@@ -25,8 +25,8 @@ import { AppNumberInput } from '../ui/number-input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Capacitor } from '@capacitor/core';
-import { Purchases } from '@revenuecat/purchases-capacitor'; // FIXED IMPORT
-import type { PurchasesOffering, PurchasesPackage } from '@revenuecat/purchases-capacitor';
+import { Purchases } from '@revenuecat/purchases-capacitor';
+import type { PurchasesOffering } from '@revenuecat/purchases-capacitor';
 
 const onboardingSchema = z.object({
     email: z.string().email("Please enter a valid email."),
@@ -59,25 +59,8 @@ export function OnboardingForm({ onFormSubmit, offerings }: OnboardingFormProps)
     const [step, setStep] = useState(1);
     const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
 
-    // PASTE THIS NEW BLOCK HERE:
-    useEffect(() => {
-        const initBilling = async () => {
-          if (Capacitor.isNativePlatform()) {
-            try {
-              // We no longer call Purchases.configure here because RootProviders handles it.
-              // This keeps the file clean and avoids the network configuration error.
-              console.log("Onboarding: Native platform detected, using Root configuration.");
-            } catch (e) {
-              console.error("Billing check failed:", e);
-            }
-          }
-        };
-        initBilling();
-      }, []);
-
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),
-        // FIX: Provide default values for ALL form fields to prevent uncontrolled -> controlled error.
         defaultValues: { 
             email: "",
             password: "",
@@ -113,32 +96,35 @@ export function OnboardingForm({ onFormSubmit, offerings }: OnboardingFormProps)
         setIsLoading(true);
         try {
             const values = form.getValues();
+
             if (tier === 'free') {
                 const res = await onFormSubmit({ ...values, tier: 'free' });
                 if (res.success) router.push('/login');
                 return;
             }
 
-            // Get the package from the offerings prop
-            const pkg = pkgKey === 'monthly' ? offerings?.monthly : offerings?.annual;
+            // Find the correct package from RevenueCat offerings
+            const targetIdentifier = `${tier}:${tier === 'premium' ? 'premium' : tier === 'basic_tier' ? 'basic' : 'ad-free'}-${pkgKey}`;
             
+            const pkg = offerings?.availablePackages?.find(
+                (p: any) => p.identifier === targetIdentifier || p.product.identifier === tier
+            );
+
             if (!pkg) {
                 toast({ variant: "destructive", title: "Error", description: "Plan not found. Please try again." });
                 return;
             }
 
-            // TRIGGERS GOOGLE PAYMENTS WINDOW
+            // This opens the real Google Play purchase window
             const { customerInfo } = await Purchases.purchasePackage({ aPackage: pkg });
-            
-            // Check if they are now premium
-            if (customerInfo.entitlements.active['premium']) {
+
+            if (customerInfo.entitlements.active[tier] || customerInfo.entitlements.active['premium']) {
                 await onFormSubmit({ ...values, tier, billingCycle: pkgKey });
                 router.push('/login');
             }
         } catch (e: any) {
-            // Don't show error if they just hit "Cancel" on the Google popup
             if (!e.userCancelled) {
-                toast({ variant: "destructive", title: "Billing Error", description: e.message });
+                toast({ variant: "destructive", title: "Billing Error", description: e.message || "Purchase failed" });
             }
         } finally {
             setIsLoading(false);
@@ -241,21 +227,26 @@ export function OnboardingForm({ onFormSubmit, offerings }: OnboardingFormProps)
                                                 <p className="text-[10px] text-primary font-bold uppercase tracking-tight">Best for Total Transformation</p>
                                             </div>
                                             <span className="font-bold text-lg text-primary">
-                                                {billingCycle === 'monthly' ? (offerings?.monthly?.product.priceString || "$--") : (offerings?.annual?.product.priceString || "$--")}
+                                                {billingCycle === 'monthly' 
+                                                    ? offerings?.availablePackages?.find(p => p.identifier.includes('premium-monthly'))?.product.priceString 
+                                                    : offerings?.availablePackages?.find(p => p.identifier.includes('premium-yearly'))?.product.priceString || "$--"}
                                             </span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• **UPF/Gluten Free Nutritional Analysis** (Meal Scanning)</li>
+                                            <li>• UPF/Gluten Free Nutritional Analysis</li>
                                             <li>• Exclusive access to Live Events</li>
                                             <li>• Community Chat Groups & Workout Programs</li>
                                             <li>• Priority Customer Support</li>
                                         </ul>
                                     </Card>
+
                                     <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('basic_tier', billingCycle)}>
                                         <div className="flex justify-between items-center mb-2">
                                             <h4 className="font-bold text-lg">Basic</h4>
                                             <span className="font-bold text-lg text-primary">
-                                                {offerings?.availablePackages?.find(p => p.identifier === `basic_tier:basic-${billingCycle}`)?.product.priceString || "$--"}
+                                                {billingCycle === 'monthly' 
+                                                    ? offerings?.availablePackages?.find(p => p.identifier.includes('basic-monthly'))?.product.priceString 
+                                                    : offerings?.availablePackages?.find(p => p.identifier.includes('basic-yearly'))?.product.priceString || "$--"}
                                             </span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
@@ -265,44 +256,33 @@ export function OnboardingForm({ onFormSubmit, offerings }: OnboardingFormProps)
                                             <li>• Historical progress charts & insights</li>
                                         </ul>
                                     </Card>
+
                                     <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('ad_free_tier', billingCycle)}>
                                         <div className="flex justify-between items-center mb-2">
                                             <h4 className="font-bold text-lg">Ad-Free</h4>
                                             <span className="font-bold text-lg text-primary">
-                                                {offerings?.availablePackages?.find(p => p.identifier === `ad_free_tier:ad-free-${billingCycle}`)?.product.priceString || "$--"}
+                                                {billingCycle === 'monthly' 
+                                                    ? offerings?.availablePackages?.find(p => p.identifier.includes('ad-free-monthly'))?.product.priceString 
+                                                    : offerings?.availablePackages?.find(p => p.identifier.includes('ad-free-yearly'))?.product.priceString || "$--"}
                                             </span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
                                             <li>• Everything in Free</li>
-                                            <li>• **Completely Ad-Free experience**</li>
+                                            <li>• Completely Ad-Free experience</li>
                                             <li>• Cleaner, distraction-free interface</li>
                                         </ul>
                                     </Card>
+
                                     <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('free')}>
                                         <div className="flex justify-between items-center mb-2">
                                             <h4 className="font-bold text-lg">Free</h4>
                                             <span className="font-bold text-lg text-primary">$0</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• Basic Habit Tracking (Hydration, Nutrition, Activity)</li>
+                                            <li>• Basic Habit Tracking</li>
                                             <li>• Full Calendar Access</li>
                                             <li>• Supported by advertisements</li>
                                         </ul>
-                                    </Card>
-                                    <Card className="p-4 border border-dashed bg-muted/10 text-center flex flex-col items-center">
-                                        <h4 className="font-bold text-sm mb-1">One-on-One Coaching</h4>
-                                        <p className="text-[10px] text-muted-foreground mb-4">Get personalized strategy and direct support for your specific journey.</p>
-                                        <Button 
-                                            variant="outline" 
-                                            size="sm" 
-                                            className="w-full text-xs font-bold border-primary text-primary hover:bg-primary hover:text-white"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                window.location.href='mailto:support@hungerfreeandhappy.app?subject=Coaching Consultation Request';
-                                            }}
-                                        >
-                                            Contact Us for Coaching
-                                        </Button>
                                     </Card>
                                 </div>
                             </div>
