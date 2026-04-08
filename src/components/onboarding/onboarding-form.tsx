@@ -93,15 +93,19 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                 return;
             }
 
-            // EXACT identifiers from your RevenueCat screenshot
-            const prefix = tier === 'premium' ? 'premium_tier' : tier;
-            const offerPart = tier === 'premium' ? 'premium' : tier === 'basic_tier' ? 'basic' : 'ad-free';
-            const packageId = `${prefix}:${offerPart}-${pkgKey}`;
+            // Exact names from your RevenueCat Logcat
+            let packageId = '';
+            if (tier === 'premium') {
+                packageId = pkgKey === 'monthly' ? 'premium_monthly' : 'premium_yearly';
+            } else if (tier === 'basic_tier') {
+                packageId = pkgKey === 'monthly' ? 'basic_monthly' : 'basic_yearly';
+            } else if (tier === 'ad_free_tier') {
+                packageId = pkgKey === 'monthly' ? 'ad_free_monthly' : 'ad_free_yearly';
+            }
 
             console.log('🔍 Looking for packageId:', packageId);
 
             const offerings = await Purchases.getOfferings();
-            
             console.log('📦 All available packages:', 
                 offerings.current?.availablePackages?.map((p: any) => p.identifier));
 
@@ -111,7 +115,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                 toast({ 
                     variant: "destructive", 
                     title: "Plan not found", 
-                    description: `Could not find ${packageId}. Check Logcat for available packages.` 
+                    description: `Could not find ${packageId}` 
                 });
                 return;
             }
@@ -254,9 +258,10 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                             <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$9.99' : '$99.99'}</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• All premium features</li>
-                                            <li>• Live events &amp; challenges</li>
-                                            <li>• Priority support</li>
+                                            <li>• **UPF/Gluten Free Nutritional Analysis** (Meal Scanning)</li>
+                                            <li>• Exclusive access to Live Events</li>
+                                            <li>• Community Chat Groups & Workout Programs</li>
+                                            <li>• Priority Customer Support</li>
                                         </ul>
                                     </Card>
 
@@ -266,8 +271,10 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                             <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$6.99' : '$69.99'}</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• Full tracking tools</li>
-                                            <li>• Craving &amp; progress charts</li>
+                                        <li>• Everything From Ad-Free</li>
+                                            <li>• Full access to all App tracking tools</li>
+                                            <li>• Craving/Binge & Stress Tracking</li>
+                                            <li>• Historical progress charts & insights</li>
                                         </ul>
                                     </Card>
 
@@ -277,8 +284,9 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                             <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$2.49' : '$24.99'}</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• Completely ad-free</li>
-                                            <li>• Cleaner interface</li>
+                                        <li>• Everything in Free</li>
+                                            <li>• **Completely Ad-Free experience**</li>
+                                            <li>• Cleaner, distraction-free interface</li>
                                         </ul>
                                     </Card>
 
@@ -288,8 +296,9 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                             <span className="font-bold text-lg text-primary">$0</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• Basic habit tracking</li>
-                                            <li>• Ad-supported</li>
+                                            <li>• Basic Habit Tracking (Hydration, Nutrition, Activity)</li>
+                                            <li>• Full Calendar Access</li>
+                                            <li>• Supported by advertisements</li>
                                         </ul>
                                     </Card>
 
