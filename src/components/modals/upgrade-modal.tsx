@@ -47,13 +47,14 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
         setIsRedirecting(true);
 
         try {
-            // 1. Initialize connection
-            await Purchases.configure({ apiKey: "goog_NklNVostxEsZmVEiHkgORKJMJgp" });
-            
+            // WE REMOVED: Purchases.configure(...) 
+            // Because RootProviders.tsx handles the connection Boss duties.
+
+            // 1. Check if the system is ready (should be true if RootProvider worked)
             const ready = await Purchases.isConfigured();
             if (!ready) throw new Error("Billing system not ready.");
 
-            // 2. Get the products you set up in RevenueCat
+            // 2. Get the products from RevenueCat
             const offerings = await Purchases.getOfferings();
             
             if (offerings.current && offerings.current.availablePackages.length > 0) {
@@ -71,8 +72,9 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
             }
 
         } catch (e: any) {
-            console.error("Upgrade failed:", e);
+            // Only show an error if the user didn't just hit 'Cancel'
             if (!e.userCancelled) {
+                console.error("Upgrade failed:", e);
                 toast({ 
                     variant: 'destructive', 
                     title: 'Error', 

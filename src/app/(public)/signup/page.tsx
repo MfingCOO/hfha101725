@@ -4,19 +4,17 @@ import { useState, useEffect } from 'react';
 import { OnboardingForm } from '@/components/onboarding/onboarding-form';
 import { Logo } from '@/components/icons/logo';
 import { useToast } from '@/hooks/use-toast';
-import { unifiedSignupAction } from '@/app/coach/clients/actions'; // FIX: Reverted to the correct import path
+import { unifiedSignupAction } from '@/app/coach/clients/actions';
 import type { OnboardingValues } from '@/components/onboarding/onboarding-form';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Purchases, LOG_LEVEL } from '@revenuecat/purchases-capacitor';
-import type { PurchasesOffering } from '@revenuecat/purchases-capacitor';
 import { Capacitor } from '@capacitor/core';
 import { Loader2 } from 'lucide-react';
 
 export default function SignupPage() {
     const { toast } = useToast();
     const router = useRouter();
-    const [offerings, setOfferings] = useState<PurchasesOffering | null>(null);
+    const [offerings, setOfferings] = useState<any>(null); // type will be inferred
     const [loading, setLoading] = useState<boolean>(true);
     const [isNative, setIsNative] = useState<boolean>(false);
 
@@ -24,34 +22,34 @@ export default function SignupPage() {
         const isNativePlatform = Capacitor.isNativePlatform();
         setIsNative(isNativePlatform);
 
-        const initRevenueCat = async () => {
-            if (isNativePlatform) {
-                try {
-                    await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
-                    await Purchases.configure({ 
-                        apiKey: process.env.NEXT_PUBLIC_REVENUECAT_API_KEY || "goog_NklNVostxEsZmVEiHkgORKJMJgp"
-                    });
-                    
-                    const offeringsResult = await Purchases.getOfferings();
-                    if (offeringsResult && offeringsResult.current) {
-                        setOfferings(offeringsResult.current);
-                        console.log("RevenueCat Offerings loaded successfully on signup page.");
-                    }
-                } catch (e) {
-                    console.error("RevenueCat Init or Offerings Fetch Failed:", e);
-                    toast({
-                        variant: 'destructive',
-                        title: 'Could Not Load Plans',
-                        description: 'Please check your connection to the Play Store and try again.'
-                    });
-                } finally {
-                    setLoading(false);
+        const loadOfferings = async () => {
+            if (!isNativePlatform) {
+                setLoading(false);
+                return;
+            }
+
+            try {
+                // Dynamic import — only loads native SDK after bridge is ready
+                const { Purchases } = await import('@revenuecat/purchases-capacitor');
+
+                const offeringsResult = await Purchases.getOfferings();
+                if (offeringsResult && offeringsResult.current) {
+                    setOfferings(offeringsResult.current);
+                    console.log("✅ RevenueCat Offerings loaded successfully (native).");
                 }
-            } else {
+            } catch (e) {
+                console.error("RevenueCat Offerings Fetch Failed:", e);
+                toast({
+                    variant: 'destructive',
+                    title: 'Could Not Load Plans',
+                    description: 'Please check your connection and try again.',
+                });
+            } finally {
                 setLoading(false);
             }
         };
-        initRevenueCat();
+
+        loadOfferings();
     }, [toast]);
 
     const handleSignup = async (data: OnboardingValues) => {
@@ -70,11 +68,11 @@ export default function SignupPage() {
                 router.push('/login');
                 return { success: true };
             } else {
-                throw new Error(result.error || "An unknown error occurred during sign up.");
+                throw new Error(result.error || "An unknown error occurred.");
             }
         } catch (error: any) {
-            console.error("Client creation failed:", error);
-            let errorMessage = error.message || "An unexpected error occurred during sign up.";
+            console.error("Signup failed:", error);
+            const errorMessage = error.message || "An unexpected error occurred.";
             toast({
                 variant: 'destructive',
                 title: 'Sign Up Failed',

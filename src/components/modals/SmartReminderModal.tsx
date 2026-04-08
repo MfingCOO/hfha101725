@@ -65,14 +65,13 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
         setIsRedirecting(true);
 
         try {
-            // 1. Ensure RevenueCat is configured
-            await Purchases.configure({ apiKey: "goog_NklNVostxEsZmVEiHkgORKJMJgp" });
+            // We REMOVED the Purchases.configure line because RootProviders handles it.
 
-            // 2. Fetch the current offerings (Monthly/Yearly plans)
+            // 1. Fetch the current offerings (Monthly/Yearly plans)
             const offerings = await Purchases.getOfferings();
             
             if (offerings.current && offerings.current.availablePackages.length > 0) {
-                // 3. Purchase the first available package (usually Monthly)
+                // 2. Purchase the first available package
                 const { customerInfo } = await Purchases.purchasePackage({ 
                     aPackage: offerings.current.availablePackages[0] 
                 });
@@ -85,12 +84,17 @@ export function SmartReminderModal({ isOpen, onClose, reminder }: SmartReminderM
                 throw new Error("No subscription plans found.");
             }
         } catch (e: any) {
-            console.error("Purchase failed", e);
-            toast({ 
-                variant: 'destructive', 
-                title: 'Upgrade Failed', 
-                description: e.message || "Could not complete purchase." 
-            });
+            // Check if the user just cancelled the purchase (not a real error)
+            if (e.userCancelled) {
+                console.log("User cancelled the purchase");
+            } else {
+                console.error("Purchase failed", e);
+                toast({ 
+                    variant: 'destructive', 
+                    title: 'Upgrade Failed', 
+                    description: e.message || "Could not complete purchase." 
+                });
+            }
         } finally {
             setIsRedirecting(false);
         }

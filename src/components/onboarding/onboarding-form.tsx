@@ -61,12 +61,19 @@ export function OnboardingForm({ onFormSubmit, offerings }: OnboardingFormProps)
 
     // PASTE THIS NEW BLOCK HERE:
     useEffect(() => {
-        if (Capacitor.isNativePlatform()) {
-            Purchases.configure({ 
-                apiKey: "goog_pZmsvSInmYvSInmYvSInmYvSInm" // Your Google Key
-            });
-        }
-    }, []);
+        const initBilling = async () => {
+          if (Capacitor.isNativePlatform()) {
+            try {
+              // We no longer call Purchases.configure here because RootProviders handles it.
+              // This keeps the file clean and avoids the network configuration error.
+              console.log("Onboarding: Native platform detected, using Root configuration.");
+            } catch (e) {
+              console.error("Billing check failed:", e);
+            }
+          }
+        };
+        initBilling();
+      }, []);
 
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),

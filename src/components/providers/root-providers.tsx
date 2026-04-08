@@ -27,47 +27,53 @@ function RevenueCatInitializer() {
   const { setIsRevenueCatReady } = useNotificationStore();
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) {
-        setIsRevenueCatReady(false);
-        return;
-    }
+    let mounted = true;
 
     const initializeRevenueCat = async () => {
-      const revenueCatApiKey = process.env.NEXT_PUBLIC_REVENUECAT_API_KEY || "goog_NklNVostxEsZmVEiHkgORKJMJgp";
+      console.log('🚀 RevenueCat init started');
+      console.log('📱 isNativePlatform:', Capacitor.isNativePlatform());
+
+      if (!Capacitor.isNativePlatform()) {
+        console.log('🌐 Running on web → skipping native RevenueCat');
+        if (mounted) setIsRevenueCatReady(false);
+        return;
+      }
 
       try {
-        if (user?.uid) {
-          // Configure with the logged-in user's UID
-          await Purchases.configure({ 
-            apiKey: revenueCatApiKey, 
-            appUserID: user.uid 
-          });
-          
-          console.log("RevenueCat configured for user:", user.uid);
-          setIsRevenueCatReady(true);
+        // Give the Capacitor native bridge a tiny moment to be fully ready
+        await new Promise(resolve => setTimeout(resolve, 150));
 
-          // Listen for subscription changes (e.g., a purchase finishing)
+        const revenueCatApiKey = "goog_NklNVostxEsZmVEiHkgORKJMJgp";
+
+        // Dynamic import that also brings in LOG_LEVEL (fixes your TypeScript error)
+        const { Purchases, LOG_LEVEL } = await import('@revenuecat/purchases-capacitor');
+
+        // Force native debug logging
+        await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
+
+        await Purchases.configure({ 
+          apiKey: revenueCatApiKey,
+          appUserID: user?.uid || null 
+        });
+        
+        console.log("✅ RevenueCat NATIVE mode configured. User ID:", user?.uid || "Anonymous");
+        if (mounted) setIsRevenueCatReady(true);
+
+        if (user?.uid) {
           await Purchases.addCustomerInfoUpdateListener((customerInfo) => {
-            console.log("Subscription status updated:", customerInfo);
+            console.log("📨 Subscription status updated:", customerInfo);
           });
-        } else {
-          // User logged out - clean up RevenueCat session
-          setIsRevenueCatReady(false);
-          const isConfigured = await Purchases.isConfigured();
-          if (isConfigured) {
-            await Purchases.logOut();
-            console.log("RevenueCat logged out.");
-          }
         }
       } catch (error) {
-        console.error("RevenueCat initialization error:", error);
-        setIsRevenueCatReady(false);
+        console.error("❌ RevenueCat initialization error:", error);
+        if (mounted) setIsRevenueCatReady(false);
       }
     };
 
     initializeRevenueCat();
-    
-  }, [user, setIsRevenueCatReady]);
+
+    return () => { mounted = false; };
+  }, [user?.uid, setIsRevenueCatReady]);
 
   return null;
 }
@@ -100,9 +106,8 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
             <Toaster /> 
             <SonnerToaster position="top-center" expand={true} richColors /> 
           </DataEntryModalProvider>
+          {Capacitor.isNativePlatform() && <AdBannerProvider />} 
         </AppCheckProvider>
-
-        {Capacitor.isNativePlatform() && <AdBannerProvider />} 
       </AuthProvider>
     </QueryProvider>
   );
