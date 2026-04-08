@@ -18,49 +18,31 @@ export default function SignupPage() {
     const [isNative, setIsNative] = useState<boolean>(false);
 
     useEffect(() => {
-        const isNativePlatform = Capacitor.isNativePlatform();
-        setIsNative(isNativePlatform);
+        setIsNative(Capacitor.isNativePlatform());
     }, []);
 
     const handleSignup = async (data: OnboardingValues) => {
         try {
             const result = await unifiedSignupAction({
                 ...data,
-                units: 'imperial',           // ← hardcoded as you requested
+                units: 'imperial',
                 tier: (data as any).tier || 'free',
                 coachId: 'default',
             });
 
             if (result.success) {
-                toast({
-                    title: "Account Created!",
-                    description: "Welcome! Please log in to begin your journey.",
-                });
+                toast({ title: "Account Created!", description: "Welcome! Please log in." });
                 router.push('/login');
                 return { success: true };
             } else {
-                throw new Error(result.error || "An unknown error occurred.");
+                throw new Error(result.error || "Signup failed");
             }
         } catch (error: any) {
-            console.error("Signup failed:", error);
             const errorMessage = error.message || "An unexpected error occurred.";
-            toast({
-                variant: 'destructive',
-                title: 'Sign Up Failed',
-                description: errorMessage,
-            });
+            toast({ variant: 'destructive', title: 'Sign Up Failed', description: errorMessage });
             return { success: false, error: { message: errorMessage } };
         }
     };
-
-    if (isNative && loading) {
-        return (
-            <div className="flex min-h-screen flex-col items-center justify-center p-4">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="mt-4 text-sm text-muted-foreground">Connecting to app store...</p>
-            </div>
-        );
-    }
 
     return (
         <main className="flex min-h-screen flex-col items-center p-4 sm:p-8 bg-background">
@@ -73,17 +55,19 @@ export default function SignupPage() {
                 <OnboardingForm onFormSubmit={handleSignup} />
             </div>
 
+            {/* Already have an account? Link */}
+            <div className="mt-6 text-center text-sm text-muted-foreground">
+                Already have an account?{' '}
+                <Link href="/login" className="underline hover:text-primary font-medium">
+                    Log in
+                </Link>
+            </div>
+
             <div className="mt-8 text-center text-xs text-muted-foreground max-w-lg space-y-2">
-                <p>
-                    Need help? Visit our{' '}
-                    <Link href="/support" className="underline hover:text-primary font-medium">
-                        Support Page
-                    </Link>
-                </p>
+                <p>Need help? Visit our <Link href="/support" className="underline hover:text-primary font-medium">Support Page</Link></p>
                 <div>
                     By creating an account, you agree to our{' '}
-                    <Link href="/tos" className="underline hover:text-primary">Terms of Service</Link>
-                    {' '}and{' '}
+                    <Link href="/tos" className="underline hover:text-primary">Terms of Service</Link> and{' '}
                     <Link href="/privacy" className="underline hover:text-primary">Privacy Policy</Link>.
                 </div>
             </div>

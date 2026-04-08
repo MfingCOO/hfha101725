@@ -93,7 +93,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                 return;
             }
 
-            // Exact identifiers from your RevenueCat screenshot
+            // EXACT identifiers from your RevenueCat screenshot
             const packageId = `${tier}:${tier === 'premium' ? 'premium' : tier === 'basic_tier' ? 'basic' : 'ad-free'}-${pkgKey}`;
 
             const offerings = await Purchases.getOfferings();
@@ -132,19 +132,27 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
             <Form {...form}>
                 <form className="space-y-6">
                     <CardContent>
-                        {/* Step 1 */}
+                        {/* STEP 1 */}
                         {step === 1 && (
                             <div className="space-y-4 animate-in fade-in">
-                                <FormField control={form.control} name="fullName" render={({ field }) => (<FormItem><FormLabel>Full Name</FormLabel><FormControl><Input placeholder="Your Name" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                                <FormField control={form.control} name="email" render={({ field }) => (<FormItem><FormLabel>Email Address</FormLabel><FormControl><Input type="email" placeholder="email@example.com" {...field} /></FormControl><FormMessage /></FormItem>)} />
-                                <FormField control={form.control} name="password" render={({ field }) => (<FormItem><FormLabel>Password</FormLabel><FormControl><Input type="password" placeholder="Min. 8 characters" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                <FormField control={form.control} name="fullName" render={({ field }) => (
+                                    <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input placeholder="Your Name" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                                <FormField control={form.control} name="email" render={({ field }) => (
+                                    <FormItem><FormLabel>Email Address</FormLabel><FormControl><Input type="email" placeholder="email@example.com" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                                <FormField control={form.control} name="password" render={({ field }) => (
+                                    <FormItem><FormLabel>Password</FormLabel><FormControl><Input type="password" placeholder="Min. 8 characters" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
                             </div>
                         )}
 
-                        {/* Step 2 */}
+                        {/* STEP 2 */}
                         {step === 2 && (
                             <div className="space-y-4 animate-in fade-in">
-                                <FormField control={form.control} name="birthdate" render={({ field }) => (<FormItem><FormLabel>Date of Birth</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                <FormField control={form.control} name="birthdate" render={({ field }) => (
+                                    <FormItem><FormLabel>Date of Birth</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
+                                )} />
                                 <FormField control={form.control} name="sex" render={({ field }) => (
                                     <FormItem className="space-y-3">
                                         <FormLabel>Biological Sex</FormLabel>
@@ -158,15 +166,23 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                     </FormItem>
                                 )} />
                                 <div className="grid grid-cols-3 gap-2">
-                                    <FormField control={form.control} name="height" render={({ field }) => (<FormItem><FormLabel>Height</FormLabel><AppNumberInput {...field} /></FormItem>)} />
-                                    <FormField control={form.control} name="weight" render={({ field }) => (<FormItem><FormLabel>Weight</FormLabel><AppNumberInput {...field} /></FormItem>)} />
-                                    <FormField control={form.control} name="waist" render={({ field }) => (<FormItem><FormLabel>Waist</FormLabel><AppNumberInput {...field} /></FormItem>)} />
+                                    <FormField control={form.control} name="height" render={({ field }) => (
+                                        <FormItem><FormLabel>Height</FormLabel><AppNumberInput {...field} /></FormItem>
+                                    )} />
+                                    <FormField control={form.control} name="weight" render={({ field }) => (
+                                        <FormItem><FormLabel>Weight</FormLabel><AppNumberInput {...field} /></FormItem>
+                                    )} />
+                                    <FormField control={form.control} name="waist" render={({ field }) => (
+                                        <FormItem><FormLabel>Waist</FormLabel><AppNumberInput {...field} /></FormItem>
+                                    )} />
                                 </div>
-                                <FormField control={form.control} name="zipCode" render={({ field }) => (<FormItem><FormLabel>Zip Code</FormLabel><Input placeholder="12345" {...field} /></FormItem>)} />
+                                <FormField control={form.control} name="zipCode" render={({ field }) => (
+                                    <FormItem><FormLabel>Zip Code</FormLabel><Input placeholder="12345" {...field} /></FormItem>
+                                )} />
                             </div>
                         )}
 
-                        {/* Step 3 */}
+                        {/* STEP 3 */}
                         {step === 3 && (
                             <div className="space-y-4 animate-in fade-in">
                                 <FormField control={form.control} name="activityLevel" render={({ field }) => (
@@ -184,8 +200,12 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                     </FormItem>
                                 )} />
                                 <div className="grid grid-cols-2 gap-4">
-                                    <FormField control={form.control} name="wakeTime" render={({ field }) => (<FormItem><FormLabel>Typical Wake Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl></FormItem>)} />
-                                    <FormField control={form.control} name="sleepTime" render={({ field }) => (<FormItem><FormLabel>Typical Sleep Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl></FormItem>)} />
+                                    <FormField control={form.control} name="wakeTime" render={({ field }) => (
+                                        <FormItem><FormLabel>Typical Wake Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl></FormItem>
+                                    )} />
+                                    <FormField control={form.control} name="sleepTime" render={({ field }) => (
+                                        <FormItem><FormLabel>Typical Sleep Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl></FormItem>
+                                    )} />
                                 </div>
                                 
                                 <div className="p-4 border rounded-md max-h-48 overflow-y-auto bg-muted/50 text-[11px] leading-relaxed">
@@ -203,7 +223,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                             </div>
                         )}
 
-                        {/* Step 4 - Pricing */}
+                        {/* STEP 4 - Pricing */}
                         {step === 4 && (
                             <div className="space-y-4 animate-in slide-in-from-bottom-4">
                                 <div className="flex items-center justify-center space-x-4 bg-muted/50 p-2 rounded-full mb-6">
@@ -261,6 +281,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                         </ul>
                                     </Card>
 
+                                    {/* Coaching box */}
                                     <Card className="p-4 border border-dashed bg-muted/10 text-center flex flex-col items-center">
                                         <h4 className="font-bold text-sm mb-1">One-on-One Coaching</h4>
                                         <p className="text-[10px] text-muted-foreground mb-4">Get personalized strategy and direct support for your specific journey.</p>
@@ -284,10 +305,14 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                     <CardFooter className="flex flex-col space-y-4">
                         <div className="flex justify-between w-full">
                             {step > 1 && step < 4 && (
-                                <Button type="button" variant="ghost" onClick={() => setStep(step - 1)} disabled={isLoading}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
+                                <Button type="button" variant="ghost" onClick={() => setStep(step - 1)} disabled={isLoading}>
+                                    <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                                </Button>
                             )}
                             {step < 4 && (
-                                <Button type="button" className="ml-auto" onClick={nextStep}>Next <ArrowRight className="ml-2 h-4 w-4" /></Button>
+                                <Button type="button" className="ml-auto" onClick={nextStep}>
+                                    Next <ArrowRight className="ml-2 h-4 w-4" />
+                                </Button>
                             )}
                         </div>
                     </CardFooter>
