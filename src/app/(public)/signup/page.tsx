@@ -26,7 +26,8 @@ export default function SignupPage() {
         try {
             const result = await unifiedSignupAction({
                 ...data,
-                tier: (data as any).tier || 'free', 
+                units: 'imperial',           // ← hardcoded as you requested
+                tier: (data as any).tier || 'free',
                 coachId: 'default',
             });
 

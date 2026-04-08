@@ -41,7 +41,6 @@ const onboardingSchema = z.object({
     wakeTime: z.string().min(1, "Wake time is required"),
     sleepTime: z.string().min(1, "Sleep time is required"),
     disclaimer: z.boolean().refine(val => val === true, { message: "You must accept the disclaimer to continue." }),
-    units: z.enum(['imperial', 'metric']),
 });
 
 export type OnboardingValues = z.infer<typeof onboardingSchema>;
@@ -64,14 +63,14 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
             sex: 'unspecified', height: 0, weight: 0, waist: 0,
             zipCode: "", activityLevel: 'light',
             wakeTime: "07:00", sleepTime: "22:00",
-            disclaimer: false, units: 'imperial'
+            disclaimer: false
         },
     });
 
     const nextStep = async () => {
         const fields: any = {
             1: ['email', 'password', 'fullName'],
-            2: ['birthdate', 'sex', 'height', 'weight', 'waist', 'zipCode', 'units'],
+            2: ['birthdate', 'sex', 'height', 'weight', 'waist', 'zipCode'],
             3: ['activityLevel', 'wakeTime', 'sleepTime', 'disclaimer']
         };
         const isValid = await form.trigger(fields[step]);
@@ -94,13 +93,14 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                 return;
             }
 
+            // Exact identifiers from your RevenueCat screenshot
             const packageId = `${tier}:${tier === 'premium' ? 'premium' : tier === 'basic_tier' ? 'basic' : 'ad-free'}-${pkgKey}`;
-            
+
             const offerings = await Purchases.getOfferings();
             const pkg = offerings.current?.availablePackages?.find((p: any) => p.identifier === packageId);
 
             if (!pkg) {
-                toast({ variant: "destructive", title: "Error", description: "Plan not found" });
+                toast({ variant: "destructive", title: "Error", description: "Plan not found. Please try again." });
                 return;
             }
 
@@ -132,7 +132,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
             <Form {...form}>
                 <form className="space-y-6">
                     <CardContent>
-                        {/* Step 1-3 unchanged */}
+                        {/* Step 1 */}
                         {step === 1 && (
                             <div className="space-y-4 animate-in fade-in">
                                 <FormField control={form.control} name="fullName" render={({ field }) => (<FormItem><FormLabel>Full Name</FormLabel><FormControl><Input placeholder="Your Name" {...field} /></FormControl><FormMessage /></FormItem>)} />
@@ -141,6 +141,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                             </div>
                         )}
 
+                        {/* Step 2 */}
                         {step === 2 && (
                             <div className="space-y-4 animate-in fade-in">
                                 <FormField control={form.control} name="birthdate" render={({ field }) => (<FormItem><FormLabel>Date of Birth</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>)} />
@@ -165,6 +166,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                             </div>
                         )}
 
+                        {/* Step 3 */}
                         {step === 3 && (
                             <div className="space-y-4 animate-in fade-in">
                                 <FormField control={form.control} name="activityLevel" render={({ field }) => (
@@ -201,7 +203,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                             </div>
                         )}
 
-                        {/* === PRICING STEP 4 === */}
+                        {/* Step 4 - Pricing */}
                         {step === 4 && (
                             <div className="space-y-4 animate-in slide-in-from-bottom-4">
                                 <div className="flex items-center justify-center space-x-4 bg-muted/50 p-2 rounded-full mb-6">
@@ -211,16 +213,13 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                 </div>
 
                                 <div className="grid gap-4">
-                                    {/* 1. Premium */}
                                     <Card className="p-4 border-2 border-primary bg-primary/5 cursor-pointer shadow-md" onClick={() => handlePurchase('premium', billingCycle)}>
                                         <div className="flex justify-between items-center mb-2">
                                             <div>
                                                 <h4 className="font-bold text-lg text-primary">Premium</h4>
                                                 <p className="text-[10px] text-primary font-bold uppercase tracking-tight">Best Value</p>
                                             </div>
-                                            <span className="font-bold text-lg text-primary">
-                                                {billingCycle === 'monthly' ? '$9.99' : '$99.99'}
-                                            </span>
+                                            <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$9.99' : '$99.99'}</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
                                             <li>• All premium features</li>
@@ -229,13 +228,10 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                         </ul>
                                     </Card>
 
-                                    {/* 2. Basic */}
                                     <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('basic_tier', billingCycle)}>
                                         <div className="flex justify-between items-center mb-2">
                                             <h4 className="font-bold text-lg">Basic</h4>
-                                            <span className="font-bold text-lg text-primary">
-                                                {billingCycle === 'monthly' ? '$6.99' : '$69.99'}
-                                            </span>
+                                            <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$6.99' : '$69.99'}</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
                                             <li>• Full tracking tools</li>
@@ -243,13 +239,10 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                         </ul>
                                     </Card>
 
-                                    {/* 3. Ad-Free */}
                                     <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('ad_free_tier', billingCycle)}>
                                         <div className="flex justify-between items-center mb-2">
                                             <h4 className="font-bold text-lg">Ad-Free</h4>
-                                            <span className="font-bold text-lg text-primary">
-                                                {billingCycle === 'monthly' ? '$2.49' : '$24.99'}
-                                            </span>
+                                            <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$2.49' : '$24.99'}</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
                                             <li>• Completely ad-free</li>
@@ -257,7 +250,6 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                         </ul>
                                     </Card>
 
-                                    {/* 4. Free */}
                                     <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('free')}>
                                         <div className="flex justify-between items-center mb-2">
                                             <h4 className="font-bold text-lg">Free</h4>
@@ -269,7 +261,6 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                         </ul>
                                     </Card>
 
-                                    {/* Coaching box under Free */}
                                     <Card className="p-4 border border-dashed bg-muted/10 text-center flex flex-col items-center">
                                         <h4 className="font-bold text-sm mb-1">One-on-One Coaching</h4>
                                         <p className="text-[10px] text-muted-foreground mb-4">Get personalized strategy and direct support for your specific journey.</p>
