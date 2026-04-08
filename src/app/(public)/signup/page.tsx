@@ -14,43 +14,13 @@ import { Loader2 } from 'lucide-react';
 export default function SignupPage() {
     const { toast } = useToast();
     const router = useRouter();
-    const [offerings, setOfferings] = useState<any>(null); // type will be inferred
-    const [loading, setLoading] = useState<boolean>(true);
+    const [loading, setLoading] = useState<boolean>(false);
     const [isNative, setIsNative] = useState<boolean>(false);
 
     useEffect(() => {
         const isNativePlatform = Capacitor.isNativePlatform();
         setIsNative(isNativePlatform);
-
-        const loadOfferings = async () => {
-            if (!isNativePlatform) {
-                setLoading(false);
-                return;
-            }
-
-            try {
-                // Dynamic import — only loads native SDK after bridge is ready
-                const { Purchases } = await import('@revenuecat/purchases-capacitor');
-
-                const offeringsResult = await Purchases.getOfferings();
-                if (offeringsResult && offeringsResult.current) {
-                    setOfferings(offeringsResult.current);
-                    console.log("✅ RevenueCat Offerings loaded successfully (native).");
-                }
-            } catch (e) {
-                console.error("RevenueCat Offerings Fetch Failed:", e);
-                toast({
-                    variant: 'destructive',
-                    title: 'Could Not Load Plans',
-                    description: 'Please check your connection and try again.',
-                });
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadOfferings();
-    }, [toast]);
+    }, []);
 
     const handleSignup = async (data: OnboardingValues) => {
         try {
@@ -99,7 +69,7 @@ export default function SignupPage() {
             </div>
 
             <div className="w-full max-w-2xl mt-6">
-                <OnboardingForm onFormSubmit={handleSignup} offerings={offerings} />
+                <OnboardingForm onFormSubmit={handleSignup} />
             </div>
 
             <div className="mt-8 text-center text-xs text-muted-foreground max-w-lg space-y-2">
