@@ -94,13 +94,25 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
             }
 
             // EXACT identifiers from your RevenueCat screenshot
-            const packageId = `${tier}:${tier === 'premium' ? 'premium' : tier === 'basic_tier' ? 'basic' : 'ad-free'}-${pkgKey}`;
+            const prefix = tier === 'premium' ? 'premium_tier' : tier;
+            const offerPart = tier === 'premium' ? 'premium' : tier === 'basic_tier' ? 'basic' : 'ad-free';
+            const packageId = `${prefix}:${offerPart}-${pkgKey}`;
+
+            console.log('🔍 Looking for packageId:', packageId);
 
             const offerings = await Purchases.getOfferings();
+            
+            console.log('📦 All available packages:', 
+                offerings.current?.availablePackages?.map((p: any) => p.identifier));
+
             const pkg = offerings.current?.availablePackages?.find((p: any) => p.identifier === packageId);
 
             if (!pkg) {
-                toast({ variant: "destructive", title: "Error", description: "Plan not found. Please try again." });
+                toast({ 
+                    variant: "destructive", 
+                    title: "Plan not found", 
+                    description: `Could not find ${packageId}. Check Logcat for available packages.` 
+                });
                 return;
             }
 
@@ -281,7 +293,6 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                         </ul>
                                     </Card>
 
-                                    {/* Coaching box */}
                                     <Card className="p-4 border border-dashed bg-muted/10 text-center flex flex-col items-center">
                                         <h4 className="font-bold text-sm mb-1">One-on-One Coaching</h4>
                                         <p className="text-[10px] text-muted-foreground mb-4">Get personalized strategy and direct support for your specific journey.</p>
