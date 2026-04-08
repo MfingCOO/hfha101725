@@ -1,6 +1,6 @@
 import "./globals.css";
 import { inter } from './fonts';
-import { RootProviders } from "@/components/providers/root-providers.web";
+import { RootProviders } from "@/components/providers/root-providers";
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
