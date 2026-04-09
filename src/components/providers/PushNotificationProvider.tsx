@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { ActionPerformed, PushNotifications, Token, PushNotificationSchema } from '@capacitor/push-notifications';
+import { 
+  ActionPerformed, 
+  PushNotifications, 
+  Token, 
+  PushNotificationSchema 
+} from '@capacitor/push-notifications';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useRouter } from 'next/navigation';
@@ -20,15 +25,28 @@ const createNotificationChannels = async () => {
   if (Capacitor.getPlatform() !== 'android') return;
   try {
     log("Creating Android notification channels...");
-    await LocalNotifications.createChannel({ id: 'chat_messages', name: 'Chat Messages', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-    await LocalNotifications.createChannel({ id: 'appointment_booked_notifications', name: 'Appointment Booked', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-    await LocalNotifications.createChannel({ id: 'appointment_reminders', name: 'Appointment Reminders', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-    await LocalNotifications.createChannel({ id: 'workout_reminders', name: 'Workout Reminders', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-    await LocalNotifications.createChannel({ id: 'hydration_reminders', name: 'Hydration Reminders', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-    await LocalNotifications.createChannel({ id: 'custom_popups', name: 'Custom Popups', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-    await LocalNotifications.createChannel({ id: 'indulgence_notifications', name: 'Indulgence Reminders', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-    await LocalNotifications.createChannel({ id: 'challenge_notifications', name: 'Challenge Reminders', importance: 5, sound: 'default', vibration: true, visibility: 1 });
-    await LocalNotifications.createChannel({ id: 'streak_notifications', name: 'Streak Accomplishments', importance: 5, sound: 'default', vibration: true, visibility: 1 });
+    const channels = [
+      { id: 'chat_messages', name: 'Chat Messages' },
+      { id: 'appointment_booked_notifications', name: 'Appointment Booked' },
+      { id: 'appointment_reminders', name: 'Appointment Reminders' },
+      { id: 'workout_reminders', name: 'Workout Reminders' },
+      { id: 'hydration_reminders', name: 'Hydration Reminders' },
+      { id: 'custom_popups', name: 'Custom Popups' },
+      { id: 'indulgence_notifications', name: 'Indulgence Reminders' },
+      { id: 'challenge_notifications', name: 'Challenge Reminders' },
+      { id: 'streak_notifications', name: 'Streak Accomplishments' }
+    ];
+
+    for (const channel of channels) {
+      await LocalNotifications.createChannel({
+        id: channel.id,
+        name: channel.name,
+        importance: 5,
+        sound: 'default',
+        vibration: true,
+        visibility: 1
+      });
+    }
     log('Android channels created.');
   } catch (error) {
     logError('Error creating channels:', error);
@@ -50,17 +68,20 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
   const cleanupRef = useRef<(() => void) | null>(null);
   const hasNavigatedRef = useRef(false);
-  const hasSetupRef = useRef(false);   // ←←← ONLY THIS LINE WAS ADDED (stops duplicate setup)
+  const hasSetupRef = useRef(false);
 
-  const handleNotificationAction = useCallback((context: string, data: { [key: string]: any }) => {
-    if (hasNavigatedRef.current) return;
+  const handleNotificationAction = useCallback((context: string, data: { [key: string]: any }, notificationDisplayType: 'toast' | 'banner' = 'toast') => {
+    if (hasNavigatedRef.current) {
+      log(`[${context}] Navigation already in progress, suppressing action.`);
+      return;
+    }
     hasNavigatedRef.current = true;
-
     log(`[${context}] Handling action. Full Data:`, data);
 
     const sId = data.senderId || data.userId;
     if (sId && user?.uid && String(sId) === String(user.uid)) {
       log('Suppressing self-notification');
+      setTimeout(() => { hasNavigatedRef.current = false; }, 1000);
       return;
     }
 
@@ -93,10 +114,17 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     log(`[${context}] Final Navigating URL: ${finalUrl}`);
     router.push(finalUrl);
 
-    setTimeout(() => { hasNavigatedRef.current = false; }, 1000);
+    if (context === 'Native Action' && notificationDisplayType === 'banner') {
+      setTimeout(() => {
+        showInAppNotification(data.title, data.body, data, 'banner');
+        hasNavigatedRef.current = false;
+      }, 500);
+    } else {
+      setTimeout(() => { hasNavigatedRef.current = false; }, 1000);
+    }
   }, [router, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
 
-  const showInAppNotification = useCallback((incomingTitle: string | undefined, incomingBody: string | undefined, data: { [key: string]: any }) => {
+  const showInAppNotification = useCallback((incomingTitle: string | undefined, incomingBody: string | undefined, data: { [key: string]: any }, type: 'toast' | 'banner' = 'toast') => {
     const title = incomingTitle || data.title || 'New Notification';
     let body = incomingBody || data.body || '';
 
@@ -108,74 +136,65 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       body = `⏰ ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })} - ${body}`;
     }
 
-    toast({
-      title,
-      description: body,
-      action: <ToastAction altText="Open" onClick={() => handleNotificationAction('Foreground Click', data)}>Open</ToastAction>,
-      duration: 7000,
-    });
+    if (type === 'toast') {
+      toast({
+        title,
+        description: body,
+        action: <ToastAction altText="Open" onClick={() => handleNotificationAction('Foreground Click', data, type)}>Open</ToastAction>,
+        duration: 7000,
+      });
+    } else if (type === 'banner') {
+      log(`PWA Debug: Displaying custom IN-APP BANNER for: "${title}" - "${body}".`);
+      // Trigger your actual banner UI state here if applicable
+    }
   }, [handleNotificationAction, toast]);
 
+  // Handle URL params on load
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('notificationType')) {
-      log("PWA: Detected notification in URL on load. Handling...");
+      const dataFromUrl = Object.fromEntries(urlParams.entries());
+      handleNotificationAction('URL Load', dataFromUrl, 'banner');
 
-      const notificationType = urlParams.get('notificationType') || '';
-      const openChatId = urlParams.get('openChatId');
-      const openWorkoutId = urlParams.get('openWorkoutId');
-      const openAppointmentId = urlParams.get('openAppointmentId');
-      const openHydration = urlParams.get('openHydration');
-      const openIndulgenceId = urlParams.get('openIndulgenceId');
-      const openChallengeList = urlParams.get('openChallengeList');
-
-      if (notificationType === 'chat' && openChatId) setNotificationChatId(openChatId);
-      else if (notificationType === 'workout_reminder' && openWorkoutId) setNotificationWorkoutId(openWorkoutId);
-      else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) setNotificationAppointmentId(openAppointmentId);
-      else if (notificationType === 'hydration' && openHydration === 'true') setTriggerHydrationModal(true);
-      else if (notificationType.includes('indulgence_') && openIndulgenceId) setNotificationIndulgenceId(openIndulgenceId);
-      else if (['challenge_checkin', 'streak_congrats'].includes(notificationType) && openChallengeList === 'true') setOpenChallengeList(true);
-
-      router.replace(window.location.pathname, { scroll: false });
+      if (window.history.replaceState) {
+        const newUrl = new URL(window.location.href);
+        ['notificationType', 'openChatId', 'openWorkoutId', 'openAppointmentId', 'openHydration', 'indulgenceId', 'openChallengeList'].forEach(p => newUrl.searchParams.delete(p));
+        window.history.replaceState({}, document.title, newUrl.toString());
+      }
     }
-  }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
+  }, [handleNotificationAction]);
 
   useEffect(() => {
-    if (loading || !user || hasSetupRef.current) return;   // ←←← ONLY THIS LINE WAS ADDED
-
+    if (loading || !user || hasSetupRef.current) return;
     hasSetupRef.current = true;
-    log("PushNotificationProvider useEffect triggered — setup running ONCE");
 
     const setupNotifications = async () => {
-      if (Capacitor.isNativePlatform()) {
-        log('Setting up NATIVE push notifications...');
+      const isNative = Capacitor.isNativePlatform();
+
+      if (isNative) {
         try {
           await createNotificationChannels();
           const permissionStatus = await PushNotifications.requestPermissions();
+          
           if (permissionStatus.receive === 'granted') {
             await PushNotifications.register();
 
-            // Safe call (no TS error)
-            try {
-              (PushNotifications as any).setForegroundPresentationOptions({ presentationOptions: ["alert"] });
-              log("Foreground set to toast-only");
-            } catch (e) {
-              log("setForegroundPresentationOptions not supported on this plugin version");
-            }
+            // Set foreground options: no native alerts, we use in-app toasts
+            await PushNotifications.removeAllListeners();
 
             PushNotifications.addListener('registration', async (token: Token) => {
-              log('Native registration success, token:', token.value.substring(0,10) + '...');
+              log('Native registration success');
               if (user?.uid) await addFcmTokenAction({ userId: user.uid, token: token.value });
             });
 
             PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-              const sId = notification.data?.senderId;
-              if (sId && user?.uid && String(sId) === String(user.uid)) return;
-              showInAppNotification(notification.title, notification.body, notification.data || {});
+              log('Native pushNotificationReceived (Foreground)');
+              showInAppNotification(notification.title, notification.body, notification.data || {}, 'toast');
             });
 
             PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-              handleNotificationAction('Native Action', action.notification.data || {});
+              log('Native pushNotificationActionPerformed (Tap)');
+              handleNotificationAction('Native Action', action.notification.data || {}, 'banner');
             });
 
             cleanupRef.current = () => PushNotifications.removeAllListeners();
@@ -184,22 +203,18 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           logError('Error setting up native push:', error);
         }
       } else {
-        log('Setting up PWA foreground notifications listener...');
+        // PWA Web Logic
         const isFCMSupported = await isSupported();
         if (!isFCMSupported || !messaging) return;
 
         try {
           await navigator.serviceWorker.register('/sw.js');
-
           const unsubscribe = onMessage(messaging, (payload) => {
-            const sId = payload.data?.senderId;
-            if (sId && user?.uid && String(sId) === String(user.uid)) return;
-            showInAppNotification(payload.notification?.title, payload.notification?.body, payload.data || {});
+            showInAppNotification(payload.notification?.title, payload.notification?.body, payload.data || {}, 'toast');
           });
-
           cleanupRef.current = () => unsubscribe();
         } catch (error) {
-          logError('PWA foreground setup error:', error);
+          logError('PWA setup error:', error);
         }
       }
     };
