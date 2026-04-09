@@ -49,26 +49,24 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   } = useNotificationStore();
 
   const cleanupRef = useRef<(() => void) | null>(null);
-  const hasNavigatedRef = useRef(false);   // Prevents double navigation
+  const hasNavigatedRef = useRef(false);
+  const hasSetupRef = useRef(false);   // ←←← THIS STOPS MULTIPLE SETUPS
 
   const handleNotificationAction = useCallback((context: string, data: { [key: string]: any }) => {
-    if (hasNavigatedRef.current) return;   // Prevent multiple calls
+    if (hasNavigatedRef.current) return;
     hasNavigatedRef.current = true;
 
     log(`[${context}] Handling action. Full Data:`, data);
 
-    // Self-suppression
     const sId = data.senderId || data.userId;
     if (sId && user?.uid && String(sId) === String(user.uid)) {
       log('Suppressing self-notification');
       return;
     }
 
-    // Trust the backend URL first
     let finalUrl = String(data.url || data.ctaUrl || '');
 
     if (!finalUrl || finalUrl === '/') {
-      // Only fallback if backend didn't give us a URL
       const notificationType = String(data.notificationType || '');
       if (notificationType === 'chat' && data.chatId) {
         setNotificationChatId(data.chatId);
@@ -95,7 +93,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     log(`[${context}] Final Navigating URL: ${finalUrl}`);
     router.push(finalUrl);
 
-    // Reset navigation lock after a short delay
     setTimeout(() => { hasNavigatedRef.current = false; }, 1000);
   }, [router, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
 
@@ -144,7 +141,10 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
 
   useEffect(() => {
-    log("PushNotificationProvider useEffect triggered.");
+    if (loading || !user || hasSetupRef.current) return;   // ←←← STOPS MULTIPLE RUNS
+
+    hasSetupRef.current = true;
+    log("PushNotificationProvider useEffect triggered — setup running ONCE");
 
     const setupNotifications = async () => {
       if (Capacitor.isNativePlatform()) {
@@ -155,12 +155,10 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           if (permissionStatus.receive === 'granted') {
             await PushNotifications.register();
 
-            // ←←← THIS IS THE ONLY CHANGE I MADE
+            // Try to force toast-only in foreground (safe, no error if not supported)
             try {
-              (PushNotifications as any).setForegroundPresentationOptions({
-                presentationOptions: ["alert"]
-              });
-              log("Foreground set to toast-only (banner only in background/closed)");
+              (PushNotifications as any).setForegroundPresentationOptions({ presentationOptions: ["alert"] });
+              log("Foreground set to toast-only");
             } catch (e) {
               log("setForegroundPresentationOptions not supported on this plugin version");
             }
@@ -186,6 +184,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           logError('Error setting up native push:', error);
         }
       } else {
+        // PWA part unchanged
         log('Setting up PWA foreground notifications listener...');
         const isFCMSupported = await isSupported();
         if (!isFCMSupported || !messaging) return;
@@ -206,7 +205,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       }
     };
 
-    if (!loading && user) setupNotifications();
+    setupNotifications();
 
     return () => {
       if (cleanupRef.current) {
