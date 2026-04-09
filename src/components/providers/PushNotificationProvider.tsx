@@ -50,7 +50,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
   const cleanupRef = useRef<(() => void) | null>(null);
   const hasNavigatedRef = useRef(false);
-  const hasSetupRef = useRef(false);   // ←←← THIS STOPS MULTIPLE SETUPS
+  const hasSetupRef = useRef(false);   // ←←← ONLY THIS LINE WAS ADDED (stops duplicate setup)
 
   const handleNotificationAction = useCallback((context: string, data: { [key: string]: any }) => {
     if (hasNavigatedRef.current) return;
@@ -141,7 +141,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
 
   useEffect(() => {
-    if (loading || !user || hasSetupRef.current) return;   // ←←← STOPS MULTIPLE RUNS
+    if (loading || !user || hasSetupRef.current) return;   // ←←← ONLY THIS LINE WAS ADDED
 
     hasSetupRef.current = true;
     log("PushNotificationProvider useEffect triggered — setup running ONCE");
@@ -155,7 +155,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           if (permissionStatus.receive === 'granted') {
             await PushNotifications.register();
 
-            // Try to force toast-only in foreground (safe, no error if not supported)
+            // Safe call (no TS error)
             try {
               (PushNotifications as any).setForegroundPresentationOptions({ presentationOptions: ["alert"] });
               log("Foreground set to toast-only");
@@ -184,7 +184,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           logError('Error setting up native push:', error);
         }
       } else {
-        // PWA part unchanged
         log('Setting up PWA foreground notifications listener...');
         const isFCMSupported = await isSupported();
         if (!isFCMSupported || !messaging) return;
