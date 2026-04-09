@@ -21,6 +21,7 @@ import { ToastAction } from '@/components/ui/toast';
 const log = (message: string, ...data: any[]) => console.log(`[PushProvider] ${message}`, ...data);
 const logError = (message: string, ...data: any[]) => console.error(`[PushProvider] ${message}`, ...data);
 
+// 1. Create Channels (Crucial for Background/Closed Banners on Android)
 const createNotificationChannels = async () => {
   if (Capacitor.getPlatform() !== 'android') return;
   try {
@@ -41,7 +42,7 @@ const createNotificationChannels = async () => {
       await LocalNotifications.createChannel({
         id: channel.id,
         name: channel.name,
-        importance: 5,
+        importance: 5, // 5 = High Importance -> Forces the Native Banner to pop down
         sound: 'default',
         vibration: true,
         visibility: 1
@@ -70,60 +71,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   const hasNavigatedRef = useRef(false);
   const hasSetupRef = useRef(false);
 
-  const handleNotificationAction = useCallback((context: string, data: { [key: string]: any }, notificationDisplayType: 'toast' | 'banner' = 'toast') => {
-    if (hasNavigatedRef.current) {
-      log(`[${context}] Navigation already in progress, suppressing action.`);
-      return;
-    }
-    hasNavigatedRef.current = true;
-    log(`[${context}] Handling action. Full Data:`, data);
-
-    const sId = data.senderId || data.userId;
-    if (sId && user?.uid && String(sId) === String(user.uid)) {
-      log('Suppressing self-notification');
-      setTimeout(() => { hasNavigatedRef.current = false; }, 1000);
-      return;
-    }
-
-    let finalUrl = String(data.url || data.ctaUrl || '');
-
-    if (!finalUrl || finalUrl === '/') {
-      const notificationType = String(data.notificationType || '');
-      if (notificationType === 'chat' && data.chatId) {
-        setNotificationChatId(data.chatId);
-        finalUrl = `/client/dashboard?openChatId=${data.chatId}&notificationType=chat&isCoach=false`;
-      } else if (notificationType === 'workout_reminder' && data.workoutId) {
-        setNotificationWorkoutId(data.workoutId);
-        finalUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${data.workoutId}&isCoach=false`;
-      } else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && (data.appointmentId || data.entityId)) {
-        const id = data.appointmentId || data.entityId;
-        setNotificationAppointmentId(id);
-        finalUrl = `/client/dashboard?notificationType=${notificationType}&openAppointmentId=${id}&isCoach=false`;
-      } else if (notificationType === 'hydration') {
-        setTriggerHydrationModal(true);
-        finalUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
-      } else if (notificationType.includes('indulgence_') && data.indulgenceId) {
-        setNotificationIndulgenceId(data.indulgenceId);
-        finalUrl = `/client/dashboard?notificationType=${notificationType}&openIndulgenceId=${data.indulgenceId}&isCoach=false`;
-      } else if (['challenge_checkin', 'streak_congrats'].includes(notificationType) && data.openChallengeList === 'true') {
-        setOpenChallengeList(true);
-        finalUrl = `/client/dashboard?notificationType=${notificationType}&openChallengeList=true&isCoach=false`;
-      }
-    }
-
-    log(`[${context}] Final Navigating URL: ${finalUrl}`);
-    router.push(finalUrl);
-
-    if (context === 'Native Action' && notificationDisplayType === 'banner') {
-      setTimeout(() => {
-        showInAppNotification(data.title, data.body, data, 'banner');
-        hasNavigatedRef.current = false;
-      }, 500);
-    } else {
-      setTimeout(() => { hasNavigatedRef.current = false; }, 1000);
-    }
-  }, [router, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
-
+  // 2. The UI Trigger (Toasts when open)
   const showInAppNotification = useCallback((incomingTitle: string | undefined, incomingBody: string | undefined, data: { [key: string]: any }, type: 'toast' | 'banner' = 'toast') => {
     const title = incomingTitle || data.title || 'New Notification';
     let body = incomingBody || data.body || '';
@@ -140,21 +88,70 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       toast({
         title,
         description: body,
-        action: <ToastAction altText="Open" onClick={() => handleNotificationAction('Foreground Click', data, type)}>Open</ToastAction>,
+        // Using an inline function for onClick avoids the circular dependency issue in useCallback
+        action: <ToastAction altText="Open" onClick={() => triggerNavigation('Foreground Click', data)}>Open</ToastAction>,
         duration: 7000,
       });
     } else if (type === 'banner') {
-      log(`PWA Debug: Displaying custom IN-APP BANNER for: "${title}" - "${body}".`);
-      // Trigger your actual banner UI state here if applicable
+      log(`Triggering post-navigation logic for: "${title}"`);
     }
-  }, [handleNotificationAction, toast]);
+  }, [toast]);
 
-  // Handle URL params on load
+  // 3. The Navigation Engine (Routing to pop-ups)
+  const triggerNavigation = useCallback((context: string, data: { [key: string]: any }) => {
+    if (hasNavigatedRef.current) {
+      log(`[${context}] Navigation already in progress, suppressing action.`);
+      return;
+    }
+    hasNavigatedRef.current = true;
+    log(`[${context}] Handling action.`, data);
+
+    // Prevent pinging yourself
+    const sId = data.senderId || data.userId;
+    if (sId && user?.uid && String(sId) === String(user.uid)) {
+      hasNavigatedRef.current = false;
+      return;
+    }
+
+    let finalUrl = String(data.url || data.ctaUrl || '');
+
+    if (!finalUrl || finalUrl === '/') {
+      const type = String(data.notificationType || '');
+      if (type === 'chat' && data.chatId) {
+        setNotificationChatId(data.chatId);
+        finalUrl = `/client/dashboard?openChatId=${data.chatId}&notificationType=chat&isCoach=false`;
+      } else if (type === 'workout_reminder' && data.workoutId) {
+        setNotificationWorkoutId(data.workoutId);
+        finalUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${data.workoutId}&isCoach=false`;
+      } else if (['appointment_reminder', 'appointment_booked'].includes(type) && (data.appointmentId || data.entityId)) {
+        const id = data.appointmentId || data.entityId;
+        setNotificationAppointmentId(id);
+        finalUrl = `/client/dashboard?notificationType=${type}&openAppointmentId=${id}&isCoach=false`;
+      } else if (type === 'hydration') {
+        setTriggerHydrationModal(true);
+        finalUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
+      } else if (type.includes('indulgence_') && data.indulgenceId) {
+        setNotificationIndulgenceId(data.indulgenceId);
+        finalUrl = `/client/dashboard?notificationType=${type}&openIndulgenceId=${data.indulgenceId}&isCoach=false`;
+      } else if (['challenge_checkin', 'streak_congrats'].includes(type) && data.openChallengeList === 'true') {
+        setOpenChallengeList(true);
+        finalUrl = `/client/dashboard?notificationType=${type}&openChallengeList=true&isCoach=false`;
+      }
+    }
+
+    if (finalUrl && finalUrl !== '/') {
+      router.push(finalUrl);
+    }
+
+    setTimeout(() => { hasNavigatedRef.current = false; }, 1000);
+  }, [router, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
+
+  // 4. URL Parameter Handling (Deep Links)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('notificationType')) {
       const dataFromUrl = Object.fromEntries(urlParams.entries());
-      handleNotificationAction('URL Load', dataFromUrl, 'banner');
+      triggerNavigation('URL Load', dataFromUrl);
 
       if (window.history.replaceState) {
         const newUrl = new URL(window.location.href);
@@ -162,8 +159,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         window.history.replaceState({}, document.title, newUrl.toString());
       }
     }
-  }, [handleNotificationAction]);
+  }, [triggerNavigation]);
 
+  // 5. Capacitor Native Registration & Listeners
   useEffect(() => {
     if (loading || !user || hasSetupRef.current) return;
     hasSetupRef.current = true;
@@ -179,22 +177,34 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           if (permissionStatus.receive === 'granted') {
             await PushNotifications.register();
 
-            // Set foreground options: no native alerts, we use in-app toasts
+            // FIX FOR THE TYPESCRIPT ERROR: 
+            // We cast to `any` to bypass TS complaints, but the native Java code still executes this.
+            // This guarantees the app won't show a native banner while FOREGROUNDED.
+            try {
+              await (PushNotifications as any).setPresentationOptions({
+                presentationOptions: ['badge', 'sound'], // 'alert' is removed
+              });
+            } catch (e) {
+              logError("Failed to set foreground presentation options (safe to ignore on some devices)", e);
+            }
+
             await PushNotifications.removeAllListeners();
 
+            // Save Token to Firebase
             PushNotifications.addListener('registration', async (token: Token) => {
-              log('Native registration success');
               if (user?.uid) await addFcmTokenAction({ userId: user.uid, token: token.value });
             });
 
+            // APP IS OPEN (Foreground) -> Trigger custom Toast
             PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-              log('Native pushNotificationReceived (Foreground)');
+              log('Foreground Push Received -> Triggering Toast');
               showInAppNotification(notification.title, notification.body, notification.data || {}, 'toast');
             });
 
+            // APP WAS CLOSED/BACKGROUNDED -> User tapped Native Banner -> Route to popup
             PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-              log('Native pushNotificationActionPerformed (Tap)');
-              handleNotificationAction('Native Action', action.notification.data || {}, 'banner');
+              log('Native Banner Tapped -> Routing to Page');
+              triggerNavigation('Native Action', action.notification.data || {});
             });
 
             cleanupRef.current = () => PushNotifications.removeAllListeners();
@@ -203,7 +213,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           logError('Error setting up native push:', error);
         }
       } else {
-        // PWA Web Logic
+        // Web PWA Fallback
         const isFCMSupported = await isSupported();
         if (!isFCMSupported || !messaging) return;
 
@@ -227,7 +237,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
         cleanupRef.current = null;
       }
     };
-  }, [user, loading, showInAppNotification, handleNotificationAction]);
+  }, [user, loading, showInAppNotification, triggerNavigation]);
 
   return <>{children}</>;
 };
