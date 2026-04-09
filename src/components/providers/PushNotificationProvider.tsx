@@ -155,6 +155,16 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           if (permissionStatus.receive === 'granted') {
             await PushNotifications.register();
 
+            // ←←← THIS IS THE ONLY CHANGE I MADE
+            try {
+              (PushNotifications as any).setForegroundPresentationOptions({
+                presentationOptions: ["alert"]
+              });
+              log("Foreground set to toast-only (banner only in background/closed)");
+            } catch (e) {
+              log("setForegroundPresentationOptions not supported on this plugin version");
+            }
+
             PushNotifications.addListener('registration', async (token: Token) => {
               log('Native registration success, token:', token.value.substring(0,10) + '...');
               if (user?.uid) await addFcmTokenAction({ userId: user.uid, token: token.value });
