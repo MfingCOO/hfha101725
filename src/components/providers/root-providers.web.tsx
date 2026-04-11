@@ -45,6 +45,13 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  const MainContent = () => (
+    <>
+      {children}
+      <NotificationsDialog />
+    </>
+  );
+
   return (
     <QueryProvider>
       <AuthProvider>
@@ -57,8 +64,13 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
               <Suspense fallback={null}>
                 <ChatProvider> 
                   <PushNotificationProvider> 
-                    {children}
-                    <NotificationsDialog /> 
+                    {Capacitor.isNativePlatform() ? (
+                      <AdBannerProvider>
+                        <MainContent />
+                      </AdBannerProvider>
+                    ) : (
+                      <MainContent />
+                    )}
                   </PushNotificationProvider>
                 </ChatProvider>
               </Suspense>
@@ -68,9 +80,6 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
             <SonnerToaster position="top-center" expand={true} richColors /> 
           </DataEntryModalProvider>
         </AppCheckProvider>
-
-        {/* This will naturally resolve to false on web, preventing AdBanner from loading */}
-        {Capacitor.isNativePlatform() && <AdBannerProvider />} 
       </AuthProvider>
     </QueryProvider>
   );

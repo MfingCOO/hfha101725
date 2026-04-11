@@ -3,6 +3,7 @@ import { Home, Calendar, MessageSquare, Trophy } from "lucide-react";
 import Link from "next/link";
 import { useDashboardActions, useDashboardState } from "@/contexts/DashboardActionsContext";
 import { useChatModalStore } from "@/store/ui-store";
+import { useAdBanner } from "../providers/AdBannerProvider";
 
 interface NavItem {
     href: string;
@@ -19,6 +20,7 @@ export default function BottomNavBar() {
         onOpenChallenges,
     } = useDashboardActions();
     const { openModal: openChatModal } = useChatModalStore();
+    const { adBannerHeight } = useAdBanner();
 
     const navItems: NavItem[] = [
         { href: "/client/dashboard", label: "Home", icon: Home },
@@ -48,7 +50,10 @@ export default function BottomNavBar() {
     }
 
     return (
-        <footer className="fixed bottom-0 left-0 right-0 bg-background border-t z-[9999] md:hidden">
+        <footer 
+            className="fixed bottom-0 left-0 right-0 bg-background border-t z-[9999] md:hidden"
+            style={{ bottom: `${adBannerHeight}px` }}
+        >
             <nav className="flex justify-around items-center h-16">
                 {navItems.map((item) => {
                     const isLink = item.href !== "#";

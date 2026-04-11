@@ -35,6 +35,7 @@ import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
 import { useNotificationStore } from '@/store/notification-store';
 import { AppointmentDetailDialog } from '../calendar/AppointmentDetailDialog';
 import { WorkoutActionDialog } from '../calendar/WorkoutActionDialog';
+import { useAdBanner } from '../providers/AdBannerProvider';
 
 export interface Pillar {
   id: string;
@@ -82,6 +83,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const { toast } = useToast();
   const { modalType, closeModal, openModal } = useDataEntryModal();
   const { notificationChatId, notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
+  const { adBannerHeight } = useAdBanner();
+
 
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
   const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
@@ -441,7 +444,15 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     );
   };
 
-  return ( <div className="space-y-6 pb-10"> <div> <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2> <p className="text-base sm:text-lg text-muted-foreground"> “{quoteOfTheDay}” </p> </div>
+  return ( 
+    <div 
+      className="space-y-6" 
+      style={{ paddingBottom: `${adBannerHeight + 80}px` }}
+    >
+      <div> 
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2> 
+        <p className="text-base sm:text-lg text-muted-foreground"> “{quoteOfTheDay}” </p> 
+      </div>
 
     <div className="flex justify-around">
       {topRowButtons.map(renderPillarButton)}
