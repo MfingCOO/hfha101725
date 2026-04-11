@@ -13,7 +13,6 @@ interface NavItem {
 }
 
 export default function BottomNavBar() {
-    console.log('Rendering BottomNavBar...'); // DEBUG LINE
     const { unreadChatCount } = useDashboardState();
     const {
         onOpenCalendar,
@@ -49,7 +48,7 @@ export default function BottomNavBar() {
     }
 
     return (
-        <footer className="fixed bottom-0 left-0 right-0 bg-background border-t z-50 md:hidden">
+        <footer className="fixed bottom-0 left-0 right-0 bg-background border-t z-[9999] md:hidden">
             <nav className="flex justify-around items-center h-16">
                 {navItems.map((item) => {
                     const isLink = item.href !== "#";
