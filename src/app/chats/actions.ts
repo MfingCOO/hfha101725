@@ -524,7 +524,7 @@ const PostMessageInputSchema = z.object({
   userName: z.string(),
   fileUrl: z.string().optional(),
   fileName: z.string().optional(),
-  mentions: z.array(z.string()).optional(),   // ← restored mentions support
+  mentions: z.array(z.string()).optional(),
 });
 
 export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>): Promise<{ success: boolean; error?: { message: string; }; }> {
@@ -536,6 +536,9 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
         const chatDocRef = adminDb.collection('chats').doc(chatId);
         const sentTimestamp = Timestamp.now();
 
+        // SURGICAL FIX: Sanitize the notification text
+        const notificationText = text ? text.replace(/@\[([^\]]+)\]\([^)]+\)/g, '@$1') : (fileName ? 'Sent an attachment' : 'Sent a message');
+
         await adminDb.runTransaction(async (transaction) => {
             const chatSnapshot = await transaction.get(chatDocRef);
             if (!chatSnapshot.exists) throw new Error("Chat does not exist.");
@@ -546,8 +549,8 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
                 userName,
                 timestamp: sentTimestamp,
                 isSystemMessage: false,
+                text: notificationText,
             };
-            if(text) messageData.text = text;
             if(fileUrl) messageData.fileUrl = fileUrl;
             if(fileName) messageData.fileName = fileName;
             if(mentions && mentions.length > 0) messageData.mentions = mentions;

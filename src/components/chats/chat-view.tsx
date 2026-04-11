@@ -40,11 +40,32 @@ import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capa
 function FormattedMessage({ text }: { text: string }) {
     if (!text) return '';
 
-    // Replace @[Name](UID) with a HIGH-CONTRAST pill that is readable in ALL bubbles
-    return text.replace(/@\[([^\]]+)\]\([^)]+\)/g, (match, name) => {
-        return `<span class="inline-block bg-amber-300 text-black font-semibold px-1.5 py-0.5 rounded-md">@${name}</span>`;
+    const mentions = new Map<string, string>();
+    let mentionIndex = 0;
+
+    // 1. Find mentions and replace them with a temporary placeholder
+    let processedText = text.replace(/@\[([^\]]+)\]\([^)]+\)/g, (match, name) => {
+        const placeholder = `__MENTION_${mentionIndex}__`;
+        const mentionHtml = `<span class="inline-block bg-amber-300 text-black font-semibold px-1.5 py-0.5 rounded-md">@${name}</span>`;
+        mentions.set(placeholder, mentionHtml);
+        mentionIndex++;
+        return placeholder;
     });
+
+    // 2. Now, find URLs and wrap them in anchor tags
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    processedText = processedText.replace(urlRegex, (url) => 
+        `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline hover:text-blue-300">${url}</a>`
+    );
+
+    // 3. Finally, restore the mentions from the placeholders
+    mentions.forEach((html, placeholder) => {
+        processedText = processedText.replace(placeholder, html);
+    });
+
+    return processedText;
 }
+
 
 function LinkifiedText({ text }: { text: string }) {
     if (!text) return null;
