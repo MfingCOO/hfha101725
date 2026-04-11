@@ -42,7 +42,7 @@ const createNotificationChannels = async () => {
       await LocalNotifications.createChannel({
         id: channel.id,
         name: channel.name,
-        importance: 5, // 5 = High Importance -> Forces the Native Banner to pop down
+        importance: 3, // 3 = Default Importance. Prevents pop-down banner when app is open.
         sound: 'default',
         vibration: true,
         visibility: 1

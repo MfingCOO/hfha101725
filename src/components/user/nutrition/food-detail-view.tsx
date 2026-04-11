@@ -24,7 +24,6 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
   const [quantity, setQuantity] = React.useState('');
   const [selectedPortion, setSelectedPortion] = React.useState<PortionSize | undefined>(availablePortions[0]);
 
-  // SURGICAL FIX 1: Use parseFloat to correctly handle decimal input for the button state.
   const canAddItem = !!selectedPortion && parseFloat(quantity) > 0;
 
   React.useEffect(() => {
@@ -36,7 +35,6 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
     if (!food.nutrients) {
       return { protein: 0, carbs: 0, fat: 0, calories: 0, fiber: 0 };
     }
-    // SURGICAL FIX 2: Use parseFloat for display calculation, defaulting to 1 for an empty input.
     const displayQuantity = parseFloat(quantity) || 1;
     const getNutrientValue = (name: string) => {
       const nutrient = food.nutrients.find(n => n.name.toLowerCase() === name.toLowerCase());
@@ -59,7 +57,6 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
 
     const mealItem: MealItem = {
         ...food,
-        // SURGICAL FIX 3: Use parseFloat to save the correct decimal value.
         quantity: parseFloat(quantity),
         unit: selectedPortion.description,
         calories: calculatedNutrients.calories,
@@ -88,8 +85,8 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
         <Button variant="ghost" size="icon" onClick={onBack} className="mr-2">
           <ArrowLeft />
         </Button>
-        <div className="flex-1 truncate">
-            <h2 className="text-xl font-bold truncate">{food.description}</h2>
+        <div className="flex-1">
+          <h2 className="text-base font-bold">{food.description}</h2>
             <div className="flex items-center gap-2 mt-1">
                 {upfBadgeProps && <Badge className={cn(upfBadgeProps.className, 'border-2')}>{upfBadgeProps.label}</Badge>}
                 {isGlutenFree && <Badge className="bg-blue-100 text-blue-900 border-blue-200 border-2">Gluten-Free</Badge>}

@@ -166,7 +166,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
                     isOpen={open}
                     onClose={() => onOpenChange(false)}
                     title={isEditing ? 'Edit Pop-up Campaign' : 'Create New Pop-up Campaign'}
-                    className="max-w-2xl"
+                    className="w-[95vw] sm:max-w-2xl"
                     footer={
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

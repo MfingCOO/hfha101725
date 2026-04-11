@@ -38,7 +38,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
   const [isDownloading, setIsDownloading] = useState(false);
 
   const [isReviewMode, setIsReviewMode] = useState(false);
-  const [reviewItems, setReviewItems] = useState<EnrichedFood[]>([]);
+  const [reviewItems, setReviewItems] = useState<(EnrichedFood & { createdByUsername?: string })[]>([]);
   const { user } = useAuth();
 
   const performSearch = useCallback(async () => {
@@ -125,7 +125,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
 
         const escapeCsvField = (field: any): string => {
             const stringField = String(field ?? '');
-            return `"${stringField.replace(/"/g, '""')}`;
+            return `"${stringField.replace(/"/g, '""')}"`;
         };
         
         const csvRows = allFoodsForCsv.map(food => {
@@ -216,7 +216,7 @@ export function ManageFoodCacheDialog({ open, onOpenChange }: ManageFoodCacheDia
                     <div key={food.fdcId} className="p-3 border rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                         <div>
                             <p className="font-semibold">{food.description}</p>
-                            <p className="text-sm text-muted-foreground">{food.brandOwner || 'No brand'} - Submitted by user {food.createdBy?.substring(0,5)}...</p>
+                            <p className="text-sm text-muted-foreground">{food.brandOwner || 'No brand'} - Submitted by {food.createdByUsername}</p>
                         </div>
                         <Button variant='secondary' onClick={() => handleOpenEditorModal(food.fdcId)} className="self-end sm:self-center">Review & Edit</Button>
                     </div>

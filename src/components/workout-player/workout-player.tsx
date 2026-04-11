@@ -10,7 +10,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Label } from "@/components/ui/label";
 import { CheckCircle, Play, Pause, SkipForward, Info } from 'lucide-react';
 import { useWorkoutEngine } from '@/hooks/use-workout-engine';
 import { formatTime, extractExerciseIds } from '@/lib/utils';
@@ -48,6 +50,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
     const engine = useWorkoutEngine(workout);
     const [exercises, setExercises] = useState<Map<string, Exercise>>(new Map());
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [notes, setNotes] = useState("");
     const hasStartedRef = useRef(false);
 
     useEffect(() => {
@@ -91,16 +94,16 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
             workoutId: workout.id,
             programId: programId || null,
             completedAt: new Date(),
-            duration: engine.elapsedTime, // This is the ACTUAL time taken, which is correct for the detailed log
+            duration: engine.elapsedTime,
             performance: engine.performanceData,
+            notes: notes,
         };
 
         const result = await completeWorkoutAction({
             userId: userProfile.uid,
             workoutId: workout.id,
             startTime: engine.startTime ? new Date(engine.startTime) : new Date(),
-            // --- FIX: Use the coach-defined duration for the calendar activity log ---
-            duration: workout.duration || 0, 
+            duration: workout.duration || 0,
             performanceLog: performanceLog,
             programId: programId,
             calendarEventId: calendarEventId,
@@ -115,14 +118,14 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
             toast({ variant: 'destructive', title: 'Logging Failed', description: result.error || 'Could not save your workout performance.' });
             setIsSubmitting(false); 
         }
-    }, [workout, userProfile, isSubmitting, programId, calendarEventId, engine, toast]);
+    }, [workout, userProfile, isSubmitting, programId, calendarEventId, engine, toast, notes]);
 
     useEffect(() => {
-        if (engine.status === 'finished') {
-            completeAndLogWorkout();
+        if (engine.status === 'finished' && !isSubmitting) {
+            // The view will change to FinishedView, which now contains the "Save" button.
+            // The actual submission is triggered by the user.
         }
-    }, [engine.status, completeAndLogWorkout]);
-
+    }, [engine.status, isSubmitting]);
 
     const currentExerciseBlock = useMemo(() => engine.currentBlock?.type === 'exercise' ? (engine.currentBlock as ExerciseBlock) : null, [engine.currentBlock]);
     const currentExercise = useMemo(() => currentExerciseBlock ? exercises.get(currentExerciseBlock.exerciseId) : null, [currentExerciseBlock, exercises]);
@@ -138,7 +141,7 @@ export function WorkoutPlayer({ isOpen, onClose, workout, userProfile, programId
                 if (!currentExercise || !engine.currentSet) return <p>Loading exercise...</p>;
                 return <RepBasedView key={engine.currentBlock.id} exercise={currentExercise} set={engine.currentSet} onComplete={engine.completeSet} unitSystem={userProfile.unitSystem || 'metric'} groupInfo={currentExerciseBlock?.groupInfo} />;
             case 'paused': return <PausedView onResume={engine.resumeWorkout} />;
-            case 'finished': return <FinishedView workoutName={workout.name} />;
+            case 'finished': return <FinishedView workoutName={workout.name} notes={notes} setNotes={setNotes} onSave={completeAndLogWorkout} isSaving={isSubmitting} />;
             case 'empty': return <EmptyWorkoutView workoutName={workout.name}/>;
             default: return <p>Preparing your workout...</p>;
         }
@@ -283,12 +286,24 @@ const PausedView = ({ onResume }: { onResume: () => void }) => (
     </div>
 );
 
-const FinishedView = ({ workoutName }: { workoutName: string }) => (
+const FinishedView = ({ workoutName, notes, setNotes, onSave, isSaving }: { workoutName: string, notes: string, setNotes: (notes: string) => void, onSave: () => void, isSaving: boolean }) => (
     <div className="flex flex-col items-center justify-center h-full text-center">
         <CheckCircle className="h-20 w-20 text-green-500 mb-6" />
         <h2 className="text-4xl font-bold mb-2">Workout Complete!</h2>
         <p className="text-lg text-muted-foreground mb-8">You crushed the <span className='font-semibold'>{workoutName}</span> workout.</p>
-        <p className='text-sm text-muted-foreground'>Your performance is being logged.</p>
+        <div className="w-full max-w-sm">
+            <Label htmlFor="workout-notes" className="sr-only">Workout Notes</Label>
+            <Textarea
+                id="workout-notes"
+                placeholder="Add any notes about your workout..."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="mb-4"
+            />
+            <Button onClick={onSave} disabled={isSaving} className="w-full">
+                {isSaving ? 'Saving...' : 'Save & Finish'}
+            </Button>
+        </div>
     </div>
 );
 

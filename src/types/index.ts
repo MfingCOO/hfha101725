@@ -238,6 +238,7 @@ export interface ChatMessage {
     fileUrl?: string;
     fileName?: string;
     senderId?: string; 
+    reactions?: { [emoji: string]: string[] };
 }
 
 // --- POPUPS & EVENTS ---
@@ -389,6 +390,7 @@ export const MealItemSchema = EnrichedFoodSchema.extend({
     quantity: z.number(),
     unit: z.string(),
     calories: z.number(),
+    notes: z.string().optional(),
 });
 export type MealItem = z.infer<typeof MealItemSchema>;
 

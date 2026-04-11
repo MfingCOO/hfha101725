@@ -5,9 +5,10 @@ import { cn } from '@/lib/utils';
 
 // A more generic type that is compatible with both EnrichedFood and FoodSearchResult
 interface FoodDisplayItem {
-    fdcId?: number; // FIX: fdcId is optional to match the incoming data type
+    fdcId?: number;
     description?: string;
     brandOwner?: string;
+    notes?: string;
 }
 
 interface FoodItemRowProps {

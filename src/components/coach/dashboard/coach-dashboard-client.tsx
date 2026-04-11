@@ -20,11 +20,12 @@ import { EmbeddedChatDialog } from '@/components/coach/chats/embedded-chat-dialo
 import { getCoachingChatIdForClient, getChatDetailsAction } from "@/app/coach/clients/actions";
 import { CoachCalendarDialog } from "@/app/coach/calendar/CoachCalendarDialog";
 import { ManageFoodCacheDialog } from '@/components/coach/food-cache/manage-food-cache-dialog';
-import { getUnreviewedUserFoods } from '@/app/coach/food-cache/actions';
+import { getUnreviewedUserFoodCount } from '@/app/coach/food-cache/actions';
 import { ModerationDialog } from '@/components/coach/dialogs/ModerationDialog';
 import { getPendingReportsCountAction } from '@/app/actions/moderation-actions';
 import { getUnreadChatCountForCoach } from "@/app/chats/actions";
 import { useNotificationStore } from '@/store/notification-store';
+import { ManagePrerecordedWorkoutsDialog } from '@/components/coach/workout-library/ManagePrerecordedWorkoutsDialog';
 
 interface CoachDashboardClientProps {
     initialClients: ClientProfile[];
@@ -51,6 +52,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [isFoodCacheOpen, setIsFoodCacheOpen] = useState(false);
     const [isModerationOpen, setIsModerationOpen] = useState(false);
+    const [isLibraryOpen, setIsLibraryOpen] = useState(false);
     const [isChatDialogOpen, setIsChatDialogOpen] = useState(false);
     const [selectedChatInfo, setSelectedChatInfo] = useState<{ id: string; name: string } | null>(null);
     const [isFetchingChatId, setIsFetchingChatId] = useState(false);
@@ -59,9 +61,15 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
     const [unreadChatCount, setUnreadChatCount] = useState(0);
     const [isMounted, setIsMounted] = useState(false);
 
+    const refreshPendingFoodCount = useCallback(async () => {
+        const count = await getUnreviewedUserFoodCount();
+        setPendingFoodCount(count);
+    }, []);
+
     useEffect(() => {
         setIsMounted(true);
-    }, []);
+        refreshPendingFoodCount();
+    }, [refreshPendingFoodCount]);
 
     // SURGICALLY FIXED: This useEffect now ONLY sets state in the notification store.
     // It no longer contains the conflicting logic that opens the chat dialog directly.
@@ -110,12 +118,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             setIsLoading(false);
         }
     }, [user, toast, searchTerm, tierFilter]);
-
-    const refreshPendingFoodCount = useCallback(async () => {
-        const unreviewedFoods = await getUnreviewedUserFoods();
-        setPendingFoodCount(unreviewedFoods.length);
-    }, []);
-
+    
     const refreshPendingReportCount = useCallback(async () => {
         if (!user?.uid) return;
         const result = await getPendingReportsCountAction(user.uid);
@@ -123,11 +126,11 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             setPendingReportCount(result.count ?? 0);
         }
     }, [user?.uid]);
-
+    
     useEffect(() => {
         if (!isModerationOpen) { refreshPendingReportCount(); }
     }, [isModerationOpen, refreshPendingReportCount]);
-
+    
     useEffect(() => {
         if (!user) return;
         const fetchUnreadCount = async () => {
@@ -176,7 +179,7 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
         { label: 'Chats', icon: MessageSquare, action: () => setIsChatsOpen(true), count: unreadChatCount },
         { label: 'Challenges', icon: Trophy, action: () => setIsChallengesOpen(true) },
         { label: 'Pop-ups', icon: Megaphone, action: () => setIsPopupsOpen(true) },
-        { label: 'Future', icon: Library, action: () => {} }, 
+        { label: 'Library', icon: Library, action: () => setIsLibraryOpen(true) }, 
         { label: 'Calendar', icon: Calendar, action: () => setIsCalendarOpen(true) },
         { label: 'Food Cache', icon: Database, action: () => setIsFoodCacheOpen(true), count: pendingFoodCount },
     ];
@@ -238,8 +241,9 @@ export function CoachDashboardClient({ initialClients, pendingFoodCount: initial
             <ManageChallengesDialog open={isChallengesOpen} onOpenChange={setIsChallengesOpen} />
             <ManagePopupsDialog open={isPopupsOpen} onOpenChange={setIsPopupsOpen} />
             <CoachCalendarDialog open={isCalendarOpen} onOpenChange={setIsCalendarOpen} />
-            <ManageFoodCacheDialog open={isFoodCacheOpen} onOpenChange={setIsFoodCacheOpen} />
+            <ManageFoodCacheDialog open={isFoodCacheOpen} onOpenChange={(isOpen) => { setIsFoodCacheOpen(isOpen); if (!isOpen) refreshPendingFoodCount(); }} />
             <ModerationDialog isOpen={isModerationOpen} onClose={() => setIsModerationOpen(false)} />
+            <ManagePrerecordedWorkoutsDialog isOpen={isLibraryOpen} onOpenChange={setIsLibraryOpen} />
         </>
     );
 }

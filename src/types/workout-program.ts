@@ -111,4 +111,5 @@ export interface PerformanceLog {
       reps: number;
       weight: number;
   }[];
+  notes?: string;
 }

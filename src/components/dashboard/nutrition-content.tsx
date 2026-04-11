@@ -8,6 +8,7 @@ import { PlusCircle } from 'lucide-react';
 import { type EnrichedFood, NovaGroup } from '@/types/nutrition';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Textarea } from '../ui/textarea';
 import { cn } from '@/lib/utils';
 import { useAuth } from '../auth/auth-provider';
 import { BaseModal } from '../ui/base-modal';
@@ -42,6 +43,7 @@ export interface UIMealItem {
     upf: UIDetectUpfOutput | null;
     quantity: number;
     unit: string;
+    notes?: string;
 }
 
 const getClassificationFromNova = (novaGroup?: NovaGroup): 'red' | 'yellow' | 'green' => {
@@ -152,7 +154,7 @@ export const NutritionContent = ({ onFormStateChange, formState }: ContentProps)
     const { user } = useAuth();
     const router = useRouter(); // DEFINITIVE FIX: Get router to force refresh
 
-    const { mealType = 'snack', hungerBefore = 5, items = [] } = formState || {};
+    const { mealType = 'snack', hungerBefore = 5, items = [], notes = '' } = formState || {};
 
     const handleFieldChange = (field: string, value: any) => {
         onFormStateChange({ [field]: value });
@@ -256,6 +258,10 @@ export const NutritionContent = ({ onFormStateChange, formState }: ContentProps)
                 <Button variant="outline" className="w-full" onClick={() => setIsSearchOpen(true)}>
                     <PlusCircle className="mr-2 h-4 w-4" /> Add Food to Meal
                 </Button>
+                <div className="space-y-1">
+                    <Label htmlFor="notes">Notes</Label>
+                    <Textarea id="notes" value={notes} onChange={e => handleFieldChange('notes', e.target.value)} placeholder="Add any notes about this meal..." />
+                </div>
             </div>
 
             {isSearchOpen && user && (

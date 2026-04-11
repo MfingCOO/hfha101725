@@ -106,7 +106,7 @@ export function CreateExerciseDialog({ isOpen, onClose, onExerciseSaved, exercis
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="w-[95vw] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{isEditMode ? 'Edit Exercise' : 'Create New Exercise'}</DialogTitle>
           <DialogDescription>

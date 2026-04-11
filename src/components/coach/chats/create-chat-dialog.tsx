@@ -112,7 +112,7 @@ export function CreateChatDialog({ open, onOpenChange, onChatCreated, clients }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl w-[90vw] h-[90vh] flex flex-col">
+      <DialogContent className="w-[95vw] sm:max-w-2xl h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Create a New Chat</DialogTitle>
           <DialogDescription>

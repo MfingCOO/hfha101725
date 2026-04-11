@@ -15,6 +15,7 @@ import { WorkoutPlayer } from '@/components/workout-player/workout-player';
 import { ProgramBrowserDialog } from './ProgramBrowserDialog';
 import { WorkoutOverviewDialog } from './WorkoutOverviewDialog';
 import { FullWorkoutHistoryDialog } from './FullWorkoutHistoryDialog';
+import { PreRecordedWorkoutsDialog } from './PreRecordedWorkoutsDialog';
 
 interface ProgramHubDialogProps {
   isOpen: boolean;
@@ -34,6 +35,7 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
   const [workoutToPreview, setWorkoutToPreview] = useState<Workout | null>(null);
   const [isBrowserOpen, setIsBrowserOpen] = useState(false);
   const [isFullHistoryOpen, setIsFullHistoryOpen] = useState(false);
+  const [isPrerecordedOpen, setIsPrerecordedOpen] = useState(false);
   const [refetchTrigger, setRefetchTrigger] = useState(0);
   const { toast } = useToast();
 
@@ -137,7 +139,7 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
     }
   };
 
-  const mainDialogOpen = isOpen && !workoutToPlay && !isBrowserOpen && !workoutToPreview && !isFullHistoryOpen;
+  const mainDialogOpen = isOpen && !workoutToPlay && !isBrowserOpen && !workoutToPreview && !isFullHistoryOpen && !isPrerecordedOpen;
 
   return (
     <>
@@ -224,11 +226,17 @@ export function ProgramHubDialog({ isOpen, onClose }: ProgramHubDialogProps) {
           <DialogFooter className="pt-4 border-t">
             <div className="flex flex-col w-full space-y-2">
                 <Button variant="secondary" onClick={() => setIsFullHistoryOpen(true)}>View Full History</Button>
+                <Button onClick={() => setIsPrerecordedOpen(true)}>Prerecorded Workouts</Button>
                 <Button variant="outline" onClick={() => setIsBrowserOpen(true)}>Browse Other Programs</Button>
             </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      <PreRecordedWorkoutsDialog 
+        isOpen={isPrerecordedOpen}
+        onClose={() => setIsPrerecordedOpen(false)}
+      />
 
       <ProgramBrowserDialog 
         isOpen={isBrowserOpen}

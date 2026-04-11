@@ -15,7 +15,7 @@ import {
   GlutenAnalysisSchema,
   PortionSizesSchema,
 } from '@/types/nutrition';
-import { HybridFoodSearchResult } from '@/types/index';
+import { HybridFoodSearchResult, ClientProfile } from '@/types/index';
 import { z } from 'zod';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { algoliaAdmin } from '@/lib/algoliaAdmin';
@@ -753,11 +753,10 @@ export async function bulkSaveFoodsToCache(formData: FormData): Promise<{ succes
     };
 }
 
-export async function getUnreviewedUserFoods(): Promise<EnrichedFood[]> {
+export async function getUnreviewedUserFoods(): Promise<(EnrichedFood & { createdByUsername?: string })[]> {
     try {
         const snapshot = await adminDb.collection('global-food-cache')
             .where('source', '==', 'USER_PROVIDED')
-            // .orderBy('createdAt', 'desc') // This query requires a composite index. Sorting in-memory instead.
             .get();
 
         if (snapshot.empty) {
@@ -765,13 +764,30 @@ export async function getUnreviewedUserFoods(): Promise<EnrichedFood[]> {
         }
 
         const foods = snapshot.docs.map(doc => convertTimestampsToISO(doc.data()) as EnrichedFood);
-        // Manually sort by creation date descending, as we can't use the composite index
-foods.sort((a, b) => {
-    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return dateB - dateA;
-});
-        return foods;
+        
+        const userIds = [...new Set(foods.map(food => food.createdBy).filter(Boolean))];
+        const userProfiles: Record<string, string> = {};
+
+        if (userIds.length > 0) {
+            const usersSnapshot = await adminDb.collection('clients').where('uid', 'in', userIds).get();
+            usersSnapshot.forEach(doc => {
+                const client = doc.data() as ClientProfile;
+                userProfiles[client.uid] = client.fullName;
+            });
+        }
+        
+        const foodsWithUsernames = foods.map(food => ({
+            ...food,
+            createdByUsername: food.createdBy ? userProfiles[food.createdBy] || food.createdBy : 'Unknown',
+        }));
+
+        foodsWithUsernames.sort((a, b) => {
+            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return dateB - dateA;
+        });
+
+        return foodsWithUsernames;
     } catch (error) {
         console.error("[Server Action] Failed to fetch unreviewed user foods:", error);
         throw new Error("Failed to fetch unreviewed foods.");

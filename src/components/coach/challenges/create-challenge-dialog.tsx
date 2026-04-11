@@ -227,7 +227,7 @@ export function CreateChallengeDialog({ open, onOpenChange, onChallengeUpserted,
         onClose={() => onOpenChange(false)}
         title={isEditing ? 'Edit Community Challenge' : 'Create New Community Challenge'}
         description={isEditing ? 'Update the details for this challenge.' : 'Design an engaging challenge to motivate your community.'}
-        className="max-w-4xl"
+        className="w-[95vw] sm:max-w-4xl"
     >
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)}>

@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/components/auth/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Send, Paperclip, XCircle, FileText, Trash2, Flag, Camera, Image as ImageIcon } from 'lucide-react'; // ADDED Camera and ImageIcon
+import { Loader2, Send, Paperclip, XCircle, FileText, Trash2, Flag, Camera, Image as ImageIcon, Smile } from 'lucide-react';
 import { ChatMessage, ClientProfile } from '@/types';
-import { postMessageAction, deleteMessageAction, uploadChatImageAction, markChatAsReadAction, getChatMessagesAction } from '@/app/chats/actions';
+import { postMessageAction, deleteMessageAction, uploadChatImageAction, markChatAsReadAction, getChatMessagesAction, addReactionAction } from '@/app/chats/actions';
 import { reportMessageAction } from '@/app/actions/moderation-actions';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -26,10 +26,25 @@ import {
 import { onSnapshot, collection, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { MentionsInput, Mention } from 'react-mentions';
+// import './mention-styles.css';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 // Capacitor Imports
-import { Capacitor } from '@capacitor/core'; // ADDED Capacitor
-import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera'; // Renamed to CapacitorCamera
+import { Capacitor } from '@capacitor/core';
+import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
+
+// ================================================
+// FIXED: FORMATTED MESSAGE (no UID, high contrast tags)
+// ================================================
+function FormattedMessage({ text }: { text: string }) {
+    if (!text) return '';
+
+    // Replace @[Name](UID) with a HIGH-CONTRAST pill that is readable in ALL bubbles
+    return text.replace(/@\[([^\]]+)\]\([^)]+\)/g, (match, name) => {
+        return `<span class="inline-block bg-amber-300 text-black font-semibold px-1.5 py-0.5 rounded-md">@${name}</span>`;
+    });
+}
 
 function LinkifiedText({ text }: { text: string }) {
     if (!text) return null;
@@ -64,20 +79,14 @@ const resizeImage = (file: File): Promise<File> => {
             const img = new (window as any).Image();
             img.src = event.target?.result as string;
             img.onload = () => {
-                const MAX_DIMENSION = 1024; // Max width or height
+                const MAX_DIMENSION = 1024;
                 let width = img.width;
                 let height = img.height;
 
                 if (width > height) {
-                    if (width > MAX_DIMENSION) {
-                        height *= MAX_DIMENSION / width;
-                        width = MAX_DIMENSION;
-                    }
+                    if (width > MAX_DIMENSION) height *= MAX_DIMENSION / width, width = MAX_DIMENSION;
                 } else {
-                    if (height > MAX_DIMENSION) {
-                        width *= MAX_DIMENSION / height;
-                        height = MAX_DIMENSION;
-                    }
+                    if (height > MAX_DIMENSION) width *= MAX_DIMENSION / height, height = MAX_DIMENSION;
                 }
 
                 const canvas = document.createElement('canvas');
@@ -87,20 +96,15 @@ const resizeImage = (file: File): Promise<File> => {
                 ctx?.drawImage(img, 0, 0, width, height);
 
                 canvas.toBlob((blob) => {
-                    if (blob) {
-                        resolve(new File([blob], file.name, { type: file.type, lastModified: Date.now() }));
-                    } else {
-                        // If blob is null, return the original file
-                        resolve(file);
-                    }
-                }, file.type, 0.8); // Compress to 80% quality
+                    if (blob) resolve(new File([blob], file.name, { type: file.type, lastModified: Date.now() }));
+                    else resolve(file);
+                }, file.type, 0.8);
             };
         };
         reader.readAsDataURL(file);
     });
 };
 
-// ADDED: Helper to convert Capacitor URI to File
 const uriToFile = async (uri: string, fileName: string, fileType: string): Promise<File> => {
     const response = await fetch(uri);
     const blob = await response.blob();
@@ -110,6 +114,8 @@ const uriToFile = async (uri: string, fileName: string, fileType: string): Promi
 interface ChatViewProps {
     chatId: string | null;
 }
+
+const EMOJI_REACTIONS = ['👍', '🎉', '💪', '❤️', '😊', '😮'];
 
 export function ChatView({ chatId }: ChatViewProps) {
     const { user, isCoach } = useAuth();
@@ -129,9 +135,12 @@ export function ChatView({ chatId }: ChatViewProps) {
     const [isReporting, setIsReporting] = useState(false);
     
     const viewportRef = useRef<HTMLDivElement>(null);
-    const [showAttachmentOptions, setShowAttachmentOptions] = useState(false); // ADDED: State for attachment options
+    const [showAttachmentOptions, setShowAttachmentOptions] = useState(false);
+    const [mentionableUsers, setMentionableUsers] = useState<{ id: string; display: string; }[]>([]);
+    const [isMentionsReady, setIsMentionsReady] = useState(false);
 
     useEffect(() => {
+        setIsMentionsReady(false);
         if (!chatId || !user) {
             setIsLoading(false);
             setMessages([]);
@@ -154,13 +163,24 @@ export function ChatView({ chatId }: ChatViewProps) {
             setMessages(fetchedMessages);
             
             if (Object.keys(participants).length === 0 && chatId) {
-                 const result = await getChatMessagesAction(chatId);
-                 if (result.success && result.data?.participants) {
-                    setParticipants(result.data.participants);
-                 } else {
-                    console.error("Could not load participant information:", result.error);
-                    toast({ variant: "destructive", title: "Error", description: "Could not load participant information." });
-                 }
+                 try {
+                    const result = await getChatMessagesAction(chatId);
+                    if (result.success && result.data?.participants) {
+                        setParticipants(result.data.participants);
+                        const usersForMentions = Object.entries(result.data.participants).map(([id, profile]) => ({
+                            id: id,
+                            display: profile.fullName || 'Unknown User'
+                        }));
+                        setMentionableUsers(usersForMentions);
+                        setIsMentionsReady(true);
+                    } else {
+                        throw new Error(result.error || "Could not load participant information.");
+                    }
+                } catch (e: any) {
+                     toast({ variant: "destructive", title: "Error", description: e.message });
+                }
+            } else {
+                setIsMentionsReady(true);
             }
             
             setIsLoading(false);
@@ -193,19 +213,18 @@ export function ChatView({ chatId }: ChatViewProps) {
 
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const originalFile = event.target.files?.[0];
-        setShowAttachmentOptions(false); // Hide options after selection
+        setShowAttachmentOptions(false);
         if (originalFile) {
-            if (!originalFile.type.startsWith('image/') && originalFile.size > 5 * 1024 * 1024) { // 5MB limit for non-images
+            if (!originalFile.type.startsWith('image/') && originalFile.size > 5 * 1024 * 1024) {
                 toast({ variant: "destructive", title: "File Too Large", description: "Please select a file smaller than 5MB." });
                 return;
             }
 
             let fileToUpload = originalFile;
 
-            // Resize image if it's an image file
             if (originalFile.type.startsWith('image/')) {
                 fileToUpload = await resizeImage(originalFile);
-                if (fileToUpload.size > 5 * 1024 * 1024) { // Check size again after compression
+                if (fileToUpload.size > 5 * 1024 * 1024) {
                      toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
                      return;
                 }
@@ -222,17 +241,16 @@ export function ChatView({ chatId }: ChatViewProps) {
         }
     };
 
-    // ADDED: handleCameraAction for native camera integration with resizing
     const handleCameraAction = async () => {
-        setShowAttachmentOptions(false); // Hide options after action
+        setShowAttachmentOptions(false);
         if (!user) return;
-        setIsSending(true); // Use isSending for camera/gallery ops as well
+        setIsSending(true);
         try {
             const photo = await CapacitorCamera.getPhoto({
                 quality: 90,
                 allowEditing: false,
-                resultType: CameraResultType.Uri, // Get as URI to create a File
-                source: CameraSource.Camera, // Directly open camera
+                resultType: CameraResultType.Uri,
+                source: CameraSource.Camera,
             });
 
             if (photo.webPath) {
@@ -266,17 +284,16 @@ export function ChatView({ chatId }: ChatViewProps) {
         }
     };
 
-    // ADDED: handleGalleryAction for native gallery integration with resizing
     const handleGalleryAction = async () => {
-        setShowAttachmentOptions(false); // Hide options after action
+        setShowAttachmentOptions(false);
         if (!user) return;
-        setIsSending(true); // Use isSending for camera/gallery ops as well
+        setIsSending(true);
         try {
             const photo = await CapacitorCamera.getPhoto({
                 quality: 90,
                 allowEditing: false,
-                resultType: CameraResultType.Uri, // Get as URI to create a File
-                source: CameraSource.Photos, // Open gallery
+                resultType: CameraResultType.Uri,
+                source: CameraSource.Photos,
             });
 
             if (photo.webPath) {
@@ -343,7 +360,10 @@ export function ChatView({ chatId }: ChatViewProps) {
                 uploadedFileName = result.fileName;
             }
             
-            const postResult = await postMessageAction({ chatId, text: newMessage, userId: user.uid, userName: user.displayName || 'Anonymous', fileUrl: uploadedFileUrl, fileName: uploadedFileName });
+            const mentionRegex = /@\[([^\]]+)\]\((\S+)\)/g;
+            const mentions = Array.from(newMessage.matchAll(mentionRegex)).map(match => match[2]);
+
+            const postResult = await postMessageAction({ chatId, text: newMessage, userId: user.uid, userName: user.displayName || 'Anonymous', fileUrl: uploadedFileUrl, fileName: uploadedFileName, mentions });
 
             if (!postResult.success) {
                 throw new Error(postResult.error?.message || 'Failed to send message.');
@@ -358,6 +378,35 @@ export function ChatView({ chatId }: ChatViewProps) {
         }
     }
     
+    const handleAddReaction = async (messageId: string, emoji: string) => {
+        if (!user || !chatId) return;
+    
+        const originalMessages = [...messages];
+    
+        setMessages(prevMessages => 
+            prevMessages.map(msg => {
+                if (msg.id === messageId) {
+                    const reactions = { ...(msg.reactions || {}) };
+                    const users = reactions[emoji] || [];
+                    if (users.includes(user.uid)) {
+                        reactions[emoji] = users.filter(uid => uid !== user.uid);
+                    } else {
+                        reactions[emoji] = [...users, user.uid];
+                    }
+                    return { ...msg, reactions };
+                }
+                return msg;
+            })
+        );
+    
+        try {
+            await addReactionAction({ chatId, messageId, emoji, userId: user.uid });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error", description: "Failed to save reaction." });
+            setMessages(originalMessages);
+        }
+    };
+
     const getInitials = (name: string | null | undefined) => {
         if (!name) return '?';
         const names = name.split(' ');
@@ -415,21 +464,18 @@ export function ChatView({ chatId }: ChatViewProps) {
                             {msg.isSystemMessage ? (
                                 <div className="text-xs text-center bg-muted text-muted-foreground rounded-full px-3 py-1 animate-in fade-in">
                                     {(() => {
-                                        // Regex to match "Name - MM/DD/YY, HH:MM AM/PM"
                                         const nameDateTimestampRegex = /^(.*?)\s*-\s*(\d{2}\/\d{2}\/\d{2},\s*\d{1,2}:\d{2}\s*(?:AM|PM))$/;
                                         const match = msg.text?.match(nameDateTimestampRegex);
 
                                         if (match) {
-                                            // If it matches, extract the date part and format it
                                             if (msg.timestamp) {
-                                                return format(new Date(msg.timestamp as any), 'MM/dd/yy'); // Display only the date
+                                                return format(new Date(msg.timestamp as any), 'MM/dd/yy');
                                             } else {
-                                                // Fallback to displaying just the date part from the matched text
-                                                const datePart = match[2].split(',')[0]; // "MM/DD/YY"
+                                                const datePart = match[2].split(',')[0];
                                                 return datePart;
                                             }
                                         }
-                                        return msg.text; // If it doesn't match the pattern, display original text
+                                        return msg.text;
                                     })()}
                                 </div>
                             ) : (
@@ -442,26 +488,82 @@ export function ChatView({ chatId }: ChatViewProps) {
                                 )}
                                 <div className={cn("flex gap-1 items-start", isMyMessage && "flex-row-reverse")}>
                                     <div className={cn("max-w-[calc(100vw-120px)] sm:max-w-[calc(100vw-160px)] md:max-w-[400px] rounded-lg px-2 py-1 min-w-0 overflow-hidden", isMyMessage ? 'bg-primary text-primary-foreground' : 'bg-muted')}>
-                                        <div className="text-xs break-words"><LinkifiedText text={msg.text || ''} /></div>
+                                        <div className="text-xs break-words" dangerouslySetInnerHTML={{ __html: FormattedMessage({ text: msg.text || '' }) }} />
+
                                         {msg.fileUrl && (
-                                            <div className="mt-1">
+                                            <div className="mt-2">
                                                 {msg.fileName?.match(/\.pdf$/i) ? (
-                                                    <Link href={msg.fileUrl} target="_blank" className="flex items-center gap-2 p-1 rounded-md bg-background/20 hover:bg-background/40">
+                                                    <Link 
+                                                        href={msg.fileUrl} 
+                                                        target="_blank" 
+                                                        className="flex items-center gap-2 p-1 rounded-md bg-background/20 hover:bg-background/40"
+                                                    >
                                                         <FileText className="h-3 w-3" />
-                                                        <span className="text-xs font-medium truncate max-w-[120px]">{msg.fileName || 'Shared File'}</span>
+                                                        <span className="text-xs font-medium truncate max-w-[120px]">
+                                                            {msg.fileName || 'Shared File'}
+                                                        </span>
                                                     </Link>
                                                 ) : (
-                                                    <Link href={msg.fileUrl} target="_blank">
-                                                        <Image src={msg.fileUrl} alt={msg.fileName || 'Shared Image'} width={100} height={100} className="rounded-md object-cover" style={{ width: '100%', height: 'auto' }} />
-                                                    </Link>
+                                                    <>
+                                                        <Link 
+                                                            href={msg.fileUrl} 
+                                                            target="_blank" 
+                                                            className="flex items-center gap-2 p-1 rounded-md bg-background/20 hover:bg-background/40"
+                                                        >
+                                                            <FileText className="h-3 w-3" />
+                                                            <span className="text-xs font-medium truncate max-w-[120px]">
+                                                                {msg.fileName || 'Shared File'}
+                                                            </span>
+                                                        </Link>
+
+                                                        {msg.fileName?.match(/\.(jpg|jpeg|png|gif|webp)$/i) && (
+                                                            <Link href={msg.fileUrl} target="_blank" className="block mt-2">
+                                                                <Image 
+                                                                    src={msg.fileUrl} 
+                                                                    alt={msg.fileName || 'Shared Image'} 
+                                                                    width={100} 
+                                                                    height={100} 
+                                                                    className="rounded-md object-cover w-full max-w-[220px] h-auto" 
+                                                                />
+                                                            </Link>
+                                                        )}
+                                                    </>
                                                 )}
                                             </div>
                                         )}
+
+                                        <div className="flex items-center gap-1 flex-wrap mt-1">
+                                            {msg.reactions && Object.entries(msg.reactions).map(([emoji, userIds]) => {
+                                                if (!userIds || userIds.length === 0) return null;
+                                                const isUserReacted = userIds.includes(user?.uid || '');
+                                                return (
+                                                    <div key={emoji} className={cn("px-1.5 py-0.5 rounded-full text-xs flex items-center gap-1", isUserReacted ? "bg-yellow-400/30 border border-yellow-500/50" : "bg-muted-foreground/20")}>
+                                                        <span>{emoji}</span>
+                                                        <span>{userIds.length}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
                                         <p className={cn("text-[10px] mt-0.5 opacity-70 break-words", isMyMessage ? 'text-right' : 'text-left')}>
                                             {msg.userName.split(' ')[0]} - {msg.timestamp ? format(new Date(msg.timestamp as any), 'MM/dd/yy, p') : ''}
                                         </p>
                                     </div>
+
                                     <div className={cn("flex-shrink-0 self-start transition-opacity opacity-0 group-hover:opacity-100")}>
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button variant="ghost" size="icon" className="h-6 w-6"><Smile className="h-3 w-3 text-muted-foreground" /></Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-auto p-1">
+                                                <div className="flex gap-1">
+                                                {EMOJI_REACTIONS.map(emoji => (
+                                                    <Button key={emoji} variant="ghost" size="icon" className="h-8 w-8 text-lg" onClick={() => handleAddReaction(msg.id, emoji)}>{emoji}</Button>
+                                                ))}
+                                                </div>
+                                            </PopoverContent>
+                                        </Popover>
+
                                         {canDelete && (
                                             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setDeleteAlertState({open: true, message: msg})}>
                                                 <Trash2 className="h-3 w-3 text-muted-foreground" />
@@ -511,7 +613,51 @@ export function ChatView({ chatId }: ChatViewProps) {
                         disabled={isSending}>
                         <Paperclip className="h-4 w-4" />
                     </Button>
-                    <Input value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a a message..." disabled={isSending} className="h-8 text-xs" />
+                    
+                    <div className="flex-1">
+                    {isMentionsReady && mentionableUsers.length > 1 ? (
+                                                                                    <MentionsInput 
+                                                                                    value={newMessage || ''}
+                                                                                    onChange={(event, newValue) => setNewMessage(newValue)}
+                                                                                    placeholder="Type a message..." 
+                                                                                    disabled={isSending} 
+                                                                                    forceSuggestionsAboveCursor={true}
+                                                                                    style={{
+                                                                                        suggestions: {
+                                                                                            backgroundColor: '#1e2937',
+                                                                                            border: '2px solid #64748b',
+                                                                                            borderRadius: '8px',
+                                                                                            boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.4)',
+                                                                                            zIndex: 99999,
+                                                                                            minWidth: '260px',      // narrowed for mobile
+                                                                                            maxWidth: '380px',      // fits on every phone
+                                                                                            color: '#f8fafc',
+                                                                                            fontSize: '15px',
+                                                                                            marginTop: '4px',
+                                                                                            overflow: 'hidden'
+                                                                                        }
+                                                                                    }}
+                                                                                    classNames={{
+                                                                                        control: "mentions__control",
+                                                                                        input: "mentions__input bg-transparent border border-input rounded-lg px-3 py-2.5 text-base",
+                                                                                        suggestionsList: "p-1 max-h-[320px] overflow-auto",
+                                                                                        suggestionsItem: "px-4 py-3 text-[#f8fafc] hover:bg-blue-600 rounded-lg cursor-pointer text-[15px]",
+                                                                                        suggestionsItemFocused: "bg-blue-600 text-white",
+                                                                                        mention: "bg-amber-400 text-slate-900 px-2.5 py-0.5 rounded font-semibold inline-block mx-px"
+                                                                                    }}
+                                                                                >
+                                                                                    <Mention
+                                                                                        trigger="@"
+                                                                                        data={mentionableUsers}
+                                                                                        markup="@[__display__](__id__)"
+                                                                                        displayTransform={(id, display) => `@${display}`}
+                                                                                    />
+                                                                                </MentionsInput>
+                    ) : (
+                        <Input value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a message..." disabled={isSending} className="h-8 text-xs" />
+                    )}
+                    </div>
+
                     <Button type="submit" size="icon" className="h-8 w-8" disabled={isSending || (!newMessage.trim() && !selectedFile)}>
                     {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </Button>

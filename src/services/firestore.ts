@@ -31,6 +31,7 @@ export interface MealItem extends EnrichedFood {
     quantity: number;
     unit: string;
     calories: number;
+    notes?: string;
 }
 
 export interface SavedMeal {

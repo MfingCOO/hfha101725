@@ -1,0 +1,34 @@
+/* === LOUD TEST — IF YOU SEE RED OR LIME GREEN, THE CSS FILE IS NOW LOADING === */
+
+.mentions {
+    border: 8px solid red !important;
+    background: yellow !important;
+}
+
+.mentions__control,
+.mentions__input {
+    border: 8px solid red !important;
+}
+
+.mentions__suggestions,
+.mentions__suggestions__list {
+    background-color: lime !important;
+    border: 6px solid red !important;
+    min-width: 520px !important;
+    max-width: 520px !important;
+    z-index: 99999 !important;
+    color: black !important;
+    font-size: 18px !important;
+}
+
+.mentions__suggestions__item {
+    padding: 16px 20px !important;
+    color: black !important;
+    font-size: 18px !important;
+}
+
+.mentions__mention {
+    background-color: #fbbf24 !important;
+    color: #1e2937 !important;
+    padding: 3px 8px !important;
+}

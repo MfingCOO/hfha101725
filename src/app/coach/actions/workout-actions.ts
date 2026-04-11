@@ -1,8 +1,12 @@
 'use server';
 
 import { z } from 'zod';
-import { db as firestore } from '@/lib/firebaseAdmin';
+import { db as firestore, db as adminDb } from '@/lib/firebaseAdmin';
+import * as admin from 'firebase-admin';
 import { Exercise, Workout } from '@/types/workout-program';
+import { FieldValue } from 'firebase-admin/firestore';
+import { v4 as uuidv4 } from 'uuid';
+import { storage as adminStorage } from 'firebase-admin';
 
 export type ActionResponse<T = object> =
   | { success: true; data: T }
@@ -19,11 +23,10 @@ const exerciseDataSchema = z.object({
     mediaUrl: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
 });
 
-// FIXED: Added duration to the schema
 const workoutDataSchema = z.object({
     name: z.string().min(1),
     description: z.string().optional(),
-    duration: z.number().optional(), // This was missing
+    duration: z.number().optional(),
     blocks: z.array(z.any()).min(1, "A workout must have at least one block."),
 });
 
@@ -98,12 +101,11 @@ export async function createWorkoutAction(params: { workoutData: any }): Promise
 
     try {
         const docRef = firestore.collection('workouts').doc();
-        // FIXED: Added duration to the new workout object
         const newWorkout: Workout = {
             id: docRef.id,
             name: validation.data.name,
             description: validation.data.description || '',
-            duration: validation.data.duration || 0, // Default to 0 if not provided
+            duration: validation.data.duration || 0,
             blocks: validation.data.blocks,
         };
         await docRef.set(newWorkout);
@@ -129,7 +131,6 @@ export async function updateWorkoutAction(params: { workoutId: string, workoutDa
         return { success: false, error: validation.error.errors.map(e => e.message).join(', ') };
     }
     try {
-        // FIXED: Explicitly include duration in the update
         const dataToUpdate = {
             ...validation.data,
             duration: validation.data.duration || 0,
@@ -175,3 +176,123 @@ export async function duplicateWorkoutAction(workoutId: string): Promise<ActionR
         return { success: false, error: "Failed to duplicate workout." };
     }
 }
+
+// --- Pre-recorded Workout Actions ---
+
+const PreRecordedWorkoutSchema = z.object({
+    title: z.string().min(1, "Title is required."),
+    youtubeUrl: z.string().url("Must be a valid YouTube URL."),
+    thumbnailUrl: z.string().url("Must be a valid thumbnail URL."),
+    coachId: z.string(),
+});
+
+export async function addPreRecordedWorkoutAction(input: z.infer<typeof PreRecordedWorkoutSchema>) {
+    if (!adminDb) {
+      return { success: false, error: "Server configuration error." };
+    }
+  
+    try {
+      const workoutData = PreRecordedWorkoutSchema.parse(input);
+  
+      const docRef = adminDb.collection('preRecordedWorkouts').doc();
+      await docRef.set({
+        ...workoutData,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+  
+      return { success: true, docId: docRef.id };
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        return { success: false, error: error.errors.map(e => e.message).join(', ') };
+      }
+      console.error("Error adding pre-recorded workout:", error);
+      return { success: false, error: error.message || "An unknown error occurred." };
+    }
+}
+  
+export async function getPreRecordedWorkoutsAction() {
+    if (!adminDb) {
+        return { success: false, error: "Server configuration error.", data: [] };
+    }
+
+    try {
+        const snapshot = await adminDb.collection('preRecordedWorkouts').orderBy('createdAt', 'desc').get();
+        
+        const workouts = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                title: data.title,
+                youtubeUrl: data.youtubeUrl,
+                thumbnailUrl: data.thumbnailUrl,
+                createdAt: data.createdAt.toDate().toISOString(),
+            };
+        });
+
+        return { success: true, data: workouts };
+    } catch (error: any) {
+        console.error("Error fetching pre-recorded workouts:", error);
+        return { success: false, error: error.message || "An unknown error occurred.", data: [] };
+    }
+}
+
+const ThumbnailUploadSchema = z.object({
+    fileDataUrl: z.string(),
+    fileName: z.string(),
+    fileType: z.string(),           // ← NEW: we now pass this from the client (just like chat)
+});
+
+export async function uploadPreRecordedThumbnailAction(input: z.infer<typeof ThumbnailUploadSchema>): Promise<ActionResponse<{ fileUrl: string }>> {
+    try {
+        const { fileDataUrl, fileName } = ThumbnailUploadSchema.parse(input);
+        
+        const base64Content = fileDataUrl.split(';base64,').pop();
+        if (!base64Content) {
+            return { success: false, error: "Invalid file data URL format." };
+        }
+        const buffer = Buffer.from(base64Content, 'base64');
+        const fileType = fileDataUrl.substring(fileDataUrl.indexOf(':') + 1, fileDataUrl.indexOf(';'));
+
+        // ← ONLY THESE 3 LINES ARE NEW (uses your existing FIREBASE_SERVICE_ACCOUNT_KEY)
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '{}');
+        const bucketName = `${serviceAccount.project_id}.appspot.com`;
+        const bucket = adminStorage().bucket('hunger-free-and-happy-app.firebasestorage.app');
+        // ↑ end of change
+
+        const fileId = uuidv4();
+        const fullFileName = `${fileId}-${fileName}`;
+        const filePath = `preRecordedThumbnails/${fullFileName}`;
+        const file = bucket.file(filePath);
+        
+        const downloadToken = uuidv4();
+
+        await file.save(buffer, {
+            metadata: {
+                contentType: fileType,
+                metadata: {
+                    firebaseStorageDownloadTokens: downloadToken,
+                },
+            },
+        });
+
+        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}`;
+
+        return { success: true, data: { fileUrl: publicUrl } };
+    } catch (error: any) {
+        console.error("Error uploading thumbnail:", error);
+        return { success: false, error: error.message || 'Failed to upload image.' };
+    }
+}
+export async function deletePreRecordedWorkoutAction(workoutId: string) {
+    if (!adminDb) {
+      return { success: false, error: "Server configuration error." };
+    }
+  
+    try {
+      await adminDb.collection('preRecordedWorkouts').doc(workoutId).delete();
+      return { success: true };
+    } catch (error: any) {
+      console.error("Error deleting pre-recorded workout:", error);
+      return { success: false, error: error.message || "Failed to delete workout" };
+    }
+  }

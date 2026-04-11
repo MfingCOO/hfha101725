@@ -67,7 +67,7 @@ export function CreateClientDialog({ open, onOpenChange, onClientCreated }: Crea
     
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[90vw] h-[90dvh] max-w-4xl flex flex-col">
+            <DialogContent className="w-[95vw] sm:max-w-4xl h-[90vh] flex flex-col">
                  <DialogHeader>
                     <DialogTitle srOnly>Onboard New Client</DialogTitle>
                 </DialogHeader>

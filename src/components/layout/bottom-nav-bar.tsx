@@ -1,16 +1,14 @@
 'use client';
-import { Home, Calendar, MessageSquare, Trophy, Bell } from "lucide-react";
+import { Home, Calendar, MessageSquare, Trophy } from "lucide-react";
 import Link from "next/link";
 import { useDashboardActions, useDashboardState } from "@/contexts/DashboardActionsContext";
 import { useChatModalStore } from "@/store/ui-store";
-import { useNotificationStore } from "@/store/notification-store";
 
 interface NavItem {
     href: string;
     label: string;
     icon: React.ElementType;
     notificationCount?: number;
-    hasNotification?: boolean; 
     onClick?: () => void;
 }
 
@@ -20,9 +18,7 @@ export default function BottomNavBar() {
     const {
         onOpenCalendar,
         onOpenChallenges,
-        setIsNotificationsOpen
     } = useDashboardActions();
-    const hasUnreadNotifications = useNotificationStore((state) => state.hasUnreadNotifications);
     const { openModal: openChatModal } = useChatModalStore();
 
     const navItems: NavItem[] = [
@@ -46,13 +42,6 @@ export default function BottomNavBar() {
             icon: Trophy,
             onClick: onOpenChallenges
         },
-        {
-            href: "#",
-            label: "Notifications",
-            icon: Bell,
-            hasNotification: hasUnreadNotifications,
-            onClick: () => setIsNotificationsOpen(true)
-        },
     ];
 
     if (typeof window === 'undefined') {
@@ -72,9 +61,6 @@ export default function BottomNavBar() {
                     const content = (
                         <>
                             <item.icon className="h-6 w-6" />
-                            {item.hasNotification && (
-                                <div className="absolute top-3 right-[calc(50%-1rem)] h-2 w-2 rounded-full bg-red-500"></div>
-                            )}
                             {item.notificationCount != null && item.notificationCount > 0 && (
                                 <div className="absolute top-2 right-[calc(50%-1.5rem)] h-5 w-5 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">
                                     {item.notificationCount}

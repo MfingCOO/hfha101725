@@ -3,10 +3,11 @@
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import type { Chat, ClientProfile, ChatMessage } from '@/types';
 import { z } from 'zod';
-import { FieldValue, FieldPath, Timestamp, DocumentData } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, DocumentData } from 'firebase-admin/firestore';
 import { v4 as uuidv4 } from 'uuid';
 import { storage as adminStorage } from 'firebase-admin';
 import { differenceInHours } from 'date-fns';
+import { getMessaging } from 'firebase-admin/messaging';
 
 const SERVER_ERROR = { success: false, error: { message: "Server configuration error." } };
 
@@ -187,16 +188,19 @@ export async function getChatsAndClientsForCoach(): Promise<{
         });
 
         const activeCoachingChats = coachingChats.filter(chat => {
-            const lastClientTimestamp = chat.lastClientMessageTimestamp ? new Date((chat.lastClientMessageTimestamp as any).toDate()) : null;
+            const lastClientTimestamp = chat.lastClientMessageTimestamp 
+                ? new Date((chat.lastClientMessageTimestamp as any).toDate()) 
+                : null;
             return lastClientTimestamp && differenceInHours(now, lastClientTimestamp) < miaThresholdHours;
         });
 
         const miaCoachingChats = coachingChats.filter(chat => {
-            const lastClientTimestamp = chat.lastClientMessageTimestamp ? new Date((chat.lastClientMessageTimestamp as any).toDate()) : null;
+            const lastClientTimestamp = chat.lastClientMessageTimestamp 
+                ? new Date((chat.lastClientMessageTimestamp as any).toDate()) 
+                : null;
             return !lastClientTimestamp || differenceInHours(now, lastClientTimestamp) >= miaThresholdHours;
         });
 
-        // Sort the chats based on the specified logic
         activeCoachingChats.sort((a, b) => {
             const timeA = a.lastMessage?.timestamp ? (a.lastMessage.timestamp as any).toMillis() : 0;
             const timeB = b.lastMessage?.timestamp ? (b.lastMessage.timestamp as any).toMillis() : 0;
@@ -236,7 +240,6 @@ export async function getChatsAndClientsForCoach(): Promise<{
         return { success: false, error: { message: error.message || "An unknown admin error occurred" } };
     }
 }
-
 
 export async function getChatsForClient(userId: string): Promise<{ success: boolean; data?: Chat[]; error?: any; }> {
     if (!adminDb) {
@@ -476,8 +479,12 @@ export async function uploadChatImageAction(input: z.infer<typeof UploadChatImag
             return { success: false, error: { message: "You are not a member of this chat." } };
         }
 
-        const bucket = adminStorage().bucket();
-        // ADDED: Validation for base64Content
+        // ← ONLY THESE 3 LINES (uses your existing env var)
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '{}');
+        const bucketName = `${serviceAccount.project_id}.appspot.com`;
+        const bucket = adminStorage().bucket('hunger-free-and-happy-app.firebasestorage.app');
+        // ↑ end of change
+
         const base64Content = fileDataUrl.split(';base64,').pop();
         if (!base64Content) {
             return { success: false, error: { message: "Invalid file data URL format: Missing base64 content." } };
@@ -517,6 +524,7 @@ const PostMessageInputSchema = z.object({
   userName: z.string(),
   fileUrl: z.string().optional(),
   fileName: z.string().optional(),
+  mentions: z.array(z.string()).optional(),   // ← restored mentions support
 });
 
 export async function postMessageAction(input: z.infer<typeof PostMessageInputSchema>): Promise<{ success: boolean; error?: { message: string; }; }> {
@@ -524,7 +532,7 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
         return SERVER_ERROR;
     }
     try {
-        const { chatId, text, userId, userName, fileUrl, fileName } = PostMessageInputSchema.parse(input);
+        const { chatId, text, userId, userName, fileUrl, fileName, mentions } = PostMessageInputSchema.parse(input);
         const chatDocRef = adminDb.collection('chats').doc(chatId);
         const sentTimestamp = Timestamp.now();
 
@@ -542,6 +550,8 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             if(text) messageData.text = text;
             if(fileUrl) messageData.fileUrl = fileUrl;
             if(fileName) messageData.fileName = fileName;
+            if(mentions && mentions.length > 0) messageData.mentions = mentions;
+
             transaction.set(messagesCollectionRef.doc(), messageData);
 
             const updateData: { [key: string]: any } = {
@@ -572,6 +582,85 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
             return { success: false, error: { message: `Validation Error: ${error.errors.map(e => e.message).join(', ')}` } };
         }
         return { success: false, error: { message: error.message || `An unknown admin error occurred.` } };
+    }
+}
+
+const AddReactionInputSchema = z.object({
+    chatId: z.string(),
+    messageId: z.string(),
+    emoji: z.string(),
+    userId: z.string(),
+});
+
+export async function addReactionAction(input: z.infer<typeof AddReactionInputSchema>): Promise<{ success: boolean; error?: { message: string } }> {
+    if (!adminDb) {
+        return SERVER_ERROR;
+    }
+    try {
+        const { chatId, messageId, emoji, userId } = AddReactionInputSchema.parse(input);
+        const messageRef = adminDb.collection('chats').doc(chatId).collection('messages').doc(messageId);
+
+        let shouldNotify = false;
+        let messageOwnerId: string | null = null;
+
+        await adminDb.runTransaction(async (transaction) => {
+            const messageDoc = await transaction.get(messageRef);
+            if (!messageDoc.exists) {
+                throw new Error("Message not found.");
+            }
+
+            const messageData = messageDoc.data() || {};
+            messageOwnerId = messageData.userId || null;
+
+            const reactions = messageData.reactions || {};
+            const emojiUsers: string[] = reactions[emoji] || [];
+
+            if (emojiUsers.includes(userId)) {
+                // Remove reaction
+                transaction.update(messageRef, {
+                    [`reactions.${emoji}`]: FieldValue.arrayRemove(userId)
+                });
+                shouldNotify = false;
+            } else {
+                // Add new reaction
+                transaction.update(messageRef, {
+                    [`reactions.${emoji}`]: FieldValue.arrayUnion(userId)
+                });
+                shouldNotify = true;
+            }
+        });
+
+        // === SEND PUSH NOTIFICATION TO MESSAGE OWNER ===
+        if (shouldNotify && messageOwnerId && messageOwnerId !== userId) {
+            const authorProfile = await getUserProfile_Admin_Robust(messageOwnerId);
+            if (authorProfile?.fcmTokens?.length) {
+                const reactorProfile = await getUserProfile_Admin_Robust(userId);
+                const reactorName = reactorProfile?.fullName || 'Someone';
+
+                const payload = {
+                    notification: {
+                        title: 'New Reaction',
+                        body: `${reactorName} reacted with ${emoji} to your message`,
+                    },
+                    data: {
+                        notificationType: 'chat_reaction',
+                        chatId: chatId,
+                    },
+                    tokens: authorProfile.fcmTokens,
+                };
+
+                await getMessaging().sendEachForMulticast(payload);
+                console.log(`✅ Reaction notification sent to ${messageOwnerId} for emoji ${emoji}`);
+            }
+        }
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Failed to add/remove reaction on message ${input.messageId}:`, error);
+        if (error instanceof z.ZodError) {
+            return { success: false, error: { message: `Validation Error: ${error.errors.map(e => e.message).join(', ')}` } };
+        }
+        return { success: false, error: { message: error.message || "An unknown error occurred while updating the reaction." } };
     }
 }
 
@@ -911,6 +1000,7 @@ export async function dismissEducationalModal(input: z.infer<typeof DismissEduca
         return { success: false, error: { message: error.message || "An unknown error occurred." } };
     }
 }
+
 const ConvertChatToCoachingInputSchema = z.object({
     chatId: z.string(),
 });

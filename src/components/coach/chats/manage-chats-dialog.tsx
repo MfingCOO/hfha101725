@@ -318,6 +318,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
             onOpenChange={onOpenChange}
             title="Manage Chats"
             description="Review and manage all client and group conversations."
+            className="w-[95vw] sm:max-w-4xl"
             footer={
                  <div className="flex w-full items-center justify-between">
                     <div className="flex items-center gap-2">

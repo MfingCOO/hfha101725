@@ -37,6 +37,7 @@ const setSchema = z.object({
   id: z.string().optional(),
   metric: z.string().optional(),
   value: z.string().optional(),
+  target: z.string().optional(),
   rpe: z.preprocess((val) => (val ? parseInt(String(val), 10) : undefined), z.number().optional()),
 });
 
@@ -182,7 +183,7 @@ export function CreateWorkoutDialog({ isOpen, onClose, onWorkoutSaved, workoutTo
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="max-w-2xl h-[90vh] flex flex-col p-2">
+            <DialogContent className="w-[95vw] sm:max-w-2xl h-[90vh] flex flex-col p-2">
                 <DialogHeader className="p-1">
                     <DialogTitle>{isEditMode ? 'Edit Workout' : 'Create New Workout'}</DialogTitle>
                 </DialogHeader>

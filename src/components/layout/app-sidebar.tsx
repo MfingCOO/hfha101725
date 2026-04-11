@@ -7,7 +7,6 @@ import {
   Calendar,
   MessageSquare,
   Trophy,
-  Bell,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -25,15 +24,13 @@ import { UserNav } from '../auth/user-nav';
 import { useAuth } from '../auth/auth-provider';
 import { useDashboardActions, useDashboardState } from '@/contexts/DashboardActionsContext';
 import { useChatModalStore } from '@/store/ui-store';
-import { useNotificationStore } from '@/store/notification-store';
 
 export function AppSidebar() {
   const pathname = usePathname();
   const { isCoach } = useAuth();
-  const { onOpenChallenges, onOpenCalendar, onOpenSettings, setIsNotificationsOpen } = useDashboardActions();
+  const { onOpenChallenges, onOpenCalendar, onOpenSettings } = useDashboardActions();
   const { openModal: openChatModal } = useChatModalStore();
   const { unreadChatCount } = useDashboardState();
-  const { hasUnreadNotifications } = useNotificationStore();
 
   // Standard mounting state
   const [mounted, setMounted] = React.useState(false);
@@ -118,22 +115,6 @@ export function AppSidebar() {
       
       <SidebarFooter>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              tooltip={"Notifications"}
-              onClick={() => setIsNotificationsOpen(true)}
-            >
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center">
-                  <Bell />
-                  <span className='ml-4'>Notifications</span>
-                </div>
-                {hasUnreadNotifications && (
-                  <span className="ml-auto h-2 w-2 rounded-full bg-red-500"></span>
-                )}
-              </div>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               tooltip={"Settings"}

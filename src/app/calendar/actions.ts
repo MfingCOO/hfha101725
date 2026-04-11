@@ -369,10 +369,11 @@ export async function completeWorkoutAction(data: {
             type: 'workout',
             duration: duration,    
             calories: (workout as any).calories || null,
-            relatedId: logRef.id, // Corrected from workoutId
+            relatedId: logRef.id, 
             programId: effectiveProgramId || null,
-            workoutId: workoutId, // Added to preserve the original workout template ID
+            workoutId: workoutId, 
             logId: logRef.id,
+            notes: performanceLog.notes || '',
         });
 
         if (calendarEventId) {
