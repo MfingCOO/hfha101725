@@ -26,6 +26,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Capacitor } from '@capacitor/core';
 import { Purchases } from '@revenuecat/purchases-capacitor';
+import { unifiedSignupAction } from '@/app/coach/clients/actions';
+import { CreateClientInput } from '@/types';
 
 const onboardingSchema = z.object({
     email: z.string().email("Please enter a valid email."),
@@ -44,12 +46,16 @@ const onboardingSchema = z.object({
 });
 
 export type OnboardingValues = z.infer<typeof onboardingSchema>;
+type TierKey = 'free' | 'premium' | 'basic_tier' | 'ad_free_tier';
 
-interface OnboardingFormProps {
-    onFormSubmit: (data: any) => Promise<{success: boolean}>;
-}
+const tierNameMapping: { [key in TierKey]: CreateClientInput['tier'] } = {
+    'premium': 'premium',
+    'basic_tier': 'basic',
+    'ad_free_tier': 'ad-free',
+    'free': 'free'
+};
 
-export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
+export function OnboardingForm() {
     const { toast } = useToast();
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false);
@@ -58,7 +64,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
 
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),
-        defaultValues: { 
+        defaultValues: {
             email: "", password: "", fullName: "", birthdate: "",
             sex: 'unspecified', height: 0, weight: 0, waist: 0,
             zipCode: "", activityLevel: 'light',
@@ -77,61 +83,72 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
         if (isValid) setStep(s => s + 1);
     };
 
-    const handlePurchase = async (tier: string, pkgKey?: 'monthly' | 'annual') => {
-        if (!Capacitor.isNativePlatform()) {
-            toast({ variant: "destructive", title: "Error", description: "Please test on Android device/emulator" });
-            return;
-        }
-
+    const handlePurchase = async (tierKey: TierKey, pkgKey?: 'monthly' | 'annual') => {
         setIsLoading(true);
         try {
             const values = form.getValues();
+            const intendedTier = tierNameMapping[tierKey];
+            
+            // Per your instructions: Always create the user as 'free' tier first.
+            // The server action will handle disabling the account if the intended tier is a paid one.
+            const signupData: CreateClientInput = { 
+                ...values, 
+                tier: 'free', 
+                units: 'imperial', 
+                coachId: 'default' 
+            };
 
-            if (tier === 'free') {
-                const res = await onFormSubmit({ ...values, tier: 'free' });
-                if (res.success) router.push('/login');
+            const signupResult = await unifiedSignupAction(signupData) as { success: boolean; uid?: string; error?: string; };
+
+            if (!signupResult.success || !signupResult.uid) {
+                toast({ variant: "destructive", title: "Signup Failed", description: signupResult.error || "Could not create your account." });
+                setIsLoading(false);
                 return;
             }
 
-            // Exact names from your RevenueCat Logcat
-            let packageId = '';
-            if (tier === 'premium') {
-                packageId = pkgKey === 'monthly' ? 'premium_monthly' : 'premium_yearly';
-            } else if (tier === 'basic_tier') {
-                packageId = pkgKey === 'monthly' ? 'basic_monthly' : 'basic_yearly';
-            } else if (tier === 'ad_free_tier') {
-                packageId = pkgKey === 'monthly' ? 'ad_free_monthly' : 'ad_free_yearly';
+            // If the user intended to sign up for free, we are done. Redirect to login.
+            if (intendedTier === 'free') {
+                toast({ title: "Account Created!", description: "Redirecting you to the login page." });
+                router.push('/login');
+                return; 
             }
 
-            console.log('🔍 Looking for packageId:', packageId);
+            // For paid tiers, proceed with payment.
+            if (!Capacitor.isNativePlatform()) {
+                toast({ variant: "destructive", title: "Error", description: "Payment can only be processed on a mobile device." });
+                setIsLoading(false);
+                return;
+            }
+
+            await Purchases.logIn({ appUserID: signupResult.uid });
+            
+            let packageId = '';
+            if (tierKey === 'premium') packageId = pkgKey === 'monthly' ? 'premium_monthly' : 'premium_yearly';
+            else if (tierKey === 'basic_tier') packageId = pkgKey === 'monthly' ? 'basic_monthly' : 'basic_yearly';
+            else if (tierKey === 'ad_free_tier') packageId = pkgKey === 'monthly' ? 'ad_free_monthly' : 'ad_free_yearly';
 
             const offerings = await Purchases.getOfferings();
-            console.log('📦 All available packages:', 
-                offerings.current?.availablePackages?.map((p: any) => p.identifier));
-
-            const pkg = offerings.current?.availablePackages?.find((p: any) => p.identifier === packageId);
+            const pkg = offerings.current?.availablePackages.find(p => p.identifier === packageId);
 
             if (!pkg) {
-                toast({ 
-                    variant: "destructive", 
-                    title: "Plan not found", 
-                    description: `Could not find ${packageId}` 
-                });
+                toast({ variant: "destructive", title: "Plan Not Found", description: `Could not find the selected plan (${packageId}).` });
+                setIsLoading(false);
                 return;
             }
 
-            const { customerInfo } = await Purchases.purchasePackage({ aPackage: pkg });
+            // This is where the payment happens.
+            await Purchases.purchasePackage({ aPackage: pkg });
 
-            if (customerInfo.entitlements.active[tier] || customerInfo.entitlements.active['premium']) {
-                await onFormSubmit({ ...values, tier, billingCycle: pkgKey });
-                router.push('/login');
-            }
+            // After payment, the webhook will handle activation. We can just redirect.
+            toast({ title: "Purchase Successful!", description: "Your account is being activated. Redirecting to login." });
+            router.push('/login');
+            // Do not set loading to false here, to prevent the form from re-rendering and interrupting the redirect.
+
         } catch (e: any) {
             if (!e.userCancelled) {
-                toast({ variant: "destructive", title: "Billing Error", description: e.message || "Purchase failed" });
+                toast({ variant: "destructive", title: "An Error Occurred", description: e.message || "Something went wrong during the process." });
             }
-        } finally {
-            setIsLoading(false);
+            setIsLoading(false); // Only set loading to false if there's an error or user cancelled.
         }
     };
 
@@ -148,7 +165,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
             <Form {...form}>
                 <form className="space-y-6">
                     <CardContent>
-                        {/* STEP 1 */}
+                        {/* Steps 1-3 remain unchanged */}
                         {step === 1 && (
                             <div className="space-y-4 animate-in fade-in">
                                 <FormField control={form.control} name="fullName" render={({ field }) => (
@@ -163,7 +180,6 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                             </div>
                         )}
 
-                        {/* STEP 2 */}
                         {step === 2 && (
                             <div className="space-y-4 animate-in fade-in">
                                 <FormField control={form.control} name="birthdate" render={({ field }) => (
@@ -198,7 +214,6 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                             </div>
                         )}
 
-                        {/* STEP 3 */}
                         {step === 3 && (
                             <div className="space-y-4 animate-in fade-in">
                                 <FormField control={form.control} name="activityLevel" render={({ field }) => (
@@ -238,8 +253,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                 )} />
                             </div>
                         )}
-
-                        {/* STEP 4 - Pricing */}
+                        
                         {step === 4 && (
                             <div className="space-y-4 animate-in slide-in-from-bottom-4">
                                 <div className="flex items-center justify-center space-x-4 bg-muted/50 p-2 rounded-full mb-6">

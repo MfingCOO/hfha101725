@@ -124,6 +124,7 @@ export interface ClientProfile {
     photoURL?: string;
     tier: UserTier;
     role?: 'client' | 'coach';
+    status?: 'active' | 'pending_payment' | 'archived';
     chatIds?: string[];
     coachId?: string;
     challengeIds?: string[];
