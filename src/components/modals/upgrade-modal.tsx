@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useState, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '../auth/auth-provider';
-import { Loader2, CheckCircle } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { UserTier } from '@/types';
 import { Capacitor } from '@capacitor/core';
 import { Purchases, PurchasesPackage } from '@revenuecat/purchases-capacitor';
@@ -12,6 +12,8 @@ import { cn } from '@/lib/utils';
 import { BaseModal } from '../ui/base-modal';
 import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
+import { Card } from '../ui/card';
+import { ScrollArea } from '../ui/scroll-area';
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -26,7 +28,6 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
     const { user } = useAuth();
     const [isRedirecting, setIsRedirecting] = useState(false);
     const [packages, setPackages] = useState<PurchasesPackage[]>([]);
-    const [selectedIdentifier, setSelectedIdentifier] = useState<string | null>(null);
     const [isLoadingPackages, setIsLoadingPackages] = useState(true);
     const [billingCycle, setBillingCycle] = useState<'ANNUAL' | 'MONTHLY'>('ANNUAL');
 
@@ -51,33 +52,17 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
         }
     }, [isOpen, isCoachingTier, toast]);
 
-    const filteredPackages = useMemo(() => {
-        return packages.filter(p => p.packageType === billingCycle);
-    }, [packages, billingCycle]);
-
-    useEffect(() => {
-        if (filteredPackages.length > 0) {
-            setSelectedIdentifier(filteredPackages[0].identifier);
-        } else {
-            setSelectedIdentifier(null);
-        }
-    }, [filteredPackages]);
-
-    const selectedPackage = useMemo(() => {
-        return packages.find(p => p.identifier === selectedIdentifier) || null;
-    }, [packages, selectedIdentifier]);
-
     const handleContactCoaching = () => {
       toast({ title: "Contact Us", description: "Please contact us to inquire about coaching services." });
       onClose();
     };
 
-    const handleUpgrade = async () => {
-        if (!Capacitor.isNativePlatform() || !user || isCoachingTier || !selectedPackage) return;
+    const handleUpgrade = async (pkg: PurchasesPackage) => {
+        if (!Capacitor.isNativePlatform() || !user || isCoachingTier) return;
         setIsRedirecting(true);
 
         try {
-            const { customerInfo } = await Purchases.purchasePackage({ aPackage: selectedPackage });
+            const { customerInfo } = await Purchases.purchasePackage({ aPackage: pkg });
             if (Object.keys(customerInfo.entitlements.active).length > 0) {
                 toast({ title: "Upgrade Successful!", description: `You now have access to ${featureName}.` });
                 onClose();
@@ -98,18 +83,13 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
 
     const footer = (
         <div className="flex-col sm:flex-row gap-2 w-full">
-            <Button onClick={onClose} variant="outline" className="w-full mb-2 sm:mb-0">Maybe Later</Button>
-            <Button 
-                onClick={isCoachingTier ? handleContactCoaching : handleUpgrade} 
-                disabled={isRedirecting || isLoadingPackages || (!isCoachingTier && !selectedPackage)} 
-                className="w-full"
-            >
-                {isCoachingTier ? "Contact for Coaching" : 
-                 isRedirecting ? <Loader2 className="h-4 w-4 animate-spin" /> : 
-                 `Upgrade with ${billingCycle === 'ANNUAL' ? 'Yearly' : 'Monthly'} Plan`}
-            </Button>
+            <Button onClick={onClose} variant="outline" className="w-full">Maybe Later</Button>
         </div>
     );
+
+    const filteredPackages = useMemo(() => {
+        return packages.filter(p => p.packageType === billingCycle);
+    }, [packages, billingCycle]);
 
     return (
         <BaseModal
@@ -121,14 +101,13 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
         >
             {!isCoachingTier && (
                 <div className="py-2 space-y-3">
-                    <div className="flex items-center justify-center space-x-2">
-                        <Label htmlFor="billing-cycle">Monthly</Label>
+                    <div className="flex items-center justify-center space-x-4 bg-muted/50 p-2 rounded-full mb-6">
+                        <Label className={cn("font-bold text-xs", billingCycle === 'MONTHLY' ? 'text-primary' : '')}>Monthly</Label>
                         <Switch
-                            id="billing-cycle"
                             checked={billingCycle === 'ANNUAL'}
-                            onCheckedChange={(checked) => setBillingCycle(checked ? 'ANNUAL' : 'MONTHLY')}
+                            onCheckedChange={(v) => setBillingCycle(v ? 'ANNUAL' : 'MONTHLY')}
                         />
-                        <Label htmlFor="billing-cycle">Yearly</Label>
+                        <Label className={cn("font-bold text-xs", billingCycle === 'ANNUAL' ? 'text-primary' : '')}>Yearly</Label>
                     </div>
 
                     {isLoadingPackages ? (
@@ -136,27 +115,23 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                             <Loader2 className="h-8 w-8 animate-spin" />
                         </div>
                     ) : (
-                        filteredPackages.map(pkg => (
-                            <div
-                                key={pkg.identifier}
-                                className={cn(
-                                    "relative border-2 rounded-lg p-3 cursor-pointer transition-all flex justify-between items-center",
-                                    selectedIdentifier === pkg.identifier ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"
-                                )}
-                                onClick={() => setSelectedIdentifier(pkg.identifier)}
-                            >
-                                <div>
-                                    <p className="font-bold text-lg">{pkg.product.title.split('(')[0]}</p>
-                                    <p className="text-sm text-muted-foreground">{pkg.product.description}</p>
-                                </div>
-                                <div className="flex items-center">
-                                    <p className="font-semibold mr-4">{pkg.product.priceString}</p>
-                                    {selectedIdentifier === pkg.identifier && (
-                                        <CheckCircle className="h-5 w-5 text-primary" />
-                                    )}
-                                </div>
+                        <ScrollArea className="h-72">
+                            <div className="grid gap-4 pr-4">
+                                {filteredPackages.map(pkg => (
+                                    <Card 
+                                        key={pkg.identifier} 
+                                        className="p-4 border cursor-pointer hover:border-primary transition-all" 
+                                        onClick={() => handleUpgrade(pkg)}
+                                    >
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h4 className="font-bold text-lg">{pkg.product.title.split('(')[0]}</h4>
+                                            <span className="font-bold text-lg text-primary">{pkg.product.priceString}</span>
+                                        </div>
+                                        <p className="text-[11px] text-muted-foreground">{pkg.product.description}</p>
+                                    </Card>
+                                ))}
                             </div>
-                        ))
+                        </ScrollArea>
                     )}
                 </div>
             )}
