@@ -9,13 +9,14 @@ import {
   DialogFooter
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '../auth/auth-provider';
-import { Loader2 } from 'lucide-react';
+import { Loader2, CheckCircle } from 'lucide-react';
 import { UserTier } from '@/types';
 import { Capacitor } from '@capacitor/core';
-import { Purchases } from '@revenuecat/purchases-capacitor';
+import { Purchases, PurchasesPackage } from '@revenuecat/purchases-capacitor';
+import { cn } from '@/lib/utils';
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -29,8 +30,34 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
     const { toast } = useToast();
     const { user } = useAuth();
     const [isRedirecting, setIsRedirecting] = useState(false);
+    const [packages, setPackages] = useState<PurchasesPackage[]>([]);
+    const [selectedPackage, setSelectedPackage] = useState<PurchasesPackage | null>(null);
+    const [isLoadingPackages, setIsLoadingPackages] = useState(true);
 
     const isCoachingTier = requiredTier === 'coaching' || requiredTier === 'Coaching';
+
+    useEffect(() => {
+        if (isOpen && Capacitor.isNativePlatform() && !isCoachingTier) {
+            const fetchPackages = async () => {
+                setIsLoadingPackages(true);
+                try {
+                    const offerings = await Purchases.getOfferings();
+                    if (offerings.current && offerings.current.availablePackages.length > 0) {
+                        const availablePackages = offerings.current.availablePackages;
+                        setPackages(availablePackages);
+                        // Pre-select the yearly package if available, otherwise the first one
+                        const yearlyPackage = availablePackages.find(p => p.packageType === 'ANNUAL') || availablePackages[0];
+                        setSelectedPackage(yearlyPackage);
+                    }
+                } catch (e) {
+                    toast({ variant: 'destructive', title: 'Error', description: "Could not load subscription plans." });
+                } finally {
+                    setIsLoadingPackages(false);
+                }
+            };
+            fetchPackages();
+        }
+    }, [isOpen, isCoachingTier, toast]);
 
     const handleContactCoaching = () => {
       toast({ title: "Contact Us", description: "Please contact us to inquire about coaching services." });
@@ -43,36 +70,17 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
             return;
         }
 
-        if (!user || isCoachingTier) return;
+        if (!user || isCoachingTier || !selectedPackage) return;
         setIsRedirecting(true);
 
         try {
-            // WE REMOVED: Purchases.configure(...) 
-            // Because RootProviders.tsx handles the connection Boss duties.
+            const { customerInfo } = await Purchases.purchasePackage({ aPackage: selectedPackage });
 
-            // 1. Check if the system is ready (should be true if RootProvider worked)
-            const ready = await Purchases.isConfigured();
-            if (!ready) throw new Error("Billing system not ready.");
-
-            // 2. Get the products from RevenueCat
-            const offerings = await Purchases.getOfferings();
-            
-            if (offerings.current && offerings.current.availablePackages.length > 0) {
-                // 3. Start the purchase
-                const { customerInfo } = await Purchases.purchasePackage({ 
-                    aPackage: offerings.current.availablePackages[0] 
-                });
-
-                if (Object.keys(customerInfo.entitlements.active).length > 0) {
-                    toast({ title: "Upgrade Successful!", description: `You now have access to ${featureName}.` });
-                    onClose();
-                }
-            } else {
-                throw new Error("No available plans found in the store.");
+            if (Object.keys(customerInfo.entitlements.active).length > 0) {
+                toast({ title: "Upgrade Successful!", description: `You now have access to ${featureName}.` });
+                onClose();
             }
-
         } catch (e: any) {
-            // Only show an error if the user didn't just hit 'Cancel'
             if (!e.userCancelled) {
                 console.error("Upgrade failed:", e);
                 toast({ 
@@ -93,11 +101,40 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                     <DialogTitle className="text-2xl">Upgrade to Unlock {featureName}</DialogTitle>
                     <DialogDescription className="text-base px-4">{reason}</DialogDescription>
                 </DialogHeader>
+                
+                {!isCoachingTier && (
+                    <div className="px-4 py-2 space-y-3">
+                        {isLoadingPackages ? (
+                            <div className="flex justify-center items-center h-24">
+                                <Loader2 className="h-8 w-8 animate-spin" />
+                            </div>
+                        ) : (
+                            packages.map(pkg => (
+                                <div
+                                    key={pkg.identifier}
+                                    className={cn(
+                                        "relative border-2 rounded-lg p-3 cursor-pointer transition-all",
+                                        selectedPackage?.identifier === pkg.identifier ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"
+                                    )}
+                                    onClick={() => setSelectedPackage(pkg)}
+                                >
+                                    {selectedPackage?.identifier === pkg.identifier && (
+                                        <CheckCircle className="h-5 w-5 text-primary absolute top-2 right-2" />
+                                    )}
+                                    <p className="font-bold text-lg">{pkg.product.title.split('(')[0]}</p>
+                                    <p className="text-sm text-muted-foreground">{pkg.product.description}</p>
+                                    <p className="font-semibold mt-2">{pkg.product.priceString}</p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+
                 <DialogFooter className="flex-col sm:flex-row gap-2">
                     <Button onClick={onClose} variant="outline" className="w-full">Maybe Later</Button>
                     <Button 
                         onClick={isCoachingTier ? handleContactCoaching : handleUpgrade} 
-                        disabled={isRedirecting} 
+                        disabled={isRedirecting || isLoadingPackages || (!isCoachingTier && !selectedPackage)} 
                         className="w-full"
                     >
                         {isCoachingTier ? (
@@ -105,7 +142,7 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                         ) : isRedirecting ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                            `Upgrade to ${requiredTier}`
+                            `Upgrade with ${selectedPackage?.packageType === 'ANNUAL' ? 'Yearly' : 'Monthly'} Plan`
                         )}
                     </Button>
                 </DialogFooter>

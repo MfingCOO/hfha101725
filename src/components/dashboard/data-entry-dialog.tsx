@@ -32,6 +32,8 @@ import { CravingsBingeContent } from './cravings-binge-content';
 import { StressReliefContent } from './stress-relief-content';
 import { useIsMobile } from '@/hooks/use-is-mobile';
 import { ActionableResponseModal } from '../modals/actionable-response-modal';
+import { useAdBanner } from '../providers/AdBannerProvider';
+
 interface DataEntryDialogProps {
     open: boolean;
     onOpenChange: (wasSaved: boolean) => void;
@@ -144,6 +146,7 @@ export function DataEntryDialog({
     const logId = initialData?.id;
     const [userTimezone, setUserTimezone] = useState('');
     const { prepareInterstitialAd, showInterstitialAd } = useAdMob();
+    const { adBannerHeight } = useAdBanner();
 
     useEffect(() => {
         setUserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -626,6 +629,7 @@ export function DataEntryDialog({
             title={dialogTitle}
             description={dialogDescription}
             footer={dialogFooter}
+            className={cn({ 'pb-20': adBannerHeight > 0 })}
         >
              <div className="space-y-1">
                  {pillar.id !== 'planner' && (

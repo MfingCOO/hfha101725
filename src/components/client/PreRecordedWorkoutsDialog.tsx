@@ -79,10 +79,10 @@ export function PreRecordedWorkoutsDialog({ isOpen, onClose }: PreRecordedWorkou
             <p>{searchTerm ? 'No workouts match your search.' : 'No pre-recorded workouts available yet.'}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 max-h-[60vh] overflow-y-auto pr-2">
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
             {filteredWorkouts.map(workout => (
-              <Link href={workout.youtubeUrl} key={workout.id} target="_blank" rel="noopener noreferrer" className="group">
-                <div className="aspect-video relative rounded-lg overflow-hidden border">
+              <Link href={workout.youtubeUrl} key={workout.id} target="_blank" rel="noopener noreferrer" className="group flex items-center gap-4">
+                <div className="w-24 h-16 relative rounded-lg overflow-hidden border flex-shrink-0">
                     <Image 
                         src={workout.thumbnailUrl} 
                         alt={workout.title} 
@@ -90,7 +90,7 @@ export function PreRecordedWorkoutsDialog({ isOpen, onClose }: PreRecordedWorkou
                         className="object-cover transition-transform group-hover:scale-105"
                     />
                 </div>
-                <p className="mt-2 text-sm font-medium truncate group-hover:underline">{workout.title}</p>
+                <p className="text-sm font-medium group-hover:underline">{workout.title}</p>
               </Link>
             ))}
           </div>
