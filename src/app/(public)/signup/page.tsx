@@ -52,7 +52,7 @@ export default function SignupPage() {
             </div>
 
             <div className="w-full max-w-2xl mt-6">
-                <OnboardingForm onFormSubmit={handleSignup} />
+                <OnboardingForm />
             </div>
 
             {/* Already have an account? Link */}
