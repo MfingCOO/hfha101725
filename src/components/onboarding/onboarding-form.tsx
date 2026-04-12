@@ -258,8 +258,9 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                             <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$9.99' : '$99.99'}</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• **UPF/Gluten Free Nutritional Analysis** (Meal Scanning)</li>
-                                            <li>• Exclusive access to Live Events</li>
+                                            <li>• UPF/Gluten Free Nutritional Analysis (Meal Scanning)</li>
+                                            <li>• Exclusive access to Live Workout/Events</li>
+                                            <li>• Exclusive Prerecorded Yoga, Pilates, and More</li>
                                             <li>• Community Chat Groups & Workout Programs</li>
                                             <li>• Priority Customer Support</li>
                                         </ul>
@@ -297,6 +298,7 @@ export function OnboardingForm({ onFormSubmit }: OnboardingFormProps) {
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
                                             <li>• Basic Habit Tracking (Hydration, Nutrition, Activity)</li>
+                                            <li>• UPF Percentage and Gluten Free Rating of Food</li>
                                             <li>• Full Calendar Access</li>
                                             <li>• Supported by advertisements</li>
                                         </ul>
