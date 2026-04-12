@@ -123,6 +123,7 @@ export interface ClientProfile {
     email: string;
     photoURL?: string;
     tier: UserTier;
+    role?: 'client' | 'coach';
     chatIds?: string[];
     coachId?: string;
     challengeIds?: string[];
@@ -174,7 +175,10 @@ export interface ClientProfile {
     dob?: string | null;
     sex?: 'male' | 'female' | 'unspecified' | null;
     remindersEnabled?: boolean;
-    preferences?: { adsEnabled?: boolean }; // FIX: Added for useAdMob hook
+    preferences?: { adsEnabled?: boolean };
+    revenueCatLastEvent?: string;
+    revenueCatEntitlements?: any;
+    lastActivity?: any;
 }
 
 export type CreateClientInput = {
