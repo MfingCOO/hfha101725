@@ -26,7 +26,7 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
     const { user } = useAuth();
     const [isRedirecting, setIsRedirecting] = useState(false);
     const [packages, setPackages] = useState<PurchasesPackage[]>([]);
-    const [selectedPackage, setSelectedPackage] = useState<PurchasesPackage | null>(null);
+    const [selectedIdentifier, setSelectedIdentifier] = useState<string | null>(null);
     const [isLoadingPackages, setIsLoadingPackages] = useState(true);
     const [billingCycle, setBillingCycle] = useState<'ANNUAL' | 'MONTHLY'>('ANNUAL');
 
@@ -57,11 +57,15 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
 
     useEffect(() => {
         if (filteredPackages.length > 0) {
-            setSelectedPackage(filteredPackages[0]);
+            setSelectedIdentifier(filteredPackages[0].identifier);
         } else {
-            setSelectedPackage(null)
+            setSelectedIdentifier(null);
         }
     }, [filteredPackages]);
+
+    const selectedPackage = useMemo(() => {
+        return packages.find(p => p.identifier === selectedIdentifier) || null;
+    }, [packages, selectedIdentifier]);
 
     const handleContactCoaching = () => {
       toast({ title: "Contact Us", description: "Please contact us to inquire about coaching services." });
@@ -137,9 +141,9 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                                 key={pkg.identifier}
                                 className={cn(
                                     "relative border-2 rounded-lg p-3 cursor-pointer transition-all flex justify-between items-center",
-                                    selectedPackage?.identifier === pkg.identifier ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"
+                                    selectedIdentifier === pkg.identifier ? "border-primary bg-primary/10" : "border-border hover:border-primary/50"
                                 )}
-                                onClick={() => setSelectedPackage(pkg)}
+                                onClick={() => setSelectedIdentifier(pkg.identifier)}
                             >
                                 <div>
                                     <p className="font-bold text-lg">{pkg.product.title.split('(')[0]}</p>
@@ -147,7 +151,7 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                                 </div>
                                 <div className="flex items-center">
                                     <p className="font-semibold mr-4">{pkg.product.priceString}</p>
-                                    {selectedPackage?.identifier === pkg.identifier && (
+                                    {selectedIdentifier === pkg.identifier && (
                                         <CheckCircle className="h-5 w-5 text-primary" />
                                     )}
                                 </div>
@@ -157,5 +161,5 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                 </div>
             )}
         </BaseModal>
-    );
+     );
 }
