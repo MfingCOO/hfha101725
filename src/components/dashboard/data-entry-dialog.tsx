@@ -257,10 +257,10 @@ export function DataEntryDialog({
     }, []);    
 
     useEffect(() => {
-        if (open && pillar?.id === 'nutrition' && process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID) {
+        if (pillar?.id === 'nutrition' && process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID) {
             prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID, isTesting: process.env.NODE_ENV !== 'production' });
         }
-    }, [open, pillar?.id, prepareInterstitialAd]);
+    }, [pillar?.id, prepareInterstitialAd]);
 
     useEffect(() => {
         if (!open || !pillar) return;

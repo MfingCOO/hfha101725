@@ -23,6 +23,7 @@ import { toggleFavoriteFood, getFavoriteFoods } from '@/app/actions/nutrition-ac
 import { getEnrichedFood, saveManualEnrichedFood, generateNewFdcId } from '@/app/coach/food-cache/actions';
 import { useSearchStore } from '@/store/search-store';
 import { toast } from 'sonner';
+import { useAdBanner } from '@/components/providers/AdBannerProvider';
 
 
 const RECENT_FOODS_KEY = 'recentFoods';
@@ -108,6 +109,7 @@ const IconTab = ({ value, icon: Icon, label, onClick }: { value: string; icon: R
 export function NutritionModal({ isOpen, onClose, onAddItems, userId }: NutritionModalProps) {
   const { userProfile } = useAuth();
   const resetSearchStore = useSearchStore((state) => state.reset);
+  const { adBannerHeight } = useAdBanner();
 
   const [currentMealItems, setCurrentMealItems] = useState<MealItem[]>([]);
   const [activeTab, setActiveTab] = useState('search');
@@ -363,7 +365,10 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
         ) : null
       }
     >
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-0">
+      <div 
+        className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-0"
+        style={{ paddingBottom: `${adBannerHeight}px` }}
+      >
         <div className="flex flex-col space-y-4 min-h-0 relative">
           {isAnalyzing && (
             <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-50 rounded-lg">
