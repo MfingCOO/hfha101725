@@ -1,10 +1,14 @@
 import * as admin from 'firebase-admin';
 
-// This is the standard, server-friendly way to initialize the Admin SDK.
-// When deployed to a Google Cloud environment (like Cloud Functions), 
-// it automatically finds the necessary credentials without any .env files.
-if (admin.apps.length === 0) {
-  admin.initializeApp();
+if (!admin.apps.length) {
+  // This is the correct way for Vercel / Next.js
+  const serviceAccount = JSON.parse(
+    process.env.FIREBASE_SERVICE_ACCOUNT || '{}'
+  );
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
 }
 
 const db = admin.firestore();

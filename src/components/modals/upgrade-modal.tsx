@@ -45,7 +45,7 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
             console.log('🔍 Looking for packageId:', packageId);
     
             const offerings = await Purchases.getOfferings();
-            console.log('📦 All available packages:', 
+            console.log('📦 Available packages:', 
                 offerings.current?.availablePackages?.map((p: any) => p.identifier));
     
             const pkg = offerings.current?.availablePackages?.find((p: any) => p.identifier === packageId);
@@ -54,7 +54,7 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                 toast({ 
                     variant: "destructive", 
                     title: "Plan not found", 
-                    description: `Could not find the ${pkgKey} ${tier} plan in the app store.` 
+                    description: `Could not find the ${pkgKey} ${tier} plan.` 
                 });
                 setIsLoading(false);
                 return;
@@ -62,12 +62,8 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
     
             const { customerInfo } = await Purchases.purchasePackage({ aPackage: pkg });
     
-            // CLEANED-UP CHECK — only uses your actual entitlement names
-            const activeEntitlements = customerInfo.entitlements.active;
-            if (activeEntitlements['premium_tier'] || 
-                activeEntitlements['basic_tier'] || 
-                activeEntitlements['ad_free_tier']) {
-                
+            const active = customerInfo.entitlements.active;
+            if (active['premium_tier'] || active['basic_tier'] || active['ad_free_tier']) {
                 toast({ title: "Upgrade Successful!", description: `You now have access to ${featureName}.` });
                 onClose();
             } else {
