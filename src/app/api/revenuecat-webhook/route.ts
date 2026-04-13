@@ -29,10 +29,11 @@ async function processRevenueCatEvent(eventPayload: any): Promise<{ success: boo
             return { success: false, error: `Client with UID ${appUserID} not found.` };
         }
 
+        // UPDATED: Use the actual entitlement names from your RevenueCat dashboard
         let newTier: UserTier = 'free';
-        if (entitlements?.premium_access) newTier = 'premium';
-        else if (entitlements?.basic_access) newTier = 'basic';
-        else if (entitlements?.ad_free_access) newTier = 'ad-free';
+        if (entitlements?.premium_tier) newTier = 'premium';
+        else if (entitlements?.basic_tier) newTier = 'basic';
+        else if (entitlements?.ad_free_tier) newTier = 'ad-free';
 
         // Update Firestore client document and enable the user
         await clientRef.update({
@@ -43,7 +44,7 @@ async function processRevenueCatEvent(eventPayload: any): Promise<{ success: boo
             lastActivity: FieldValue.serverTimestamp(),
         });
 
-        // Enable the Firebase Auth user
+        // Enable the Firebase Auth user (in case it was ever disabled)
         await auth.updateUser(appUserID, { disabled: false });
         
         // Set custom claims for role-based access

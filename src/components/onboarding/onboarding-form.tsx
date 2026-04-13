@@ -88,8 +88,8 @@ export function OnboardingForm() {
         try {
             const values = form.getValues();
             const intendedTier = tierNameMapping[tierKey];
-
-            // FREE tier — use original unifiedSignupAction
+    
+            // FREE tier
             if (intendedTier === 'free') {
                 const signupResult = await unifiedSignupAction({
                     ...values,
@@ -97,51 +97,56 @@ export function OnboardingForm() {
                     units: 'imperial',
                     coachId: 'default',
                 }) as any;
-
+    
                 if (!signupResult.success) {
                     throw new Error(signupResult.error || "Could not create account.");
                 }
-
+    
                 toast({ title: "Account Created!", description: "Redirecting you to login." });
                 router.push('/login');
                 return;
             }
-
-            // PAID tier — create free account OR upgrade existing one (fixes Google Play error)
+    
+            // PAID tier — create or upgrade
             const signupResult = await signupOrUpgradeClientAction({
                 ...values,
                 tier: 'free',
                 units: 'imperial',
                 coachId: 'default',
             });
-
+    
             if (!signupResult.success || !signupResult.uid) {
                 throw new Error(signupResult.error || "Could not create/upgrade account.");
             }
-
+    
             if (!Capacitor.isNativePlatform()) {
                 toast({ variant: "destructive", title: "Error", description: "Payment only works on mobile." });
                 setIsLoading(false);
                 return;
             }
-
+    
             await Purchases.logIn({ appUserID: signupResult.uid });
-
+    
+            // UPDATED: Use the exact package identifiers from your RevenueCat dashboard
             let packageId = '';
-            if (tierKey === 'premium') packageId = pkgKey === 'monthly' ? 'premium_monthly' : 'premium_yearly';
-            else if (tierKey === 'basic_tier') packageId = pkgKey === 'monthly' ? 'basic_monthly' : 'basic_yearly';
-            else if (tierKey === 'ad_free_tier') packageId = pkgKey === 'monthly' ? 'ad_free_monthly' : 'ad_free_yearly';
-
+            if (tierKey === 'premium') {
+                packageId = pkgKey === 'monthly' ? 'premium_tier:premium-monthly' : 'premium_tier:premium-yearly';
+            } else if (tierKey === 'basic_tier') {
+                packageId = pkgKey === 'monthly' ? 'basic_tier:basic-monthly' : 'basic_tier:basic-yearly';
+            } else if (tierKey === 'ad_free_tier') {
+                packageId = pkgKey === 'monthly' ? 'ad_free_tier:ad-free-monthly' : 'ad_free_tier:ad-free-yearly';
+            }
+    
             const offerings = await Purchases.getOfferings();
             const pkg = offerings.current?.availablePackages.find(p => p.identifier === packageId);
-
+    
             if (!pkg) throw new Error(`Plan ${packageId} not found`);
-
+    
             await Purchases.purchasePackage({ aPackage: pkg });
-
+    
             toast({ title: "Purchase Successful!", description: "Your account is being upgraded. Redirecting to login." });
             router.push('/login');
-
+    
         } catch (e: any) {
             if (!e.userCancelled) {
                 toast({ variant: "destructive", title: "Error", description: e.message || "Something went wrong." });
