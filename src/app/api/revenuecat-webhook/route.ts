@@ -11,7 +11,7 @@ async function processRevenueCatEvent(eventPayload: any): Promise<{ success: boo
     console.log('[REVENUECAT WEBHOOK] Processing event:', eventPayload.event.type);
     
     const { event } = eventPayload;
-    const { app_user_id: appUserID, entitlements } = event;
+    const { app_user_id: appUserID, entitlement_ids, entitlements } = event;
     
     if (!appUserID) {
         console.error('[REVENUECAT WEBHOOK] Missing app_user_id.');
@@ -27,16 +27,23 @@ async function processRevenueCatEvent(eventPayload: any): Promise<{ success: boo
             return { success: false, error: `Client with UID ${appUserID} not found.` };
         }
 
+        // Handle BOTH formats that RevenueCat can send
+        const entitlementList = entitlement_ids || Object.keys(entitlements || {});
+
         let newTier: UserTier = 'free';
-        if (entitlements?.premium_tier) newTier = 'premium';
-        else if (entitlements?.basic_tier) newTier = 'basic';
-        else if (entitlements?.ad_free_tier) newTier = 'ad-free';
+        if (entitlementList.includes('premium_access') || entitlementList.includes('premium_tier')) {
+            newTier = 'premium';
+        } else if (entitlementList.includes('basic_access') || entitlementList.includes('basic_tier')) {
+            newTier = 'basic';
+        } else if (entitlementList.includes('ad_free_access') || entitlementList.includes('ad_free_tier')) {
+            newTier = 'ad-free';
+        }
 
         await clientRef.update({
             tier: newTier,
             status: 'active',
             revenueCatLastEvent: event.type,
-            revenueCatEntitlements: entitlements,
+            revenueCatEntitlements: entitlements || entitlement_ids,
             lastActivity: FieldValue.serverTimestamp(),
         });
 
