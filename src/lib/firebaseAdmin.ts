@@ -1,14 +1,24 @@
 import * as admin from 'firebase-admin';
 
 if (!admin.apps.length) {
-  // This is the correct way for Vercel / Next.js
-  const serviceAccount = JSON.parse(
-    process.env.FIREBASE_SERVICE_ACCOUNT || '{}'
-  );
+  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+  if (serviceAccountKey) {
+    try {
+      const serviceAccount = JSON.parse(serviceAccountKey);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+      console.log('✅ Firebase Admin initialized successfully with service account');
+    } catch (error) {
+      console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', error);
+      admin.initializeApp(); // fallback
+    }
+  } else {
+    // Fallback for local development
+    admin.initializeApp();
+    console.log('⚠️ Firebase Admin initialized with default credentials (no service account key found)');
+  }
 }
 
 const db = admin.firestore();
