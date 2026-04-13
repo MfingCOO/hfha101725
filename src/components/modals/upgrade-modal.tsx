@@ -42,12 +42,7 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                 packageId = pkgKey === 'monthly' ? 'ad_free_monthly' : 'ad_free_yearly';
             }
     
-            console.log('🔍 Looking for packageId:', packageId);
-    
             const offerings = await Purchases.getOfferings();
-            console.log('📦 Available packages:', 
-                offerings.current?.availablePackages?.map((p: any) => p.identifier));
-    
             const pkg = offerings.current?.availablePackages?.find((p: any) => p.identifier === packageId);
     
             if (!pkg) {

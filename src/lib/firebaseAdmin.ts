@@ -9,15 +9,14 @@ if (!admin.apps.length) {
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
-      console.log('✅ Firebase Admin initialized successfully with service account');
+      console.log('✅ Firebase Admin initialized with service account key');
     } catch (error) {
       console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', error);
       admin.initializeApp(); // fallback
     }
   } else {
-    // Fallback for local development
     admin.initializeApp();
-    console.log('⚠️ Firebase Admin initialized with default credentials (no service account key found)');
+    console.log('⚠️ Firebase Admin initialized with default credentials (no key found)');
   }
 }
 
