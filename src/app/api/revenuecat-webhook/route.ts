@@ -1,9 +1,7 @@
-'use server';
 import { NextRequest, NextResponse } from 'next/server';
-import { headers } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { auth, db as adminDb } from '@/lib/firebaseAdmin';
-import type { ClientProfile, UserTier } from '@/types';
+import type { UserTier } from '@/types';
 
 function isRevenueCatWebhook(reqBody: any): boolean {
     return reqBody && typeof reqBody === 'object' && reqBody.event && reqBody.event.app_user_id && reqBody.event.type;
@@ -29,13 +27,11 @@ async function processRevenueCatEvent(eventPayload: any): Promise<{ success: boo
             return { success: false, error: `Client with UID ${appUserID} not found.` };
         }
 
-        // UPDATED: Use the actual entitlement names from your RevenueCat dashboard
         let newTier: UserTier = 'free';
         if (entitlements?.premium_tier) newTier = 'premium';
         else if (entitlements?.basic_tier) newTier = 'basic';
         else if (entitlements?.ad_free_tier) newTier = 'ad-free';
 
-        // Update Firestore client document and enable the user
         await clientRef.update({
             tier: newTier,
             status: 'active',
@@ -44,13 +40,10 @@ async function processRevenueCatEvent(eventPayload: any): Promise<{ success: boo
             lastActivity: FieldValue.serverTimestamp(),
         });
 
-        // Enable the Firebase Auth user (in case it was ever disabled)
         await auth.updateUser(appUserID, { disabled: false });
-        
-        // Set custom claims for role-based access
         await auth.setCustomUserClaims(appUserID, { role: 'client', tier: newTier });
 
-        console.log(`[REVENUECAT WEBHOOK] Successfully activated user ${appUserID} with tier ${newTier}.`);
+        console.log(`[REVENUECAT WEBHOOK] Successfully updated user ${appUserID} to tier ${newTier}.`);
         return { success: true };
 
     } catch (error: any) {
@@ -60,7 +53,7 @@ async function processRevenueCatEvent(eventPayload: any): Promise<{ success: boo
 }
 
 export async function POST(req: NextRequest) {
-    let jsonBody: any; 
+    let jsonBody: any;
 
     try {
         jsonBody = await req.json();
@@ -72,7 +65,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (isRevenueCatWebhook(jsonBody)) {
-        const result = await processRevenueCatEvent(jsonBody); 
+        const result = await processRevenueCatEvent(jsonBody);
         if (result.success) {
             return new NextResponse(JSON.stringify({ received: true }), { status: 200 });
         } else {
