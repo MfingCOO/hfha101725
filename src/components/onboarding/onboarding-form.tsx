@@ -26,7 +26,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Capacitor } from '@capacitor/core';
 import { Purchases } from '@revenuecat/purchases-capacitor';
-import { unifiedSignupAction } from '@/app/coach/clients/actions';
+import { unifiedSignupAction, signupOrUpgradeClientAction } from '@/app/coach/clients/actions';
 import { CreateClientInput } from '@/types';
 
 const onboardingSchema = z.object({
@@ -88,40 +88,45 @@ export function OnboardingForm() {
         try {
             const values = form.getValues();
             const intendedTier = tierNameMapping[tierKey];
-            
-            // Per your instructions: Always create the user as 'free' tier first.
-            // The server action will handle disabling the account if the intended tier is a paid one.
-            const signupData: CreateClientInput = { 
-                ...values, 
-                tier: 'free', 
-                units: 'imperial', 
-                coachId: 'default' 
-            };
 
-            const signupResult = await unifiedSignupAction(signupData) as { success: boolean; uid?: string; error?: string; };
+            // FREE tier — use original unifiedSignupAction
+            if (intendedTier === 'free') {
+                const signupResult = await unifiedSignupAction({
+                    ...values,
+                    tier: 'free',
+                    units: 'imperial',
+                    coachId: 'default',
+                }) as any;
 
-            if (!signupResult.success || !signupResult.uid) {
-                toast({ variant: "destructive", title: "Signup Failed", description: signupResult.error || "Could not create your account." });
-                setIsLoading(false);
+                if (!signupResult.success) {
+                    throw new Error(signupResult.error || "Could not create account.");
+                }
+
+                toast({ title: "Account Created!", description: "Redirecting you to login." });
+                router.push('/login');
                 return;
             }
 
-            // If the user intended to sign up for free, we are done. Redirect to login.
-            if (intendedTier === 'free') {
-                toast({ title: "Account Created!", description: "Redirecting you to the login page." });
-                router.push('/login');
-                return; 
+            // PAID tier — create free account OR upgrade existing one (fixes Google Play error)
+            const signupResult = await signupOrUpgradeClientAction({
+                ...values,
+                tier: 'free',
+                units: 'imperial',
+                coachId: 'default',
+            });
+
+            if (!signupResult.success || !signupResult.uid) {
+                throw new Error(signupResult.error || "Could not create/upgrade account.");
             }
 
-            // For paid tiers, proceed with payment.
             if (!Capacitor.isNativePlatform()) {
-                toast({ variant: "destructive", title: "Error", description: "Payment can only be processed on a mobile device." });
+                toast({ variant: "destructive", title: "Error", description: "Payment only works on mobile." });
                 setIsLoading(false);
                 return;
             }
 
             await Purchases.logIn({ appUserID: signupResult.uid });
-            
+
             let packageId = '';
             if (tierKey === 'premium') packageId = pkgKey === 'monthly' ? 'premium_monthly' : 'premium_yearly';
             else if (tierKey === 'basic_tier') packageId = pkgKey === 'monthly' ? 'basic_monthly' : 'basic_yearly';
@@ -130,25 +135,18 @@ export function OnboardingForm() {
             const offerings = await Purchases.getOfferings();
             const pkg = offerings.current?.availablePackages.find(p => p.identifier === packageId);
 
-            if (!pkg) {
-                toast({ variant: "destructive", title: "Plan Not Found", description: `Could not find the selected plan (${packageId}).` });
-                setIsLoading(false);
-                return;
-            }
+            if (!pkg) throw new Error(`Plan ${packageId} not found`);
 
-            // This is where the payment happens.
             await Purchases.purchasePackage({ aPackage: pkg });
 
-            // After payment, the webhook will handle activation. We can just redirect.
-            toast({ title: "Purchase Successful!", description: "Your account is being activated. Redirecting to login." });
+            toast({ title: "Purchase Successful!", description: "Your account is being upgraded. Redirecting to login." });
             router.push('/login');
-            // Do not set loading to false here, to prevent the form from re-rendering and interrupting the redirect.
 
         } catch (e: any) {
             if (!e.userCancelled) {
-                toast({ variant: "destructive", title: "An Error Occurred", description: e.message || "Something went wrong during the process." });
+                toast({ variant: "destructive", title: "Error", description: e.message || "Something went wrong." });
             }
-            setIsLoading(false); // Only set loading to false if there's an error or user cancelled.
+            setIsLoading(false);
         }
     };
 
@@ -272,7 +270,8 @@ export function OnboardingForm() {
                                             <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$9.99' : '$99.99'}</span>
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• UPF/Gluten Free Nutritional Analysis (Meal Scanning)</li>
+                                            <li>• Everything From Basic Plus...</li>
+                                            <li>• UPF/Gluten Free Nutritional Analysis</li>
                                             <li>• Exclusive access to Live Workout/Events</li>
                                             <li>• Exclusive Prerecorded Yoga, Pilates, and More</li>
                                             <li>• Community Chat Groups & Workout Programs</li>
@@ -289,6 +288,7 @@ export function OnboardingForm() {
                                         <li>• Everything From Ad-Free</li>
                                             <li>• Full access to all App tracking tools</li>
                                             <li>• Craving/Binge & Stress Tracking</li>
+                                            <li>• Indulgence Planning & 75/20/20 Protocol</li>
                                             <li>• Historical progress charts & insights</li>
                                         </ul>
                                     </Card>

@@ -307,3 +307,54 @@ export async function getChatDetailsAction(chatId: string): Promise<{ success: b
         return { success: false, error: error.message };
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEW FUNCTION: signupOrUpgradeClientAction (added for public paid signup flow)
+// This creates a free account if the email is new, OR re-uses the existing UID
+// if the email already exists (so Google Play doesn't throw "email already in use")
+// ─────────────────────────────────────────────────────────────────────────────
+export async function signupOrUpgradeClientAction(data: CreateClientInput & { password: string }) {
+    const { email, password, ...clientData } = data;
+
+    try {
+        let uid: string;
+
+        // Try to find existing user (upgrade path)
+        try {
+            const existingUser = await auth.getUserByEmail(email);
+            uid = existingUser.uid;
+            console.log(`[SIGNUP/UPGRADE] Existing free user found → ${uid} (treating as upgrade)`);
+        } catch (error: any) {
+            if (error.code === 'auth/user-not-found') {
+                // New user — create as free (disabled until webhook enables it)
+                const newUser = await auth.createUser({
+                    email,
+                    password,
+                    displayName: clientData.fullName,
+                    emailVerified: false,
+                    disabled: true,
+                });
+                uid = newUser.uid;
+
+                await adminDb.collection('clients').doc(uid).set({
+                    ...clientData,
+                    tier: 'free' as const,
+                    status: 'inactive',
+                    createdAt: FieldValue.serverTimestamp(),
+                    lastActivity: FieldValue.serverTimestamp(),
+                    isAnonymous: false,
+                    revenueCatLastEvent: null,
+                });
+
+                console.log(`[SIGNUP/UPGRADE] New free account created → ${uid}`);
+            } else {
+                throw error;
+            }
+        }
+
+        return { success: true, uid };
+    } catch (error: any) {
+        console.error('[SIGNUP/UPGRADE] Error:', error);
+        return { success: false, error: error.message || 'Failed to create/upgrade account' };
+    }
+}
