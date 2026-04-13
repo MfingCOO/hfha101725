@@ -30,6 +30,7 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
             toast({ variant: "destructive", title: "Error", description: "Subscriptions are only available on the mobile app." });
             return;
         }
+    
         setIsLoading(true);
         try {
             let packageId = '';
@@ -40,15 +41,15 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
             } else if (tier === 'ad_free_tier') {
                 packageId = pkgKey === 'monthly' ? 'ad_free_monthly' : 'ad_free_yearly';
             }
-
+    
             console.log('🔍 Looking for packageId:', packageId);
-
+    
             const offerings = await Purchases.getOfferings();
-             console.log('📦 All available packages:', 
+            console.log('📦 All available packages:', 
                 offerings.current?.availablePackages?.map((p: any) => p.identifier));
-
+    
             const pkg = offerings.current?.availablePackages?.find((p: any) => p.identifier === packageId);
-
+    
             if (!pkg) {
                 toast({ 
                     variant: "destructive", 
@@ -58,11 +59,19 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                 setIsLoading(false);
                 return;
             }
-
+    
             const { customerInfo } = await Purchases.purchasePackage({ aPackage: pkg });
-
-            if (customerInfo.entitlements.active[tier] || customerInfo.entitlements.active['premium']) {
-                 toast({ title: "Upgrade Successful!", description: `You now have access to ${featureName}.` });
+    
+            // CLEANED-UP CHECK — only uses your actual entitlement names
+            const activeEntitlements = customerInfo.entitlements.active;
+            if (activeEntitlements['premium_tier'] || 
+                activeEntitlements['basic_tier'] || 
+                activeEntitlements['ad_free_tier']) {
+                
+                toast({ title: "Upgrade Successful!", description: `You now have access to ${featureName}.` });
+                onClose();
+            } else {
+                toast({ title: "Purchase Complete", description: "Your account will be upgraded shortly by the webhook." });
                 onClose();
             }
         } catch (e: any) {
