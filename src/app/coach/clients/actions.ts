@@ -309,52 +309,87 @@ export async function getChatDetailsAction(chatId: string): Promise<{ success: b
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NEW FUNCTION: signupOrUpgradeClientAction (added for public paid signup flow)
-// This creates a free account if the email is new, OR re-uses the existing UID
-// if the email already exists (so Google Play doesn't throw "email already in use")
+// FIXED: signupOrUpgradeClientAction (active + free immediately)
 // ─────────────────────────────────────────────────────────────────────────────
 export async function signupOrUpgradeClientAction(data: CreateClientInput & { password: string }) {
     const { email, password, ...clientData } = data;
 
+    let uid = '';
     try {
-        let uid: string;
+        let isNewUser = false;
 
-        // Try to find existing user (upgrade path)
+        // 1. Check if user already exists (upgrade path)
         try {
             const existingUser = await auth.getUserByEmail(email);
             uid = existingUser.uid;
-            console.log(`[SIGNUP/UPGRADE] Existing free user found → ${uid} (treating as upgrade)`);
+            console.log(`[SIGNUP/UPGRADE] Existing user found → ${uid} (treating as upgrade)`);
         } catch (error: any) {
             if (error.code === 'auth/user-not-found') {
-                // New user — create as free (disabled until webhook enables it)
+                // 2. New user — create as ACTIVE + FREE
                 const newUser = await auth.createUser({
                     email,
                     password,
                     displayName: clientData.fullName,
                     emailVerified: false,
-                    disabled: true,
+                    disabled: false,
                 });
                 uid = newUser.uid;
-
-                await adminDb.collection('clients').doc(uid).set({
-                    ...clientData,
-                    tier: 'free' as const,
-                    status: 'inactive',
-                    createdAt: FieldValue.serverTimestamp(),
-                    lastActivity: FieldValue.serverTimestamp(),
-                    isAnonymous: false,
-                    revenueCatLastEvent: null,
-                });
-
-                console.log(`[SIGNUP/UPGRADE] New free account created → ${uid}`);
+                isNewUser = true;
+                console.log(`[SIGNUP/UPGRADE] New user created as FREE + ACTIVE → ${uid}`);
             } else {
                 throw error;
             }
         }
 
+        // 3. Create full client document for new users
+        if (isNewUser) {
+            const idealBodyWeight = calculateIdealBodyWeight(clientData.height, clientData.units);
+
+            const tempProfileForCalc: Partial<ClientProfile> = {
+                onboarding: { ...clientData, birthdate: new Date(clientData.birthdate) },
+                idealBodyWeight: idealBodyWeight,
+                height: { value: clientData.height, unit: clientData.units === 'imperial' ? 'in' : 'cm' },
+            };
+
+            const { idealGoals, actualGoals } = calculateNutritionalGoals(tempProfileForCalc as ClientProfile);
+
+            const clientRef = adminDb.collection('clients').doc(uid);
+            const clientPayload: any = {
+                uid: uid,
+                email: email,                                 // ← FIXED: use the destructured 'email'
+                fullName: clientData.fullName,
+                tier: 'free' as const,
+                status: 'active',
+                role: 'client',
+                onboarding: clientData,
+                createdAt: FieldValue.serverTimestamp(),
+                lastActivity: FieldValue.serverTimestamp(),
+                height: { value: clientData.height, unit: clientData.units === 'imperial' ? 'in' : 'cm' },
+                idealBodyWeight: idealBodyWeight,
+                suggestedGoals: idealGoals,
+                customGoals: actualGoals,
+                chatIds: [],
+                challengeIds: [],
+                hasLoggedInBefore: false,
+                isAnonymous: false,
+                revenueCatLastEvent: null,
+            };
+
+            if (clientData.coachId) {
+                clientPayload.coachId = clientData.coachId;
+            }
+
+            await clientRef.set(clientPayload);
+            console.log(`[SIGNUP/UPGRADE] Full client document created (active + free) for ${uid}`);
+        }
+
         return { success: true, uid };
+
     } catch (error: any) {
         console.error('[SIGNUP/UPGRADE] Error:', error);
+        if (uid) {
+            await auth.deleteUser(uid).catch(delError => console.error(`Failed to clean up auth user ${uid}`, delError));
+        }
         return { success: false, error: error.message || 'Failed to create/upgrade account' };
     }
 }
