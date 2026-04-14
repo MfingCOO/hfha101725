@@ -659,15 +659,42 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
                         <AccordionContent className="p-3 space-y-2">
                            <Form {...goalsForm}>
                             <form id="goals-form" onSubmit={goalsForm.handleSubmit(onUpdateGoals)} className="space-y-3">
-                                <FormField control={goalsForm.control} name="calculationMode" render={({ field }) => (
-                                    <FormItem><FormLabel>Calculation Mode</FormLabel>
-                                        <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-3 gap-1">
-                                            <FormItem><Label htmlFor="ideal" className={cn("flex text-xs h-9 items-center justify-center rounded-md border-2 border-muted bg-popover p-1 hover:bg-accent hover:text-accent-foreground cursor-pointer", field.value === 'ideal' && "border-primary")}><FormControl><RadioGroupItem value="ideal" id="ideal" className="sr-only" /></FormControl>Ideal</Label></FormItem>
-                                            <FormItem><Label htmlFor="actual" className={cn("flex text-xs h-9 items-center justify-center rounded-md border-2 border-muted bg-popover p-1 hover:bg-accent hover:text-accent-foreground cursor-pointer", field.value === 'actual' && "border-primary")}><FormControl><RadioGroupItem value="actual" id="actual" className="sr-only" /></FormControl>Actual</Label></FormItem>
-                                            <FormItem><Label htmlFor="custom" className={cn("flex text-xs h-9 items-center justify-center rounded-md border-2 border-muted bg-popover p-1 hover:bg-accent hover:text-accent-foreground cursor-pointer", field.value === 'custom' && "border-primary")}><FormControl><RadioGroupItem value="custom" id="custom" className="sr-only" /></FormControl>Custom</Label></FormItem>
-                                        </RadioGroup><FormMessage />
-                                    </FormItem>
-                                )} />
+                            <FormField 
+    control={goalsForm.control} 
+    name="calculationMode" 
+    render={({ field }) => (
+        <FormItem>
+            <FormLabel>Calculation Mode</FormLabel>
+            <div className="grid grid-cols-3 gap-2">
+                <Button
+                    type="button"
+                    variant={field.value === 'ideal' ? "default" : "outline"}
+                    onClick={() => field.onChange('ideal')}
+                    className="h-9 text-xs"
+                >
+                    Ideal
+                </Button>
+                <Button
+                    type="button"
+                    variant={field.value === 'actual' ? "default" : "outline"}
+                    onClick={() => field.onChange('actual')}
+                    className="h-9 text-xs"
+                >
+                    Actual
+                </Button>
+                <Button
+                    type="button"
+                    variant={field.value === 'custom' ? "default" : "outline"}
+                    onClick={() => field.onChange('custom')}
+                    className="h-9 text-xs"
+                >
+                    Custom
+                </Button>
+            </div>
+            <FormMessage />
+        </FormItem>
+    )}
+/>
 
                                 <FormField control={goalsForm.control} name="activityLevel" render={({ field }) => (
                                   <FormItem><FormLabel>Activity Level</FormLabel>
