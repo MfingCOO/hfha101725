@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     if (!fdcId) return NextResponse.json({ error: 'Missing fdcId' }, { status: 400 });
 
     // 1. Check Cache
-    const cachedDoc = await db.collection('foodCache').doc(String(fdcId)).get();
+    const cachedDoc = await db.collection('global-food-cache').doc(String(fdcId)).get();
     if (cachedDoc.exists) {
       console.log(`[Cache Hit] Returning cached data for ${fdcId}`);
       return NextResponse.json(makePlain(cachedDoc.data()));
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       fdcId,
       updatedAt: new Date(),
     };
-    await db.collection('foodCache').doc(String(fdcId)).set(finalData);
+    await db.collection('global-food-cache').doc(String(fdcId)).set(finalData);
 
     return NextResponse.json(makePlain(finalData));
 

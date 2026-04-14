@@ -79,13 +79,14 @@ const convertTimestampsToISO = (data: any) => {
   return newData;
 }
 
+
 async function searchUSDA(query: string): Promise<z.infer<typeof FoodSearchResultSchema>> {
   const USDA_API_KEY = process.env.USDA_API_KEY;
   if (!USDA_API_KEY) {
-    console.error("[Food Cache] CRITICAL: USDA_API_KEY is not configured in environment variables. Search will not work.");
+    console.error("[Food Cache] CRITICAL: USDA_API_KEY is not configured.");
     return []; 
   }
-  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=150&dataType=Branded,SR%20Legacy,Foundation`;
+  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=50&dataType=Branded,SR%20Legacy,Foundation`;
   try {
     const response = await fetch(url);
     if (!response.ok) {
@@ -100,97 +101,92 @@ async function searchUSDA(query: string): Promise<z.infer<typeof FoodSearchResul
       ingredients: food.ingredients,
     })));
   } catch (error) {
-    console.error("[Food Cache] Failed to fetch or parse data from USDA API:", error);
+    console.error("[Food Cache] Failed to fetch or parse USDA data:", error);
     return [];
   }
 }
+
+// DEFINITIVE FIX: A single, intelligently configured Algolia search function.
 async function searchAlgolia(query: string): Promise<HybridFoodSearchResult[]> {
     try {
         const { results } = await algoliaAdmin.search([
             {
                 indexName: 'food_cache',
                 params: {
-                  query: query,
-                  hitsPerPage: 150,
+                    query: query,
+                    hitsPerPage: 40,
+                    // REMOVED searchableAttributes to fix TS2353 error
+                    
+                    optionalFilters: [
+                        `brandOwner:${query.split(' ')[0]}`
+                    ],
+                    advancedSyntax: true,
+                    removeWordsIfNoResults: 'allOptional',
                 },
-              }          
-          ]);
-          
-          const hits = (results[0] as any)?.hits || [];    
-      return hits.map((hit: any) => ({
-        fdcId: hit.fdcId,
-        description: hit.description,
-        brandOwner: hit.brandOwner || '',
-        isCached: true,
-        source: 'LOCAL', // FIX: Added missing source property
-      }));
+            }          
+        ]);
+        
+        const hits = (results[0] as any)?.hits || [];    
+        return hits.map((hit: any) => ({
+            fdcId: Number(hit.fdcId),
+            description: hit.description,
+            brandOwner: hit.brandOwner || '',
+            isCached: true,
+            source: 'LOCAL' as const,
+        }));
     } catch (error) {
       console.error('[Algolia Search] Failed to search:', error);
       return [];
     }
-  }
-  
+}
+      
 export async function hybridFoodSearch(query: string, scope: 'all' | 'cached' | 'usda' = 'all'): Promise<HybridFoodSearchResult[]> {
     if (query.length < 2) return [];
-    
-    const lowercasedQuery = query.toLowerCase();
+
+    // Step 1: Perform searches in parallel.
+    const [algoliaResults, usdaResults] = await Promise.all([
+        (scope === 'all' || scope === 'cached') ? searchAlgolia(query) : Promise.resolve([]),
+        (scope === 'all' || scope === 'usda') ? searchUSDA(query) : Promise.resolve([])
+    ]);
+
+    // Step 2: Combine and de-duplicate, giving strict priority to cached results.
     const resultsMap = new Map<number, HybridFoodSearchResult>();
 
-    let usdaPromise: Promise<any[]> = Promise.resolve([]);
-    let algoliaPromise: Promise<HybridFoodSearchResult[]> = Promise.resolve([]);
-
-    if (scope === 'all' || scope === 'usda') {
-        usdaPromise = searchUSDA(query);
-    }
-    if (scope === 'all' || scope === 'cached') { 
-        algoliaPromise = searchAlgolia(query);
-    }
-    
-    const [usdaResults, algoliaResults] = await Promise.all([usdaPromise, algoliaPromise]);
-
-    algoliaResults.forEach((food: HybridFoodSearchResult) => {
-        resultsMap.set(food.fdcId, {
-            fdcId: food.fdcId,
-            description: food.description,
-            brandOwner: food.brandOwner || '',
-            isCached: true,
-            source: 'LOCAL', // FIX: Added missing source property
-        });
+    // Add all Algolia results first. Their ranking is trusted.
+    algoliaResults.forEach(food => {
+        resultsMap.set(Number(food.fdcId), food);
     });
-   
-    if (scope !== 'cached' && usdaResults.length > 0) {
-        const usdaFdcIds = usdaResults.map(f => f.fdcId).filter(id => !resultsMap.has(id));
-        
-        if (usdaFdcIds.length > 0) {
-            const cachedIds = await checkCachedStatus(usdaFdcIds);
-            const cachedIdsSet = new Set(cachedIds);
 
-            usdaResults.forEach(food => {
-                if (!resultsMap.has(food.fdcId)) {
-                     resultsMap.set(food.fdcId, {
-                        fdcId: food.fdcId,
-                        description: food.description,
-                        brandOwner: food.brandOwner || '',
-                        isCached: cachedIdsSet.has(food.fdcId),
-                        source: 'USDA', // FIX: Added missing source property
-                    });
-                }
+    // Add USDA results only if they are not already in the map from the cache.
+    usdaResults.forEach(food => {
+        const fdcId = Number(food.fdcId);
+        if (!resultsMap.has(fdcId)) {
+            resultsMap.set(fdcId, {
+                fdcId: fdcId,
+                description: food.description,
+                brandOwner: food.brandOwner || '',
+                isCached: false, // This is a proxy for whether it was found in the cache
+                source: 'USDA' as const,
             });
         }
-    }
-
-    const finalResults = Array.from(resultsMap.values()).filter(result => {
-        if (scope === 'cached') return result.isCached;
-        if (scope === 'usda') {
-            const correspondingUsdaResult = usdaResults.find(u => u.fdcId === result.fdcId);
-            return correspondingUsdaResult && !result.isCached;
-        }
-        return true;
     });
 
-    return finalResults.sort((a, b) => a.description.localeCompare(b.description));
+    // Step 3: The final list is simply the combined results.
+    // We trust Algolia's ranking for the cached items, and they appear first.
+    let finalResults = Array.from(resultsMap.values());
+
+    // Final filtering based on scope.
+    if (scope === 'cached') {
+        finalResults = finalResults.filter(r => r.isCached);
+    } else if (scope === 'usda') {
+        finalResults = finalResults.filter(r => r.source === 'USDA');
+    }
+    
+    return finalResults;
 }
 
+
+// ... (the rest of the file remains the same)
 export async function getFoodDetails(fdcId: number) {
     const USDA_API_KEY = process.env.USDA_API_KEY;
     if (!USDA_API_KEY) {
@@ -369,18 +365,17 @@ export async function getDetailsForCsvExport(foodItems: HybridFoodSearchResult[]
                 try {
                     const details = await getFoodDetails(id);
                     if (!details) {
-                        return null; // If we can't get basic details, skip it.
+                        return null;
                     }
 
-                    // Manually construct a complete EnrichedFood object with default values
                     const completeFood: EnrichedFood = {
                         fdcId: details.fdcId,
                         description: details.description,
                         brandOwner: details.brandOwner,
                         ingredients: details.ingredients,
                         nutrients: details.nutrients,
-                        source: 'USER_PROVIDED', // CORRECTED: Was 'USDA'
-                        analysisDate: new Date().toISOString(), // Use current date as a placeholder
+                        source: 'USER_PROVIDED',
+                        analysisDate: new Date().toISOString(),
                         upfAnalysis: {
                             rating: NovaGroup.UNCLASSIFIED,
                             justification: 'Not analyzed.'
@@ -393,20 +388,19 @@ export async function getDetailsForCsvExport(foodItems: HybridFoodSearchResult[]
                             isGlutenFree: false,
                             justification: 'Not analyzed.'
                         },
-                        portionSizes: [], // Default to an empty array
+                        portionSizes: [],
                     };
                     return completeFood;
 
                 } catch (e) {
                     console.error(`Error fetching and processing details for FDC ID ${id}:`, e);
-                    return null; // Return null on error for this specific item
+                    return null;
                 }
             })
         );
 
         const [cachedFoods, nonCachedFoodsWithNulls] = await Promise.all([cachedFoodsPromise, nonCachedFoodsPromise]);
         
-        // Filter out any nulls from the non-cached results
         const nonCachedFoods = nonCachedFoodsWithNulls.filter((food): food is EnrichedFood => food !== null);
         
         return [...cachedFoods, ...nonCachedFoods];
@@ -429,7 +423,6 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
     const foodDetails = await getFoodDetails(fdcId);
     if (!foodDetails) return null;
 
-    // Get the model name from site settings
     const settings = await getSiteSettingsAction();
     const modelNameFromDb = settings.data?.aiModelSettings?.pro;
 
@@ -439,7 +432,6 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
     }
     const modelName = `googleai/${modelNameFromDb}`;
 
-    // Prepare the input for the AI flow, now including the required modelName
     const aiInput = {
         description: foodDetails.description,
         ingredients: foodDetails.ingredients || '',
@@ -448,7 +440,6 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
 
     let aiResult: any;
     try {
-        // Call the server action directly for a stable, secure execution
         aiResult = await enrichFoodDetailsFlow(aiInput);
     } catch (error) {
         console.error('[CRITICAL] Direct call to enrichFoodDetailsFlow failed.', error);
@@ -470,7 +461,6 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
         portionSizes: PortionSizesSchema.parse(aiResult.portionSizes),
     };
 
-    // Save the new object to Firestore and Algolia
     try {
         const { createdAt, updatedAt, ...restOfData } = newEnrichedFood;
         const dataToSave: any = {
@@ -490,7 +480,7 @@ export async function getOrEnrichFoodForUser(fdcId: number): Promise<EnrichedFoo
         }
 
     } catch (error) {
-        console.error("CRITICAL: Failed to save AI-enriched food to Firestore:", error);
+        console.error("CRITICAL: Failed to save to Firestore:", error);
         return null;
     }
 
@@ -511,8 +501,6 @@ export async function saveManualEnrichedFood(foodData: EnrichedFood, idToken: st
         return { success: false, error: 'Your session is invalid. Please log in again.' };
     }
     
-
-    // 2. Prepare the data for Firestore
     const { uid: userId, isCoach } = decodedToken;
     const foodDocRef = adminDb.collection('global-food-cache').doc(String(foodData.fdcId));
 
@@ -520,40 +508,31 @@ export async function saveManualEnrichedFood(foodData: EnrichedFood, idToken: st
         const { createdAt, updatedAt, ...restOfFoodData } = foodData;
         const docSnap = await foodDocRef.get();
 
-        // This object will be merged into the document.
         const dataToSave: any = {
-            ...restOfFoodData, // The bulk of the food data from the form
+            ...restOfFoodData,
             searchableDescription: foodData.description.toLowerCase(),
             updatedAt: FieldValue.serverTimestamp(),
         };
 
-        // Convert ISO string date from client to Firestore Timestamp
         if (foodData.analysisDate && !isNaN(new Date(foodData.analysisDate).getTime())) {
             dataToSave.analysisDate = Timestamp.fromDate(new Date(foodData.analysisDate));
         } else {
             dataToSave.analysisDate = FieldValue.serverTimestamp();
         }
 
-        // 3. Apply business logic based on create vs. update
         if (docSnap.exists) {
-            // This is an UPDATE
             const existingData = docSnap.data();
-            // If a coach is editing a food submitted by a user, it's now "approved"
             if (isCoach && existingData?.source === 'USER_PROVIDED') {
                 dataToSave.source = 'MANUAL_BULK';
             }
-            // We don't overwrite the original creator or creation date
         } else {
-            // This is a CREATE
             dataToSave.createdAt = FieldValue.serverTimestamp();
             dataToSave.createdBy = userId;
-            // When creating, the source is determined by the user's role
             dataToSave.source = isCoach ? 'MANUAL_BULK' : 'USER_PROVIDED';
         }
 
-        // 4. Save to Firestore
         await foodDocRef.set(dataToSave, { merge: true });
-// After saving, fetch the complete document to get server-generated timestamps
+
 const finalDoc = await foodDocRef.get();
 const finalData = finalDoc.data();
 
@@ -563,14 +542,11 @@ if (!finalData) {
 
 const finalFoodObject = convertTimestampsToISO(finalData) as EnrichedFood;
 
-        // 5. Sync with Algolia
 try {
     await algoliaAdmin.saveObjects({ indexName: 'food_cache', objects: [{ objectID: String(foodData.fdcId), ...finalFoodObject }] });
 } catch (algoliaError) {
     console.error(`[Algolia Sync] Failed to sync fdcId ${foodData.fdcId} after manual save.`, algoliaError);
-    // We don't fail the whole operation for this, just log it.
 }
-      // This line has been removed to fix the saving functionality.
         return { success: true, food: finalFoodObject };
     } catch (dbError) {
         console.error("CRITICAL ERROR: Failed to save to Firestore:", dbError);
@@ -666,6 +642,8 @@ export async function bulkSaveFoodsToCache(formData: FormData): Promise<{ succes
     let createdCount = 0;
     let updatedCount = 0;
     const allFoodsToSync: any[] = [];
+    
+    let nextFdcId = await generateNewFdcId();
 
     const BATCH_SIZE = 400;
     for (let i = 0; i < dataRows.length; i += BATCH_SIZE) {
@@ -681,7 +659,8 @@ export async function bulkSaveFoodsToCache(formData: FormData): Promise<{ succes
                 let fdcId = fdcIdStr ? parseInt(fdcIdStr, 10) : NaN;
 
                 if (isNaN(fdcId)) {
-                    fdcId = await generateNewFdcId();
+                    fdcId = nextFdcId;
+                    nextFdcId--;
                     createdCount++;
                 } else {
                     updatedCount++;
@@ -706,7 +685,7 @@ export async function bulkSaveFoodsToCache(formData: FormData): Promise<{ succes
                 const isGlutenFree = (values[headerMap.isGlutenFree]?.toLowerCase() === 'true');
                 const glutenAnalysis: GlutenAnalysis = { isGlutenFree, justification: 'Manually entered during bulk import.' };
 
-                const foodData: Omit<EnrichedFood, 'analysisDate' | 'source'> & { fdcId: number } = {
+                const foodData = {
                     fdcId,
                     description: values[headerMap.description] || '',
                     brandOwner: values[headerMap.brandName] || '',
@@ -721,7 +700,7 @@ export async function bulkSaveFoodsToCache(formData: FormData): Promise<{ succes
                 const docRef = adminDb.collection('global-food-cache').doc(String(fdcId));
                 const dataToSave = {
                     ...foodData,
-                    source: 'MANUAL_BULK',
+                    source: 'MANUAL_BULK' as const,
                     searchableDescription: foodData.description.toLowerCase(),
                     analysisDate: FieldValue.serverTimestamp(),
                     updatedAt: FieldValue.serverTimestamp(),
@@ -803,6 +782,6 @@ export async function getUnreviewedUserFoodCount(): Promise<number> {
         return snapshot.data().count;
     } catch (error) {
         console.error("[Server Action] Failed to fetch unreviewed user food count:", error);
-        return 0; // Return 0 on error
+        return 0;
     }
 }
