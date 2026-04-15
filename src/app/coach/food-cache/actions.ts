@@ -86,7 +86,7 @@ async function searchUSDA(query: string): Promise<z.infer<typeof FoodSearchResul
     console.error("[Food Cache] CRITICAL: USDA_API_KEY is not configured.");
     return []; 
   }
-  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=50&dataType=Branded,SR%20Legacy,Foundation`;
+  const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${USDA_API_KEY}&query=${encodeURIComponent(query)}&pageSize=200&dataType=Branded,SR%20Legacy,Foundation`;
   try {
     const response = await fetch(url);
     if (!response.ok) {
@@ -114,7 +114,7 @@ async function searchAlgolia(query: string): Promise<HybridFoodSearchResult[]> {
                 indexName: 'food_cache',
                 params: {
                     query: query,
-                    hitsPerPage: 40,
+                    hitsPerPage: 200,
                     // REMOVED searchableAttributes to fix TS2353 error
                     
                     optionalFilters: [
