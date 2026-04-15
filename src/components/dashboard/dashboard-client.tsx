@@ -9,12 +9,12 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '../auth/auth-provider';
 import { ClientProfile, UserTier, Challenge } from '@/types';
 import { getUpcomingIndulgences, resetBingeStreakAction } from '@/services/firestore';
-import { getLatestChallengeForClient, joinChallengeAction } from '@/app/challenges/actions';
+import { getAllChallengesForClient, joinChallengeAction } from '@/app/challenges/actions';
 import { Skeleton } from '../ui/skeleton';
 import { Badge } from '../ui/badge';
 import { InsightsDialog } from '../insights/insights-dialog';
 import { useDashboardActions } from '@/contexts/DashboardActionsContext';
-import { differenceInCalendarDays, format } from 'date-fns';
+import { differenceInCalendarDays, format, isPast, isFuture, endOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { CalendarDialog } from '../calendar/calendar-dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -90,7 +90,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
   const [activePillar, setActivePillar] = useState<Pillar | null>(null);
 
-  const [latestChallenge, setLatestChallenge] = useState<Challenge | null>(null);
+  const [allChallenges, setAllChallenges] = useState<Challenge[]>([]);
   const [isLoadingChallenge, setIsLoadingChallenge] = useState(true);
   const [upcomingIndulgences, setUpcomingIndulgences] = useState<any[]>([]);
   const [isLoadingIndulgences, setIsLoadingIndulgences] = useState(true);
@@ -195,12 +195,12 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     setIsLoadingChallenge(true);
     setIsLoadingIndulgences(true);
 
-    getLatestChallengeForClient().then(result => {
+    getAllChallengesForClient().then(result => {
       if (result.success && result.data) {
-        setLatestChallenge(result.data as Challenge);
+        setAllChallenges(result.data as Challenge[]);
       }
       else if (result.error && result.error !== 'not-found') {
-        toast({ variant: 'destructive', title: 'Error', description: `Could not load challenge: ${result.error}` });
+        toast({ variant: 'destructive', title: 'Error', description: `Could not load challenges: ${result.error}` });
       }
       setIsLoadingChallenge(false);
     });
@@ -362,12 +362,34 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     )
   }
 
+  // FINAL WIDGET FIX: This function now contains robust logic to find the most relevant challenge.
   const renderChallengeSection = () => {
     if (isLoadingChallenge) {
       return <Skeleton className="h-40 w-full rounded-xl" />;
     }
 
-    if (!latestChallenge) {
+    const isParticipant = (c: Challenge) => c.participants?.includes(user?.uid || '');
+    const isPastChallenge = (c: Challenge) => c.dates?.to && isPast(endOfDay(new Date(c.dates.to)));
+    const isActiveChallenge = (c: Challenge) => c.dates?.from && !isFuture(new Date(c.dates.from));
+
+    const relevantChallenges = allChallenges
+        .filter(c => !isPastChallenge(c))
+        .sort((a, b) => {
+            const aIsActive = isActiveChallenge(a);
+            const bIsActive = isActiveChallenge(b);
+            if (aIsActive && !bIsActive) return -1;
+            if (!aIsActive && bIsActive) return 1;
+            return new Date(a.dates.from).getTime() - new Date(b.dates.from).getTime();
+        });
+
+    // Priority logic for the widget
+    const challengeToShow = 
+        relevantChallenges.find(c => isParticipant(c) && isActiveChallenge(c)) || // 1. Current joined, active challenge
+        relevantChallenges.find(c => isParticipant(c)) ||                           // 2. Any other joined challenge (upcoming)
+        relevantChallenges.find(c => isActiveChallenge(c)) ||                      // 3. Any active challenge not joined
+        relevantChallenges[0];                                                     // 4. The next upcoming challenge
+
+    if (!challengeToShow) {
       return (
         <Card className="bg-primary/10 border-primary/20 hover:border-primary/40 transition-all">
           <CardContent className="p-3 flex items-center gap-3">
@@ -388,20 +410,17 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       )
     }
 
-    const isParticipant = latestChallenge.participants.includes(user?.uid || '');
-    const now = new Date();
-    const challengeStartDate = safeNewDate(latestChallenge.dates.from);
-    if(!challengeStartDate) return null;
-    const isUpcoming = challengeStartDate > now;
-    const canJoin = !isParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) >= tierRank.indexOf(UserTier.Premium);
-    const needsUpgrade = !isParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) < tierRank.indexOf(UserTier.Premium);
+    const isUserParticipant = isParticipant(challengeToShow);
+    const isChallengeUpcoming = isFuture(new Date(challengeToShow.dates.from));
+    const canJoin = !isUserParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) >= tierRank.indexOf(UserTier.Premium);
+    const needsUpgrade = !isUserParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) < tierRank.indexOf(UserTier.Premium);
 
     let badgeText = "";
     let badgeVariant: "secondary" | "default" | "destructive" | "outline" | null | undefined = "secondary";
-    if (isParticipant) {
-      badgeText = isUpcoming ? "Registered" : "Active Now";
+    if (isUserParticipant) {
+      badgeText = isChallengeUpcoming ? "Registered" : "Active Now";
     }
-    else if (isUpcoming) {
+    else if (isChallengeUpcoming) {
       badgeText = "Starts Soon";
     }
     else {
@@ -412,20 +431,20 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       <Card className="bg-primary/10 border-primary/20 hover:border-primary/40 transition-all">
         <CardContent className="p-3 flex items-center gap-3">
           <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-            <Image src={latestChallenge.thumbnailUrl || "https://placehold.co/400x400.png"} alt={latestChallenge.name} fill className="object-cover" unoptimized/>
+            <Image src={challengeToShow.thumbnailUrl || "https://placehold.co/400x400.png"} alt={challengeToShow.name} fill className="object-cover" unoptimized/>
           </div>
           <div className="flex-1 space-y-1">
             <div>
               <Badge variant={badgeVariant} className="mb-1 text-xs">{badgeText}</Badge>
-              <h3 className="font-bold text-base text-card-foreground leading-tight">{latestChallenge.name}</h3>
-              <p className="text-xs text-muted-foreground line-clamp-1">{latestChallenge.description}</p>
+              <h3 className="font-bold text-base text-card-foreground leading-tight">{challengeToShow.name}</h3>
+              <p className="text-xs text-muted-foreground line-clamp-1">{challengeToShow.description}</p>
             </div>
-            {isParticipant ? (
+            {isUserParticipant ? (
               <Button size="xs" className="w-full sm:w-auto" onClick={onOpenChallenges}>
                 View Challenge <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             ) : canJoin ? (
-              <Button size="xs" className="w-full sm:w-auto" onClick={() => handleJoinChallenge(latestChallenge.id)} disabled={isJoiningChallenge}>
+              <Button size="xs" className="w-full sm:w-auto" onClick={() => handleJoinChallenge(challengeToShow.id)} disabled={isJoiningChallenge}>
                 {isJoiningChallenge && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
                 Join Challenge <ArrowRight className="ml-2 h-4 w-4" />
               </Button>

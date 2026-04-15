@@ -38,7 +38,7 @@ function serializeTimestamps(obj: any): any {
 /**
  * Fetches all challenges for a client using the Admin SDK to bypass security rules.
  */
-export async function getChallengesForClient(): Promise<{ success: boolean; data?: Challenge[]; error?: any; }> {
+export async function getAllChallengesForClient(): Promise<{ success: boolean; data?: Challenge[]; error?: any; }> {
     try {
         const challengesQuery = adminDb.collection('challenges').orderBy("dates.from", "desc");
         const challengesSnapshot = await challengesQuery.get();

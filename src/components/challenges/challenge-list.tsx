@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Trophy, Users, Calendar } from "lucide-react";
-import { format } from "date-fns";
+import { format, isFuture, isPast } from "date-fns";
 import Image from 'next/image';
 import { UpgradeModal } from "@/components/modals/upgrade-modal";
 import type { Challenge, ClientProfile, UserTier } from "@/types";
@@ -38,7 +38,7 @@ const ChallengeListItem = ({ challenge, userProfile, onActionClick }: { challeng
             </div>
             
             <div className="flex flex-col items-start space-y-2.5">
-                  <Button 
+                <Button 
                     size="sm"
                     className={`px-4 font-bold ${isParticipant 
                       ? 'border border-amber-400 text-amber-400 bg-transparent hover:bg-amber-400/10' 
@@ -72,7 +72,8 @@ export function ChallengeList({ challenges, userProfile }: ChallengeListProps) {
   const canAccessChallenges = userProfile.tier !== 'free';
 
   const handleActionClick = (challenge: Challenge) => {
-    if (!canAccessChallenges) {
+    const isParticipant = challenge.participants?.includes(userProfile.uid);
+    if (!canAccessChallenges && !isParticipant) {
       setIsUpgradeModalOpen(true);
       return;
     }
@@ -80,8 +81,22 @@ export function ChallengeList({ challenges, userProfile }: ChallengeListProps) {
     setIsDetailModalOpen(true);
   };
 
-  const joinedChallenges = challenges.filter(c => c.participants?.includes(userProfile.uid));
-  const availableChallenges = challenges.filter(c => !c.participants?.includes(userProfile.uid));
+  // New, robust filtering and sorting logic
+  const relevantChallenges = challenges
+    .filter(c => c.dates?.to && !isPast(new Date(c.dates.to)))
+    .sort((a, b) => {
+        const aIsActive = !isFuture(new Date(a.dates.from));
+        const bIsActive = !isFuture(new Date(b.dates.from));
+
+        if (aIsActive && !bIsActive) return -1; // a is active, b is upcoming, a comes first
+        if (!aIsActive && bIsActive) return 1;  // a is upcoming, b is active, b comes first
+        
+        // If both are active or both are upcoming, sort with the soonest start date first
+        return new Date(a.dates.from).getTime() - new Date(b.dates.from).getTime();
+    });
+
+  const joinedChallenges = relevantChallenges.filter(c => c.participants?.includes(userProfile.uid));
+  const notJoinedChallenges = relevantChallenges.filter(c => !c.participants?.includes(userProfile.uid));
 
   if (challenges.length === 0) {
     return (
@@ -90,6 +105,19 @@ export function ChallengeList({ challenges, userProfile }: ChallengeListProps) {
         <h3 className="font-semibold text-lg text-white">No active challenges</h3>
         <p className="text-muted-foreground max-w-sm">
           There are no community challenges available at the moment.
+        </p>
+      </div>
+    );
+  }
+
+  // Check if there's anything to display after filtering
+  if (joinedChallenges.length === 0 && notJoinedChallenges.length === 0) {
+     return (
+      <div className="flex flex-col items-center justify-center py-10 text-center h-full">
+        <Trophy className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
+        <h3 className="font-semibold text-lg text-white">No active or upcoming challenges</h3>
+        <p className="text-muted-foreground max-w-sm">
+          Check back later for new challenges to join!
         </p>
       </div>
     );
@@ -108,12 +136,12 @@ export function ChallengeList({ challenges, userProfile }: ChallengeListProps) {
         </section>
       )}
 
-      {availableChallenges.length > 0 && (
+      {notJoinedChallenges.length > 0 && (
         <section className="w-full">
           <h3 className="text-xl font-bold text-white mb-4 text-center">Available to Join</h3>
           <div className="space-y-4">
-            {availableChallenges.map((challenge) => (
-              <ChallengeListItem key={`available-${challenge.id}`} challenge={challenge} userProfile={userProfile} onActionClick={handleActionClick} />
+            {notJoinedChallenges.map((challenge) => (
+              <ChallengeListItem key={`not-joined-${challenge.id}`} challenge={challenge} userProfile={userProfile} onActionClick={handleActionClick} />
             ))}
           </div>
         </section>

@@ -17,7 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
 import { useNotificationStore } from '@/store/notification-store';
-import { getChallengesForClient } from '@/app/challenges/actions';
+import { getAllChallengesForClient } from '@/app/challenges/actions';
 import { Toaster } from '@/components/ui/toaster';
 import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 import { useInterstitialAdTriggers } from '@/hooks/useInterstitialAdTriggers';
@@ -82,7 +82,7 @@ function DialogManager() {
     useEffect(() => {
         if (isChallengesOpen && profile) {
             setIsLoading(true);
-            getChallengesForClient().then(result => {
+            getAllChallengesForClient().then(result => {
                 if (result.success && result.data) {
                     // Smart sorting: challenges the user has joined appear first
                     const sortedData = [...result.data].sort((a, b) => {

@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, Loader2, Image as ImageIcon, PlusCircle, Trash2, Sparkles, Star } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -27,6 +27,7 @@ import { AppNumberInput } from '@/components/ui/number-input';
 import { useAuth } from '@/components/auth/auth-provider';
 import { BaseModal } from '@/components/ui/base-modal';
 import { DialogFooter } from '@/components/ui/dialog';
+import { DateRange } from 'react-day-picker';
 
 const customTaskSchema = z.object({
     description: z.string().min(1, 'Task description cannot be empty.'),
@@ -39,7 +40,6 @@ const customTaskSchema = z.object({
     increaseEvery: z.enum(['week', '2-weeks', 'month']).optional(),
     notes: z.string().optional(),
 }).superRefine((data, ctx) => {
-    // CHANGE 1: Zod Schema updated to allow goals of 0
     if (data.goalType === 'static') {
         if (data.goal === undefined || data.goal === null || data.goal < 0) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Goal must be at least 0.", path: ["goal"] });
@@ -55,7 +55,6 @@ const customTaskSchema = z.object({
              ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Please select a frequency.", path: ["increaseEvery"] });
         }
     }
-    // No validation is needed for 'user-records'
 });
 
 const scheduledPillarSchema = z.object({
@@ -86,8 +85,10 @@ const challengeSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(5, 'Challenge name must be at least 5 characters.'),
   description: z.string().min(10, 'Description must be at least 10 characters.'),
-  startDate: z.date({ required_error: "A start date is required." }),
-  durationDays: z.coerce.number().min(1, 'Duration must be at least 1 day.'),
+  dates: z.object({
+    from: z.date({ required_error: "A start date is required."}),
+    to: z.date({ required_error: "An end date is required."}),
+  }),
   maxParticipants: z.coerce.number().min(1, 'Must have at least one participant.'),
   thumbnailUrl: z.string().optional(),
   notes: z.string().optional(),
@@ -124,12 +125,41 @@ export function CreateChallengeDialog({ open, onOpenChange, onChallengeUpserted,
       });
     }
   }, [open]);
+  
+  const processInitialData = (data: any) => {
+    if (!data) return undefined;
+    
+    // Modern format
+    if (data.dates?.from) {
+        return {
+            ...data,
+            dates: {
+                from: new Date(data.dates.from),
+                to: new Date(data.dates.to),
+            }
+        };
+    }
+    
+    // Legacy format
+    if (data.startDate && data.durationDays) {
+        const fromDate = new Date(data.startDate);
+        const toDate = addDays(fromDate, parseInt(data.durationDays, 10));
+        return {
+            ...data,
+            dates: {
+                from: fromDate,
+                to: toDate
+            }
+        };
+    }
+    
+    return data; // Return as is if no date info
+  }
 
   const form = useForm<ChallengeFormValues>({
     resolver: zodResolver(challengeSchema),
     defaultValues: initialData ? {
-        ...initialData,
-        startDate: initialData.startDate ? new Date(initialData.startDate) : new Date(),
+        ...processInitialData(initialData),
         customTasks: initialData.customTasks?.map((task: any) => ({
             description: task.description || '',
             startDay: task.startDay || 1,
@@ -152,8 +182,10 @@ export function CreateChallengeDialog({ open, onOpenChange, onChallengeUpserted,
     } : {
       name: '',
       description: '',
-      startDate: new Date(),
-      durationDays: 7,
+      dates: {
+        from: new Date(),
+        to: addDays(new Date(), 7),
+      },
       maxParticipants: 100,
       notes: '',
       thumbnailUrl: '',
@@ -203,7 +235,13 @@ export function CreateChallengeDialog({ open, onOpenChange, onChallengeUpserted,
         return;
     }
     try {
-      const payload = { ...data, startDate: data.startDate.toISOString() };
+      const payload = { 
+          ...data, 
+          dates: {
+              from: data.dates.from.toISOString(),
+              to: data.dates.to.toISOString(),
+          } 
+      };
       const result = await upsertChallengeAction(payload as any, user.uid);
 
       if (result.success) {
@@ -249,23 +287,46 @@ export function CreateChallengeDialog({ open, onOpenChange, onChallengeUpserted,
                             </FormItem>
                         )} />
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <FormField control={form.control} name="startDate" render={({ field }) => (
-                                <FormItem className="flex flex-col">
-                                    <FormLabel>Start Date</FormLabel>
+                             <FormField
+                                control={form.control}
+                                name="dates"
+                                render={({ field }) => (
+                                    <FormItem className="flex flex-col">
+                                    <FormLabel>Challenge Dates</FormLabel>
                                     <Popover>
-                                        <PopoverTrigger asChild><FormControl><Button variant={"outline"} className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}><CalendarIcon className="mr-2 h-4 w-4" />{field.value ? format(field.value, "PPP") : <span>Pick a date</span>}</Button></FormControl></PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0" align="start"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent>
+                                        <PopoverTrigger asChild>
+                                        <Button
+                                            id="date"
+                                            variant={"outline"}
+                                            className={cn("w-full justify-start text-left font-normal",!field.value.from && "text-muted-foreground")}
+                                        >
+                                            <CalendarIcon className="mr-2 h-4 w-4" />
+                                            {field.value.from ? (
+                                                field.value.to ? (
+                                                    <>{format(field.value.from, "LLL dd, y")} - {format(field.value.to, "LLL dd, y")}</>
+                                                ) : (
+                                                    format(field.value.from, "LLL dd, y")
+                                                )
+                                            ) : (
+                                            <span>Pick a date range</span>
+                                            )}
+                                        </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                        <Calendar
+                                            initialFocus
+                                            mode="range"
+                                            defaultMonth={field.value.from}
+                                            selected={{ from: field.value.from, to: field.value.to }}
+                                            onSelect={(range) => field.onChange({ from: range?.from, to: range?.to })}
+                                            numberOfMonths={2}
+                                        />
+                                        </PopoverContent>
                                     </Popover>
                                     <FormMessage />
-                                </FormItem>
-                            )} />
-                            <FormField control={form.control} name="durationDays" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Duration (in days)</FormLabel>
-                                    <FormControl><AppNumberInput {...field} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )} />
+                                    </FormItem>
+                                )}
+                            />
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <FormField control={form.control} name="maxParticipants" render={({ field }) => (
@@ -387,7 +448,6 @@ export function CreateChallengeDialog({ open, onOpenChange, onChallengeUpserted,
                         </FormItem>
 
                         <FormItem>
-                            {/* CHANGE 2: Add AMRAP Button */}
                             <div className="grid grid-cols-[1fr_auto_auto] items-center gap-2">
                                 <div>
                                     <FormLabel>Custom Daily Exercises</FormLabel>
@@ -415,12 +475,10 @@ export function CreateChallengeDialog({ open, onOpenChange, onChallengeUpserted,
                                                     <SelectContent>
                                                         <SelectItem value="static">Static Goal</SelectItem>
                                                         <SelectItem value="progressive">Progressive Goal</SelectItem>
-                                                        {/* CHANGE 3: Update Dropdown Label */}
                                                         <SelectItem value="user-records">User Logs Reps (AMRAP)</SelectItem>
                                                     </SelectContent>
                                                 </Select><FormMessage /></FormItem>)} />
                                             </div>
-                                            {/* CHANGE 4: Conditional UI and updated labels */}
                                             {watchTasks && watchTasks[index]?.goalType === 'static' && <FormField control={form.control} name={`customTasks.${index}.goal`} render={({ field }) => (<FormItem><FormLabel className="text-xs">Goal (can be 0)</FormLabel><FormControl><AppNumberInput {...field} /></FormControl><FormMessage /></FormItem>)} />}
                                             {watchTasks && watchTasks[index]?.goalType === 'progressive' && (
                                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
