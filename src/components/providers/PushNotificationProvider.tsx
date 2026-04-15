@@ -42,7 +42,7 @@ const createNotificationChannels = async () => {
       await LocalNotifications.createChannel({
         id: channel.id,
         name: channel.name,
-        importance: 3, // 3 = Default Importance. Prevents pop-down banner when app is open.
+        importance: 5, 
         sound: 'default',
         vibration: true,
         visibility: 1
@@ -100,52 +100,62 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
   // 3. The Navigation Engine (Routing to pop-ups)
   const triggerNavigation = useCallback((context: string, data: { [key: string]: any }) => {
     if (hasNavigatedRef.current) {
-      log(`[${context}] Navigation already in progress, suppressing action.`);
-      return;
+        log(`[${context}] Navigation already in progress, suppressing action.`);
+        return;
     }
     hasNavigatedRef.current = true;
     log(`[${context}] Handling action.`, data);
 
-    // Prevent pinging yourself
+    // Prevent self-notification
     const sId = data.senderId || data.userId;
     if (sId && user?.uid && String(sId) === String(user.uid)) {
-      hasNavigatedRef.current = false;
-      return;
+        hasNavigatedRef.current = false;
+        return;
     }
 
+    const type = String(data.notificationType || '').toLowerCase();
     let finalUrl = String(data.url || data.ctaUrl || '');
 
     if (!finalUrl || finalUrl === '/') {
-      const type = String(data.notificationType || '');
-      if (type === 'chat' && data.chatId) {
-        setNotificationChatId(data.chatId);
-        finalUrl = `/client/dashboard?openChatId=${data.chatId}&notificationType=chat&isCoach=false`;
-      } else if (type === 'workout_reminder' && data.workoutId) {
-        setNotificationWorkoutId(data.workoutId);
-        finalUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${data.workoutId}&isCoach=false`;
-      } else if (['appointment_reminder', 'appointment_booked'].includes(type) && (data.appointmentId || data.entityId)) {
-        const id = data.appointmentId || data.entityId;
-        setNotificationAppointmentId(id);
-        finalUrl = `/client/dashboard?notificationType=${type}&openAppointmentId=${id}&isCoach=false`;
-      } else if (type === 'hydration') {
-        setTriggerHydrationModal(true);
-        finalUrl = '/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false';
-      } else if (type.includes('indulgence_') && data.indulgenceId) {
-        setNotificationIndulgenceId(data.indulgenceId);
-        finalUrl = `/client/dashboard?notificationType=${type}&openIndulgenceId=${data.indulgenceId}&isCoach=false`;
-      } else if (['challenge_checkin', 'streak_congrats'].includes(type) && data.openChallengeList === 'true') {
-        setOpenChallengeList(true);
-        finalUrl = `/client/dashboard?notificationType=${type}&openChallengeList=true&isCoach=false`;
-      }
+        if (type === 'chat' && data.chatId) {
+            setNotificationChatId(data.chatId);
+            finalUrl = `/client/dashboard?openChatId=${data.chatId}&notificationType=chat&isCoach=false`;
+        } 
+        else if (type === 'workout_reminder' && data.workoutId) {
+            setNotificationWorkoutId(data.workoutId);
+            finalUrl = `/client/dashboard?notificationType=workout_reminder&openWorkoutId=${data.workoutId}&isCoach=false`;
+        } 
+        else if (['appointment_reminder', 'appointment_booked'].includes(type) && (data.appointmentId || data.entityId)) {
+            const id = data.appointmentId || data.entityId;
+            setNotificationAppointmentId(id);
+            finalUrl = `/client/dashboard?notificationType=${type}&openAppointmentId=${id}&isCoach=false`;
+        } 
+        else if (type === 'hydration') {
+            setTriggerHydrationModal(true);
+            finalUrl = `/client/dashboard?openHydration=true&notificationType=hydration&isCoach=false`;
+        } 
+        else if (type.includes('indulgence_') && data.indulgenceId) {
+            setNotificationIndulgenceId(data.indulgenceId);
+            finalUrl = `/client/dashboard?notificationType=${type}&openIndulgenceId=${data.indulgenceId}&isCoach=false`;
+        } 
+        else if (['challenge_checkin', 'streak_congrats', 'challenge_notification'].includes(type)) {
+            // More flexible check for challenge modal
+            setOpenChallengeList(true);
+            finalUrl = `/client/dashboard?notificationType=${type}&openChallengeList=true&isCoach=false`;
+        } 
+        else {
+            // ← IMPORTANT: Log unknown types so you can see what's coming from backend
+            logError(`Unknown notificationType: "${type}"`, data);
+        }
     }
 
     if (finalUrl && finalUrl !== '/') {
-      router.push(finalUrl);
+        router.push(finalUrl);
     }
 
-    setTimeout(() => { hasNavigatedRef.current = false; }, 1000);
-  }, [router, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
-
+    // Reset guard after a short delay
+    setTimeout(() => { hasNavigatedRef.current = false; }, 1500);
+}, [router, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
   // 4. URL Parameter Handling (Deep Links)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);

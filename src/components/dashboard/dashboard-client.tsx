@@ -1,4 +1,5 @@
 'use client';
+
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,7 +18,15 @@ import { useDashboardActions } from '@/contexts/DashboardActionsContext';
 import { differenceInCalendarDays, format, isPast, isFuture, endOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { CalendarDialog } from '../calendar/calendar-dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
 } from "@/components/ui/alert-dialog";
 import { Loader2 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -36,6 +45,7 @@ import { useNotificationStore } from '@/store/notification-store';
 import { AppointmentDetailDialog } from '../calendar/AppointmentDetailDialog';
 import { WorkoutActionDialog } from '../calendar/WorkoutActionDialog';
 import { useAdBanner } from '../providers/AdBannerProvider';
+import { ChallengesDialog } from '@/components/challenges/challenges-dialog';   // ← Added
 
 export interface Pillar {
   id: string;
@@ -82,9 +92,22 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const { user, isCoach, loading } = useAuth();
   const { toast } = useToast();
   const { modalType, closeModal, openModal } = useDataEntryModal();
-  const { notificationChatId, notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal } = useNotificationStore();
-  const { adBannerHeight } = useAdBanner();
 
+  // Expanded notification store destructuring
+  const { 
+    notificationChatId, 
+    notificationAppointmentId, 
+    notificationWorkoutId, 
+    triggerHydrationModal, 
+    openChallengeList,
+    setNotificationChatId, 
+    setNotificationAppointmentId, 
+    setNotificationWorkoutId, 
+    setTriggerHydrationModal,
+    setOpenChallengeList 
+  } = useNotificationStore();
+
+  const { adBannerHeight } = useAdBanner();
 
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
   const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
@@ -114,11 +137,14 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const [isAppointmentDetailOpen, setIsAppointmentDetailOpen] = useState(false);
   const [isWorkoutActionOpen, setIsWorkoutActionOpen] = useState(false);
 
+  // NEW: Challenge list modal state
+  const [isChallengeListOpen, setIsChallengeListOpen] = useState(false);
+
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
-  // Effect to process incoming searchParams from notifications and set global state
+  // Process URL searchParams from notifications
   useEffect(() => {
     if (!searchParams || loading) return;
 
@@ -136,11 +162,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     } 
     else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
         if (!user) {
-            toast({
-                variant: 'destructive',
-                title: 'Authentication Required',
-                description: 'Please log in to view appointment details.',
-            });
+            toast({ variant: 'destructive', title: 'Authentication Required', description: 'Please log in to view appointment details.' });
             return;
         }
         setNotificationAppointmentId(openAppointmentId);
@@ -150,8 +172,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     }
   }, [searchParams, loading, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, toast]);
 
-  // SURGICALLY FIXED: This useEffect now ONLY handles notifications that are NOT chat.
-  // The ChatProvider is the single source of truth for opening chat dialogs.
+  // Handle non-chat notifications (appointment, workout, hydration, challenge)
   useEffect(() => {
     if (notificationAppointmentId && user) {
       setIsAppointmentDetailOpen(true);
@@ -164,6 +185,14 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       setTriggerHydrationModal(false);
     }
   }, [notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal, user]);
+
+  // NEW: Handle challenge list modal from notifications
+  useEffect(() => {
+    if (openChallengeList) {
+      setIsChallengeListOpen(true);
+      setOpenChallengeList(false); // reset store flag
+    }
+  }, [openChallengeList, setOpenChallengeList]);
 
   const executePillarAction = (pillar: Pillar) => {
     if (pillar.id === 'insights') {
@@ -292,13 +321,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     }
   };
 
-  const handleOpenProgramList = () => {
-    setIsProgramListOpen(true);
-  };
-
-  const handleOpenCurrentProgram = () => {
-    setIsProgramHubOpen(true);
-  };
+  const handleOpenProgramList = () => setIsProgramListOpen(true);
+  const handleOpenCurrentProgram = () => setIsProgramHubOpen(true);
 
   const bingeFreeSinceDate = useMemo(() => {
     const source = liveBingeFreeSince || clientProfile?.bingeFreeSince;
@@ -320,6 +344,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
   const dayOfYear = getDayOfYear();
   const quoteOfTheDay = quotes[dayOfYear % quotes.length];
+
   const handleJoinChallenge = async (challengeId: string) => {
     if (!user) return;
     setIsJoiningChallenge(true);
@@ -362,7 +387,6 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     )
   }
 
-  // FINAL WIDGET FIX: This function now contains robust logic to find the most relevant challenge.
   const renderChallengeSection = () => {
     if (isLoadingChallenge) {
       return <Skeleton className="h-40 w-full rounded-xl" />;
@@ -382,12 +406,11 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
             return new Date(a.dates.from).getTime() - new Date(b.dates.from).getTime();
         });
 
-    // Priority logic for the widget
     const challengeToShow = 
-        relevantChallenges.find(c => isParticipant(c) && isActiveChallenge(c)) || // 1. Current joined, active challenge
-        relevantChallenges.find(c => isParticipant(c)) ||                           // 2. Any other joined challenge (upcoming)
-        relevantChallenges.find(c => isActiveChallenge(c)) ||                      // 3. Any active challenge not joined
-        relevantChallenges[0];                                                     // 4. The next upcoming challenge
+        relevantChallenges.find(c => isParticipant(c) && isActiveChallenge(c)) ||
+        relevantChallenges.find(c => isParticipant(c)) ||
+        relevantChallenges.find(c => isActiveChallenge(c)) ||
+        relevantChallenges[0];
 
     if (!challengeToShow) {
       return (
@@ -419,11 +442,9 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     let badgeVariant: "secondary" | "default" | "destructive" | "outline" | null | undefined = "secondary";
     if (isUserParticipant) {
       badgeText = isChallengeUpcoming ? "Registered" : "Active Now";
-    }
-    else if (isChallengeUpcoming) {
+    } else if (isChallengeUpcoming) {
       badgeText = "Starts Soon";
-    }
-    else {
+    } else {
       badgeText = "New Challenge!"
     }
 
@@ -473,131 +494,126 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
         <p className="text-base sm:text-lg text-muted-foreground"> “{quoteOfTheDay}” </p> 
       </div>
 
-    <div className="flex justify-around">
-      {topRowButtons.map(renderPillarButton)}
-    </div>
+      <div className="flex justify-around">
+        {topRowButtons.map(renderPillarButton)}
+      </div>
 
-    <div className="flex justify-around mt-4">
-      {bottomRowButtons.map(renderPillarButton)}
-    </div>
+      <div className="flex justify-around mt-4">
+        {bottomRowButtons.map(renderPillarButton)}
+      </div>
 
-    {renderChallengeSection()}
+      {renderChallengeSection()}
 
-    <ProgramWidget
-      clientProfile={clientProfile}
-      onOpenProgramList={handleOpenProgramList}
-      onOpenCurrentProgram={handleOpenCurrentProgram}
-    />
-
-    <UpcomingEventWidget
-      clientProfile={clientProfile}
-      onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
-    />
-
-    {isLoadingIndulgences ? (
-        <Skeleton className="h-24 w-full" />
-    ) : upcomingIndulgences.length > 0 && (
-        <Card className="p-3">
-          <CardContent className="p-0">
-            <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
-              <Salad className="h-5 w-5 text-lime-400" />
-              Upcoming Planned Indulgences
-            </h3>
-            <div className="spacey-1">
-              {upcomingIndulgences.map(plan => {
-                const indulgenceDate = safeNewDate(plan.indulgenceDate);
-                if (!indulgenceDate) return null;
-
-                return (
-                  <div
-                    key={plan.id}
-                    className="flex items-center justify-between p-1.5 rounded-md bg-muted/50 text-xs w-full"
-                  >
-                    <p className="font-medium">{plan.plannedIndulgence}</p>
-                    <p className="text-muted-foreground">{format(indulgenceDate, 'MMM d')}</p>
-                  </div>
-
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-    )}
-
-    {clientProfile && bingeFreeSinceDate && (
-      <Card className="p-3">
-          <CardContent className="p-0 flex items-center justify-between gap-4">
-              <div className="flex-1">
-                  <p className="text-sm font-semibold text-green-400">Binge-Free Streak</p>
-                  <p className="text-xs text-muted-foreground">
-                      {`Last binge: ${format(bingeFreeSinceDate, 'MMM d, yyyy')}`}
-                  </p>
-              </div>
-              <div className="flex items-center gap-2">
-                  <div className="flex items-baseline gap-1 text-right">
-                      <p className="text-4xl font-bold text-white">{bingeFreeDays}</p>
-                      <p className="text-lg text-muted-foreground">Days</p>
-                  </div>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setIsResetStreakAlertOpen(true)}>
-                      <RefreshCw className="h-4 w-4" />
-                  </Button>
-              </div>
-          </CardContent>
-      </Card>
-    )}
-
-    <ProgramListDialog
-      isOpen={isProgramListOpen}
-      onClose={() => setIsProgramListOpen(false)}
-      userProfile={clientProfile}
-      onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
-    />
-
-    <ProgramHubDialog
-      isOpen={isProgramHubOpen}
-      onClose={() => setIsProgramHubOpen(false)}
-    />
-
-    {activePillar && (
-      <DataEntryDialog
-        open={dataEntryDialogOpen}
-        onOpenChange={handleDataEntryDialogClose}
-        pillar={activePillar}
+      <ProgramWidget
         clientProfile={clientProfile}
-        onSwitchPillar={handleSwitchPillar}
+        onOpenProgramList={handleOpenProgramList}
+        onOpenCurrentProgram={handleOpenCurrentProgram}
       />
-    )}
 
-    <InsightsDialog
-      isOpen={insightsDialogOpen}
-      onClose={() => setInsightsDialogOpen(false)}
-    />
-
-    <SettingsDialog
-      open={isSettingsOpen}
-      onOpenChange={onCloseSettings}
-    />
-
-    <UpgradeModal
-      isOpen={isUpgradeModalOpen}
-      onClose={() => {
-          setIsUpgradeModalOpen(false);
-          setActivePillar(null);
-      }}
-      requiredTier={activePillar?.requiredTier || UserTier.Premium}
-      featureName={activePillar?.label || 'Premium Features'}
-      reason={activePillar ? `Access to the ${activePillar.label} pillar requires a subscription.` : 'Access to this feature requires an upgrade.'}
-    />
-
-    {clientProfile && (
-      <CalendarDialog
-          isOpen={isCalendarOpen}
-          onClose={() => setIsCalendarOpen(false)}
-          client={clientProfile as ClientProfile}
-          initialDate={initialCalendarDate}
-          highlightedEntryId={highlightedEntryId}
+      <UpcomingEventWidget
+        clientProfile={clientProfile}
+        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
       />
-    )}
+
+      {isLoadingIndulgences ? (
+          <Skeleton className="h-24 w-full" />
+      ) : upcomingIndulgences.length > 0 && (
+          <Card className="p-3">
+            <CardContent className="p-0">
+              <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
+                <Salad className="h-5 w-5 text-lime-400" />
+                Upcoming Planned Indulgences
+              </h3>
+              <div className="space-y-1">
+                {upcomingIndulgences.map(plan => {
+                  const indulgenceDate = safeNewDate(plan.indulgenceDate);
+                  if (!indulgenceDate) return null;
+                  return (
+                    <div key={plan.id} className="flex items-center justify-between p-1.5 rounded-md bg-muted/50 text-xs w-full">
+                      <p className="font-medium">{plan.plannedIndulgence}</p>
+                      <p className="text-muted-foreground">{format(indulgenceDate, 'MMM d')}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+      )}
+
+      {clientProfile && bingeFreeSinceDate && (
+        <Card className="p-3">
+            <CardContent className="p-0 flex items-center justify-between gap-4">
+                <div className="flex-1">
+                    <p className="text-sm font-semibold text-green-400">Binge-Free Streak</p>
+                    <p className="text-xs text-muted-foreground">
+                        {`Last binge: ${format(bingeFreeSinceDate, 'MMM d, yyyy')}`}
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div className="flex items-baseline gap-1 text-right">
+                        <p className="text-4xl font-bold text-white">{bingeFreeDays}</p>
+                        <p className="text-lg text-muted-foreground">Days</p>
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setIsResetStreakAlertOpen(true)}>
+                        <RefreshCw className="h-4 w-4" />
+                    </Button>
+                </div>
+            </CardContent>
+        </Card>
+      )}
+
+      <ProgramListDialog
+        isOpen={isProgramListOpen}
+        onClose={() => setIsProgramListOpen(false)}
+        userProfile={clientProfile}
+        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
+      />
+
+      <ProgramHubDialog
+        isOpen={isProgramHubOpen}
+        onClose={() => setIsProgramHubOpen(false)}
+      />
+
+      {activePillar && (
+        <DataEntryDialog
+          open={dataEntryDialogOpen}
+          onOpenChange={handleDataEntryDialogClose}
+          pillar={activePillar}
+          clientProfile={clientProfile}
+          onSwitchPillar={handleSwitchPillar}
+        />
+      )}
+
+      <InsightsDialog
+        isOpen={insightsDialogOpen}
+        onClose={() => setInsightsDialogOpen(false)}
+      />
+
+      <SettingsDialog
+        open={isSettingsOpen}
+        onOpenChange={onCloseSettings}
+      />
+
+      <UpgradeModal
+        isOpen={isUpgradeModalOpen}
+        onClose={() => {
+            setIsUpgradeModalOpen(false);
+            setActivePillar(null);
+        }}
+        requiredTier={activePillar?.requiredTier || UserTier.Premium}
+        featureName={activePillar?.label || 'Premium Features'}
+        reason={activePillar ? `Access to the ${activePillar.label} pillar requires a subscription.` : 'Access to this feature requires an upgrade.'}
+      />
+
+      {clientProfile && (
+        <CalendarDialog
+            isOpen={isCalendarOpen}
+            onClose={() => setIsCalendarOpen(false)}
+            client={clientProfile as ClientProfile}
+            initialDate={initialCalendarDate}
+            highlightedEntryId={highlightedEntryId}
+        />
+      )}
 
       <AlertDialog open={isResetStreakAlertOpen} onOpenChange={setIsResetStreakAlertOpen}>
           <AlertDialogContent>
@@ -616,9 +632,6 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
               </AlertDialogFooter>
           </AlertDialogContent>
       </AlertDialog>
-
-      {/* SURGICAL FIX: This entire block has been removed to prevent the conflicting dialog. */}
-      {/* The ChatProvider is now the single source of truth for rendering the chat dialog. */}
 
       {clientProfile && notificationAppointmentId && user && (
           <AppointmentDetailDialog
@@ -657,6 +670,20 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
               onSwitchPillar={handleSwitchPillar}
           />
       )}
-  </div>
+
+      {/* NEW: Challenge List Modal - This makes challenge notifications work */}
+      {clientProfile && (
+        <ChallengesDialog
+          isOpen={isChallengeListOpen}
+          onClose={() => {
+            setIsChallengeListOpen(false);
+            setOpenChallengeList(false);
+          }}
+          challenges={allChallenges}
+          userProfile={clientProfile}
+          isLoading={isLoadingChallenge}
+        />
+      )}
+    </div>
   );
 }
