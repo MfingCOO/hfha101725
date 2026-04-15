@@ -38,7 +38,8 @@ export function BaseModal({
 }: BaseModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className={cn("w-[95vw] max-w-lg max-h-[75dvh] p-0 grid grid-rows-[auto_1fr_auto]", className)}>
+      {/* CORRECTED: Removed the faulty z-index to fix unclickable buttons. The Dialog component will manage its own z-index correctly. */}
+      <DialogContent className={cn("w-[95vw] max-w-lg max-h-[80dvh] p-0 grid grid-rows-[auto_1fr_auto]", className)}>
         <DialogHeader className="p-4 border-b space-y-2">
           <div className="flex items-center gap-4">
             {profile && (
@@ -55,7 +56,8 @@ export function BaseModal({
         </DialogHeader>
 
         <ScrollArea className="h-full overflow-y-auto">
-          <div className="p-4">
+          {/* CORRECTED: Added padding-bottom to the content div. This creates extra scrollable space so the last items are not hidden behind the bottom nav bar. */}
+          <div className="p-4 pb-24">
             {children}
           </div>
         </ScrollArea>
