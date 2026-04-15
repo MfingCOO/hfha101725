@@ -51,7 +51,8 @@ export default function BottomNavBar() {
 
     return (
         <footer 
-            className="fixed bottom-0 left-0 right-0 bg-background border-t z-[9999] md:hidden"
+            // CORRECTED: Reduced z-index to 40, which is below the dialog's default of 50.
+            className="fixed bottom-0 left-0 right-0 bg-background border-t z-40 md:hidden"
             style={{ bottom: `${adBannerHeight}px` }}
         >
             <nav className="flex justify-around items-center h-16">
