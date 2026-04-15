@@ -39,7 +39,7 @@ export function BaseModal({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       {/* REVERTED: Restored the original, clean classes. The modal will now be correctly centered. */}
-      <DialogContent className={cn("w-[95vw] max-w-lg max-h-[65dvh] p-0 grid grid-rows-[auto_1fr_auto]", className)}>
+      <DialogContent className={cn("w-[95vw] max-w-lg max-h-[80dvh] p-0 grid grid-rows-[auto_1fr_auto]", className)}>
         <DialogHeader className="p-4 border-b space-y-2">
           <div className="flex items-center gap-4">
             {profile && (

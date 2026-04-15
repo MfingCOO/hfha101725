@@ -51,52 +51,12 @@ const NutrientRow = ({ name, value, unit, goal, isTrackOnly = false }: { name: s
 const NutritionalSummaryDialog = ({ isOpen, onClose, summary, client, onEditGoals }: { isOpen: boolean, onClose: () => void, summary: any, client: ClientProfile | null, onEditGoals: () => void }) => {
     if (!summary?.allNutrients || !client) return null;
     
-    const nutrientCategories = useMemo(() => {
-        const macros = {
-            'Energy': { unit: 'kcal' },
-            'Protein': { unit: 'g' },
-            'Total lipid (fat)': { unit: 'g' },
-            'Carbohydrate, by difference': { unit: 'g' },
-            'Fiber, total dietary': { unit: 'g' },
-            'Sugars, added': { unit: 'g' }
-        };
-        const vitamins: Record<string, any> = {};
-        const minerals: Record<string, any> = {};
-        
-        for (const key in rda) {
-            if (!macros[key as keyof typeof macros]) {
-                if (key.toLowerCase().includes('vitamin') || ['Thiamin', 'Riboflavin', 'Niacin', 'Folate, total'].includes(key)) {
-                    vitamins[key] = rda[key as keyof typeof rda];
-                } else {
-                    minerals[key] = rda[key as keyof typeof rda];
-                }
-            }
-        }
-        return { macros, vitamins, minerals };
-    }, []);
-
     const goals = client.customGoals;
     
-    const renderSection = (title: string, keys: Record<string, any>) => (
-        <AccordionItem value={title.toLowerCase()}>
-            <AccordionTrigger>{title}</AccordionTrigger>
-            <AccordionContent className="space-y-3">
-                {Object.keys(keys).map(key => {
-                    const nutrientData = summary.allNutrients[key];
-                    const value = nutrientData?.value || 0;
-                    const goal = goals?.[key as keyof NutritionalGoals] as number || rda[key as keyof typeof rda]?.value || 0;
-                    const unit = keys[key]?.unit || 'g';
-                    
-                    return <NutrientRow key={key} name={key} value={value} unit={unit} goal={goal} />;
-                })}
-            </AccordionContent>
-        </AccordionItem>
-    );
-
     return (
         <BaseModal isOpen={isOpen} onClose={onClose} title="Daily Nutritional Summary" description="A detailed breakdown of your nutrient intake for the day." className="max-w-lg">
              <div className="max-h-[60vh] overflow-y-auto pr-6 -mr-6 space-y-4">
-                <Accordion type="multiple" defaultValue={['macros', 'vitamins']} className="w-full">
+                <Accordion type="multiple" defaultValue={['macros']} className="w-full">
                     <AccordionItem value="macros">
                          <AccordionTrigger>Macronutrients</AccordionTrigger>
                          <AccordionContent className="space-y-3">
@@ -110,11 +70,15 @@ const NutritionalSummaryDialog = ({ isOpen, onClose, summary, client, onEditGoal
                             <NutrientRow name="Total lipid (fat)" value={summary.allNutrients['Total lipid (fat)']?.value || 0} unit="g" goal={goals?.fat || 0} />
                             <NutrientRow name="Carbohydrate" value={summary.allNutrients['Carbohydrate, by difference']?.value || 0} unit="g" goal={goals?.carbs || 0} />
                             <NutrientRow name="Fiber, total dietary" value={summary.allNutrients['Fiber, total dietary']?.value || 0} unit="g" goal={goals?.fiber || 35} isTrackOnly={true} />
-                            <NutrientRow name="Sugars, added" value={summary.allNutrients['Sugars, added']?.value || 0} unit="g" goal={0} isTrackOnly={true} />
+                            <NutrientRow name="Total Sugars" value={summary.allNutrients['Sugars, total including NLEA']?.value || 0} unit="g" goal={90} isTrackOnly={true} />
                          </AccordionContent>
                     </AccordionItem>
-                    {renderSection('Vitamins', nutrientCategories.vitamins)}
-                    {renderSection('Minerals', nutrientCategories.minerals)}
+                    <AccordionItem value="vitamins" disabled>
+                        <AccordionTrigger>Vitamins <span className="text-xs text-muted-foreground ml-auto pr-4 font-normal">Coming Soon</span></AccordionTrigger>
+                    </AccordionItem>
+                    <AccordionItem value="minerals" disabled>
+                        <AccordionTrigger>Minerals <span className="text-xs text-muted-foreground ml-auto pr-4 font-normal">Coming Soon</span></AccordionTrigger>
+                    </AccordionItem>
                 </Accordion>
             </div>
         </BaseModal>

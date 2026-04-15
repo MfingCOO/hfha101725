@@ -4,7 +4,7 @@ import * as React from 'react';
 import type { EnrichedFood, MealItem, PortionSize } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
-  ArrowLeft, Star, Plus, UtensilsCrossed, Beef, Droplet, Wheat, Leaf, Shield
+  ArrowLeft, Star, Plus, UtensilsCrossed, Beef, Droplet, Wheat, Leaf, Shield, Candy
 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -33,11 +33,11 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
 
   const calculatedNutrients = React.useMemo(() => {
     if (!food.nutrients) {
-      return { protein: 0, carbs: 0, fat: 0, calories: 0, fiber: 0 };
+      return { protein: 0, carbs: 0, fat: 0, calories: 0, fiber: 0, sugars: 0 };
     }
     const displayQuantity = parseFloat(quantity) || 1;
     const getNutrientValue = (name: string) => {
-      const nutrient = food.nutrients.find(n => n.name.toLowerCase() === name.toLowerCase());
+      const nutrient = food.nutrients.find(n => n.name.toLowerCase().includes(name.toLowerCase()));
       const gramWeight = selectedPortion?.gramWeight ?? 0;
       if (!nutrient) return 0;
       return (nutrient.amount / 100) * gramWeight * displayQuantity;
@@ -49,6 +49,7 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
       fat: getNutrientValue('Total lipid (fat)'),
       calories: getNutrientValue('Energy'),
       fiber: getNutrientValue('Fiber, total dietary'),
+      sugars: getNutrientValue('Sugars, total'),
     };
   }, [food.nutrients, quantity, selectedPortion]);
 
@@ -98,7 +99,7 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-        <div className="grid grid-cols-6 gap-1 text-center p-2 rounded-lg bg-muted/50 mb-4">
+        <div className="grid grid-cols-7 gap-1 text-center p-2 rounded-lg bg-muted/50 mb-4">
             <div className="flex flex-col items-center justify-center">
                 <UtensilsCrossed className="h-4 w-4 text-amber-400" />
                 <span className="text-sm font-bold">{calculatedNutrients.calories.toFixed(0)}</span>
@@ -118,6 +119,11 @@ export function FoodDetailView({ food, onBack, onAddItem, isFavorite, onToggleFa
                 <Wheat className="h-4 w-4 text-orange-400" />
                 <span className="text-sm font-bold">{calculatedNutrients.carbs.toFixed(0)}g</span>
                 <span className="text-[10px] text-muted-foreground -mt-1">Carbs</span>
+            </div>
+            <div className="flex flex-col items-center justify-center">
+                <Candy className="h-4 w-4 text-pink-400" />
+                <span className="text-sm font-bold">{calculatedNutrients.sugars.toFixed(1)}g</span>
+                <span className="text-[10px] text-muted-foreground -mt-1">Sugar</span>
             </div>
             <div className="flex flex-col items-center justify-center">
                 <Leaf className="h-4 w-4 text-green-400" />

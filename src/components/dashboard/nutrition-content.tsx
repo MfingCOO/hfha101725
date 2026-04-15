@@ -14,7 +14,7 @@ import { useAuth } from '../auth/auth-provider';
 import { BaseModal } from '../ui/base-modal';
 import { NutritionModal } from '../user/nutrition/nutrition-modal';
 import { MealSummary } from './meal-summary';
-import { Beef, Brain, Wheat, Sprout, ShieldAlert, UtensilsCrossed } from 'lucide-react';
+import { Beef, Brain, Wheat, Sprout, ShieldAlert, UtensilsCrossed, Candy } from 'lucide-react';
 
 interface ServingOption {
     label: string;
@@ -152,7 +152,7 @@ export const NutritionContent = ({ onFormStateChange, formState }: ContentProps)
     const [upfReasoning, setUpfReasoning] = useState<string | null>(null);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const { user } = useAuth();
-    const router = useRouter(); // DEFINITIVE FIX: Get router to force refresh
+    const router = useRouter(); 
 
     const { mealType = 'snack', hungerBefore = 5, items = [], notes = '' } = formState || {};
 
@@ -186,7 +186,7 @@ export const NutritionContent = ({ onFormStateChange, formState }: ContentProps)
     };
     
     const mealSummary = useMemo(() => {
-        const totals = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, upfScore: 0, upfItems: 0 };
+        const totals = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, sugars: 0, upfScore: 0, upfItems: 0 };
         const fullNutrientProfile: Record<string, { value: number; unit: string }> = {};
 
         items.forEach((item: UIMealItem) => {
@@ -207,6 +207,7 @@ export const NutritionContent = ({ onFormStateChange, formState }: ContentProps)
                 totals.protein = fullNutrientProfile['Protein']?.value || 0;
                 totals.fat = fullNutrientProfile['Total lipid (fat)']?.value || 0;
                 totals.carbs = fullNutrientProfile['Carbohydrate, by difference']?.value || 0;
+                totals.sugars = fullNutrientProfile['Sugars, total including NLEA']?.value || 0;
                 totals.fiber = fullNutrientProfile['Fiber, total dietary']?.value || 0;
         
                 if (item.upf && typeof item.upf.score === 'number') {
@@ -222,8 +223,6 @@ export const NutritionContent = ({ onFormStateChange, formState }: ContentProps)
 
     
     React.useEffect(() => {
-        // THIS IS THE FIX: This hook sends the 'mealSummary' object
-        // to the parent component every time it's recalculated.
         onFormStateChange({ mealSummary: mealSummary });
     }, [mealSummary, onFormStateChange]);
 
@@ -246,8 +245,9 @@ export const NutritionContent = ({ onFormStateChange, formState }: ContentProps)
                         </Select>
                     </div>
                 </div>
-                 <div className="grid grid-cols-6 gap-1 text-center p-2 rounded-lg bg-muted/50">
-                    {[{i:UtensilsCrossed,c:'amber',l:'kcal',v:mealSummary.calories,f:0},{i:Beef,c:'red',l:'Protein',v:mealSummary.protein,f:0,u:'g'},{i:Brain,c:'blue',l:'Fat',v:mealSummary.fat,f:0,u:'g'},{i:Wheat,c:'orange',l:'Carbs',v:mealSummary.carbs,f:0,u:'g'},{i:Sprout,c:'green',l:'Fiber',v:mealSummary.fiber,f:1,u:'g'},{i:ShieldAlert,c:'red',l:'UPF',v:mealSummary.avgUpf,f:0,u:'%'}].map(m=>(                        <div className="flex flex-col items-center justify-center" key={m.l}>
+                 <div className="grid grid-cols-7 gap-1 text-center p-2 rounded-lg bg-muted/50">
+                    {[{i:UtensilsCrossed,c:'amber',l:'kcal',v:mealSummary.calories,f:0}, {i:Beef,c:'red',l:'Protein',v:mealSummary.protein,f:0,u:'g'}, {i:Brain,c:'blue',l:'Fat',v:mealSummary.fat,f:0,u:'g'}, {i:Wheat,c:'orange',l:'Carbs',v:mealSummary.carbs,f:0,u:'g'}, {i:Candy,c:'pink',l:'Sugar',v:mealSummary.sugars,f:1,u:'g'}, {i:Sprout,c:'green',l:'Fiber',v:mealSummary.fiber,f:1,u:'g'}, {i:ShieldAlert,c:'red',l:'UPF',v:mealSummary.avgUpf,f:0,u:'%'}].map(m=>(
+                        <div className="flex flex-col items-center justify-center" key={m.l}>
                             <m.i className={cn(`h-4 w-4 text-${m.c}-400`)} />
                             <span className="text-sm font-bold">{m.v.toFixed(m.f)}{m.u || ''}</span>
                             <span className="text-[10px] text-muted-foreground -mt-1">{m.l}</span>
