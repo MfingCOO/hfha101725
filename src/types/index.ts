@@ -38,16 +38,14 @@ export interface HybridFoodSearchResult {
     brandOwner?: string;
     score?: number;
     source: 'USDA' | 'LOCAL' | 'AI_ANALYSIS';
-    isCached?: boolean; // FIX: Added to resolve search/cache action errors
+    isCached?: boolean;
 }
 export type SearchResult = HybridFoodSearchResult;
 
 // --- SETTINGS TYPES ---
 export interface AvailabilitySettings {
-    // FIX: Added to support BookingDialog.tsx logic
     timezone?: string; 
     vacationBlocks?: { from: any; to: any }[];
-    // FIX: Added 'weekly' array for d.day === dayNames usage
     weekly: { day: string; enabled: boolean; slots: string[] }[]; 
     monday?: { enabled: boolean; slots: string[] };
     tuesday?: { enabled: boolean; slots: string[] };
@@ -62,8 +60,8 @@ export interface SiteSettings {
     appName: string;
     contactEmail: string;
     maintenanceMode: boolean;
-    videoCallLink?: string; // FIX: Added for calendar actions
-    availability?: AvailabilitySettings; // FIX: Added for calendar actions
+    videoCallLink?: string;
+    availability?: AvailabilitySettings;
 }
 
 export interface TrackingSettings {
@@ -105,6 +103,7 @@ export interface DailySummary {
     cravings: number;
     binges: number;
     stressEvents: number;
+    stressReliefs?: number;
     avgUpf: number;
     dob?: string | null;
     sex?: 'male' | 'female' | 'unspecified' | null;
@@ -216,7 +215,7 @@ export interface Chat {
     name: string;
     description: string;
     type: 'open' | 'private_group' | 'coaching' | 'challenge';
-    participants: string[];
+    participants: (string | ClientProfile)[];
     participantCount: number;
     ownerId: string;
     createdAt: any; 
@@ -231,6 +230,7 @@ export interface Chat {
     isCoachingChat?: boolean;
     lastActivity?: any;
     unreadCount?: number;
+    coachingToolsEnabled?: boolean;
 }
 
 export interface ChatMessage {
@@ -246,6 +246,31 @@ export interface ChatMessage {
     reactions?: { [emoji: string]: string[] };
 }
 
+// --- CALENDAR & LOGGING ---
+// CORRECTED: Added the missing interfaces
+export interface CoachLike {
+    coachId: string;
+    timestamp: any;
+}
+
+export interface CoachEntryNote {
+    coachId: string;
+    coachName: string;
+    text: string;
+    timestamp: any;
+}
+
+export interface LogEntry {
+    id: string;
+    uid: string;
+    pillar: string;
+    entryDate: any;
+    createdAt: any;
+    [key: string]: any; 
+    coachLike?: CoachLike;
+    coachNote?: CoachEntryNote;
+}
+
 // --- POPUPS & EVENTS ---
 export interface Popups {
     id: string;
@@ -258,8 +283,8 @@ export interface Popups {
     imageUrl?: string;
     hyperlink?: string;
     status: 'scheduled' | 'sent' | 'cancelled';
-    title?: string; // FIX: Moved up from SerializablePopup for compatibility
-    name?: string;  // FIX: Moved up from SerializablePopup for compatibility
+    title?: string;
+    name?: string;
 }
 export type Popup = Popups;
 

@@ -2,33 +2,26 @@
 
 import { db as adminDb, auth } from '@/lib/firebaseAdmin';
 import type { ClientProfile, CoachNote, CreateClientInput, UserTier, Chat } from '@/types';
-// REMOVED: import Stripe from 'stripe';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { calculateIdealBodyWeight, calculateNutritionalGoals } from '@/services/goals';
 
-// REMOVED: const stripe = new Stripe(process.env.STRIPE_API_KEY!, {...});
+// FINAL FIX: Added the missing helper function.
+const getParticipantId = (p: string | ClientProfile): string => typeof p === 'string' ? p : p.uid;
 
-// This is a new, more robust serialization function (REMAINS UNTOUCHED)
+// FINAL FIX: This is the robust serialization function that handles all Timestamp formats recursively.
 function serializeTimestamps(data: any): any {
     if (data === null || data === undefined || typeof data !== 'object') {
         return data;
     }
-
     if (typeof data.toDate === 'function') {
         return data.toDate().toISOString();
     }
-
-    if (typeof data.seconds === 'number' && typeof data.nanoseconds === 'number') {
-        return new Date(data.seconds * 1000 + data.nanoseconds / 1000000).toISOString();
+    if (data instanceof Timestamp) {
+        return data.toDate().toISOString();
     }
-    if (typeof data._seconds === 'number' && typeof data._nanoseconds === 'number') {
-        return new Date(data._seconds * 1000 + data._nanoseconds / 1000000).toISOString();
-    }
-
     if (Array.isArray(data)) {
         return data.map(item => serializeTimestamps(item));
     }
-
     const newObj: { [key: string]: any } = {};
     for (const key in data) {
         if (Object.prototype.hasOwnProperty.call(data, key)) {
@@ -39,13 +32,11 @@ function serializeTimestamps(data: any): any {
 }
 
 export async function unifiedSignupAction(
-    data: CreateClientInput & { priceId?: string | null } // priceId is now vestigial, as RC handles it
+    data: CreateClientInput & { priceId?: string | null }
 ): Promise<{ success: boolean; error?: string; checkoutUrl?: string | null }> {
 
-    // MODIFIED: Simplified signup for all tiers, no direct Stripe interaction
     let uid = '';
     try {
-        // Create Firebase Auth user
         const userRecord = await auth.createUser({
             email: data.email,
             password: data.password,
@@ -54,8 +45,7 @@ export async function unifiedSignupAction(
         });
         uid = userRecord.uid;
 
-        // Set custom claims for role-based access
-        await auth.setCustomUserClaims(uid, { role: 'client', tier: data.tier || 'free' }); // Use provided tier or default to free
+        await auth.setCustomUserClaims(uid, { role: 'client', tier: data.tier || 'free' });
 
         const idealBodyWeight = calculateIdealBodyWeight(data.height, data.units);
         
@@ -72,9 +62,8 @@ export async function unifiedSignupAction(
             uid: uid,
             email: data.email,
             fullName: data.fullName,
-            tier: data.tier || 'free', // Use provided tier or default to free
+            tier: data.tier || 'free',
             role: 'client',
-            // REMOVED: stripeCustomerId as it's now managed by RevenueCat implicitly for Stripe purchases
             onboarding: data,
             createdAt: FieldValue.serverTimestamp(),
             height: { value: data.height, unit: data.units === 'imperial' ? 'in' : 'cm' },
@@ -92,7 +81,6 @@ export async function unifiedSignupAction(
 
         await clientRef.set(clientPayload);
 
-        // No direct Stripe checkout URL needed, as client-side RC SDK handles it
         return { success: true, checkoutUrl: null };
 
     } catch (error: any) {
@@ -134,7 +122,6 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
     const batch = adminDb.batch();
     let uid = '';
     try {
-        // REMOVED: const stripeCustomer = await stripe.customers.create({ email: data.email, name: data.fullName });
         const userRecord = await auth.createUser({
             email: data.email,
             password: data.password,
@@ -161,9 +148,8 @@ export async function createClientByCoachAction(data: CreateClientInput): Promis
             uid: uid,
             email: data.email,
             fullName: data.fullName,
-            tier: data.tier || 'free', // Use provided tier or default to free
+            tier: data.tier || 'free',
             role: 'client',
-            // REMOVED: stripeCustomerId: stripeCustomer.id, // RC manages Stripe customer IDs
             onboarding: data,
             createdAt: FieldValue.serverTimestamp(),
             height: { value: data.height, unit: data.units },
@@ -291,8 +277,7 @@ export async function getCoachingChatIdForClient(clientId: string): Promise<{ su
     }
 }
 
-// SURGICAL ADDITION: New action to get chat details by ID for notifications (REMAINS UNTOUCHED)
-export async function getChatDetailsAction(chatId: string): Promise<{ success: boolean; data?: { id: string; name: string; }; error?: string; }> {
+export async function getChatDetailsAction(chatId: string): Promise<{ success: boolean; data?: Chat; error?: string; }> {
     try {
         if (!chatId) throw new Error("Chat ID is required.");
         const chatRef = adminDb.collection('chats').doc(chatId);
@@ -301,16 +286,28 @@ export async function getChatDetailsAction(chatId: string): Promise<{ success: b
         if (!chatSnap.exists) return { success: false, error: "Chat not found." };
 
         const chatData = chatSnap.data() as Chat;
-        return { success: true, data: { id: chatSnap.id, name: chatData.name || 'Unnamed Chat' } };
+        const participantUIDs = (chatData.participants || []).map(p => getParticipantId(p));
+        
+        const participantPromises = participantUIDs.map(uid => getClientByIdAction(uid));
+        const participantResults = await Promise.all(participantPromises);
+
+        const participantsWithProfiles = participantResults
+            .filter(result => result.success && result.data)
+            .map(result => result.data as ClientProfile);
+
+        const finalChatData = {
+            ...chatData,
+            id: chatSnap.id,
+            participants: participantsWithProfiles,
+        };
+
+        return { success: true, data: serializeTimestamps(finalChatData) as Chat };
     } catch (error: any) {
         console.error(`Error fetching chat details for ${chatId}:`, error);
         return { success: false, error: error.message };
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FIXED: signupOrUpgradeClientAction (active + free immediately)
-// ─────────────────────────────────────────────────────────────────────────────
 export async function signupOrUpgradeClientAction(data: CreateClientInput & { password: string }) {
     const { email, password, ...clientData } = data;
 
@@ -318,14 +315,12 @@ export async function signupOrUpgradeClientAction(data: CreateClientInput & { pa
     try {
         let isNewUser = false;
 
-        // 1. Check if user already exists (upgrade path)
         try {
             const existingUser = await auth.getUserByEmail(email);
             uid = existingUser.uid;
             console.log(`[SIGNUP/UPGRADE] Existing user found → ${uid} (treating as upgrade)`);
         } catch (error: any) {
             if (error.code === 'auth/user-not-found') {
-                // 2. New user — create as ACTIVE + FREE
                 const newUser = await auth.createUser({
                     email,
                     password,
@@ -341,7 +336,6 @@ export async function signupOrUpgradeClientAction(data: CreateClientInput & { pa
             }
         }
 
-        // 3. Create full client document for new users
         if (isNewUser) {
             const idealBodyWeight = calculateIdealBodyWeight(clientData.height, clientData.units);
 
@@ -356,7 +350,7 @@ export async function signupOrUpgradeClientAction(data: CreateClientInput & { pa
             const clientRef = adminDb.collection('clients').doc(uid);
             const clientPayload: any = {
                 uid: uid,
-                email: email,                                 // ← FIXED: use the destructured 'email'
+                email: email,
                 fullName: clientData.fullName,
                 tier: 'free' as const,
                 status: 'active',

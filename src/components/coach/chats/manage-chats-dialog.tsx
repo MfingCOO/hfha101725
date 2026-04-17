@@ -3,7 +3,7 @@ import { CoachPageModal } from '@/components/ui/coach-page-modal';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Loader2, MessageSquare, MoreVertical, Trash2, PlusCircle, LogOut, BellOff, Bell, Repeat } from "lucide-react";
+import { Loader2, MessageSquare, MoreVertical, Trash2, PlusCircle, LogOut, BellOff, Bell, Repeat, Wand2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   DropdownMenu,
@@ -31,9 +31,13 @@ import { getChatsAndClientsForCoach, toggleChatMuteAction, markChatAsReadAction,
 import { CreateChatDialog } from './create-chat-dialog';
 import type { Chat as OriginalChat, ClientProfile as OriginalClientProfile } from "@/types";
 import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
+import { updateChatCoachingToolsAction } from '@/app/coach/chats/actions';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 type SerializableChat = Omit<OriginalChat, 'createdAt' | 'lastMessage' | 'lastClientMessageTimestamp'> & {
     id: string;
+    coachingToolsEnabled?: boolean;
     createdAt?: string;
     lastMessage?: { text: string; timestamp: string; senderId: string };
     lastClientMessageTimestamp?: string;
@@ -41,6 +45,8 @@ type SerializableChat = Omit<OriginalChat, 'createdAt' | 'lastMessage' | 'lastCl
 
 type SerializableClientProfile = OriginalClientProfile;
 type ChatMetadata = Record<string, { lastReadTimestamp: string }>;
+
+const getParticipantId = (p: string | OriginalClientProfile): string => typeof p === 'string' ? p : p.uid;
 
 interface ManageChatsDialogProps {
     open: boolean;
@@ -122,7 +128,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
 
         const filter = (chat: SerializableChat) => {
             if (chat.type === 'coaching') {
-                const clientParticipants = (chat.participants || []).filter(p => !coachUIDs.includes(p));
+                const clientParticipants = (chat.participants || []).map(getParticipantId).filter(id => !coachUIDs.includes(id));
                 const primaryClient = clientParticipants.length > 0 ? clientMap.get(clientParticipants[0]) : null;
                 const chatName = primaryClient ? primaryClient.fullName : chat.name;
                 return chatName?.toLowerCase().includes(lowerCaseQuery) ?? false;
@@ -167,6 +173,19 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         setIsActing(null);
     };
 
+    const handleCoachingToolsToggle = async (chatId: string, enabled: boolean) => {
+        if (!user) return;
+        setIsActing(chatId);
+        const result = await updateChatCoachingToolsAction({ chatId, enabled, coachId: user.uid });
+        if (result.success) {
+            toast({ title: 'Success', description: `Coaching tools ${enabled ? 'enabled' : 'disabled'}.` });
+            fetchChats();
+        } else {
+            toast({ variant: 'destructive', title: 'Error', description: result.error || 'Could not update settings.' });
+        }
+        setIsActing(null);
+    };
+
     const handleConvertChatToCoaching = async (chatId: string) => {
         if (!user) return;
         setIsActing(chatId);
@@ -183,7 +202,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
     const handleOpenChat = async (chat: SerializableChat, chatName: string) => {
         if (!user) return;
 
-        const isParticipant = (chat.participants || []).includes(user.uid);
+        const isParticipant = (chat.participants || []).map(getParticipantId).includes(user.uid);
 
         if (!isParticipant) {
             setIsActing(chat.id);
@@ -193,7 +212,7 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
                 toast({ variant: 'destructive', title: 'Error', description: result.error?.message || 'Could not join chat.' });
                 return;
             }
-            fetchChats(); // Refresh the chat list to get the updated participant info
+            fetchChats(); 
         }
 
         await markChatAsReadAction({ chatId: chat.id, userId: user.uid });
@@ -223,87 +242,100 @@ export function ManageChatsDialog({ open, onOpenChange }: ManageChatsDialogProps
         return (
              <div className="space-y-2">
                 {list.map(chat => {
-                    const clientParticipants = (chat.participants || []).filter(p => !coachUIDs.includes(p));
-                    const coachParticipants = (chat.participants || []).filter(p => coachUIDs.includes(p));
+                    const clientParticipants = (chat.participants || []).map(getParticipantId).filter(id => !coachUIDs.includes(id));
+                    const coachParticipants = (chat.participants || []).map(getParticipantId).filter(id => coachUIDs.includes(id));
                     
                     const primaryClient = clientParticipants.length > 0 ? clientMap.get(clientParticipants[0]) : null;
                     const chatName = chat.type === 'coaching' && primaryClient ? primaryClient.fullName : chat.name;
                     const chatAvatar = chat.type === 'coaching' && primaryClient ? primaryClient.photoURL : undefined;
+                    const isCoachingTier = primaryClient?.tier === 'coaching';
 
                     if (!user) return null;
 
-                    const isParticipant = (chat.participants || []).includes(user.uid);
+                    const isParticipant = (chat.participants || []).map(getParticipantId).includes(user.uid);
                     const isMuted = chat.mutedBy?.includes(user.uid) ?? false;
-
                     const needsReply = chat.lastMessage?.senderId && !coachUIDs.includes(chat.lastMessage.senderId) && !isMuted;
 
                     return (
-                         <div key={chat.id} className="flex items-center gap-2 rounded-lg border p-1.5 bg-card text-card-foreground">
-                            <div className="w-2 h-2">
-                                {needsReply && <div className="h-2 w-2 rounded-full bg-red-500" />}
-                            </div>
-                            <Avatar className="h-8 w-8 border">
-                                <AvatarImage src={chatAvatar || ''} alt={chatName || 'Chat'} />
-                                <AvatarFallback>{chatName?.charAt(0) || 'C'}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-xs truncate">{chatName}</p>
-                                <div className="flex items-center gap-1">
-                                    {coachParticipants.map(coachId => {
-                                        const coach = coaches.find(c => c.uid === coachId);
-                                        if (!coach) return null;
-                                        return (
-                                            <TooltipProvider key={coach.uid}>
-                                                <Tooltip>
-                                                    <TooltipTrigger>
-                                                        <Avatar className="h-4 w-4 border">
-                                                            <AvatarImage src={coach.photoURL || ''} alt={coach.fullName || 'Coach'} />
-                                                            <AvatarFallback>{coach.fullName?.charAt(0) || 'C'}</AvatarFallback>
-                                                        </Avatar>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p>{coach.fullName}</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                        )
-                                    })}
-                                    {chat.type !== 'coaching' && (
-                                        <p className="text-[10px] text-muted-foreground truncate">{chat.participantCount} members</p>
-                                    )}
+                         <div key={chat.id} className="flex flex-col gap-2 rounded-lg border p-1.5 bg-card text-card-foreground">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2">
+                                    {needsReply && <div className="h-2 w-2 rounded-full bg-red-500" />}
+                                </div>
+                                <Avatar className="h-8 w-8 border">
+                                    <AvatarImage src={chatAvatar || ''} alt={chatName || 'Chat'} />
+                                    <AvatarFallback>{chatName?.charAt(0) || 'C'}</AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-semibold text-xs truncate">{chatName}</p>
+                                    <div className="flex items-center gap-1">
+                                        {coachParticipants.map(coachId => {
+                                            const coach = coaches.find(c => c.uid === coachId);
+                                            if (!coach) return null;
+                                            return (
+                                                <TooltipProvider key={coach.uid}>
+                                                    <Tooltip>
+                                                        <TooltipTrigger>
+                                                            <Avatar className="h-4 w-4 border">
+                                                                <AvatarImage src={coach.photoURL || ''} alt={coach.fullName || 'Coach'} />
+                                                                <AvatarFallback>{coach.fullName?.charAt(0) || 'C'}</AvatarFallback>
+                                                            </Avatar>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>
+                                                            <p>{coach.fullName}</p>
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                </TooltipProvider>
+                                            )
+                                        })}
+                                        {chat.type !== 'coaching' && (
+                                            <p className="text-[10px] text-muted-foreground truncate">{chat.participantCount} members</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-0">
+                                    <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleOpenChat(chat, chatName || 'Chat')}>
+                                        <MessageSquare className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0">
+                                                <MoreVertical className="h-4 w-4" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => handleToggleMute(chat.id)} disabled={isActing === chat.id}>
+                                                {isMuted ? <Bell className="mr-2 h-4 w-4" /> : <BellOff className="mr-2 h-4 w-4" />} 
+                                                {isMuted ? 'Unmute' : 'Mute'}
+                                            </DropdownMenuItem>
+                                            {isParticipant ? (
+                                                <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'leave')} disabled={isActing === chat.id}><LogOut className="mr-2 h-4 w-4" /> Leave</DropdownMenuItem>
+                                            ) : (
+                                                <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'join')} disabled={isActing === chat.id}><PlusCircle className="mr-2 h-4 w-4" /> Join</DropdownMenuItem>
+                                            )}
+                                            {type === 'group' && (
+                                                <DropdownMenuItem onClick={() => handleConvertChatToCoaching(chat.id)} disabled={isActing === chat.id}>
+                                                    <Repeat className="mr-2 h-4 w-4" /> Convert to Coaching
+                                                </DropdownMenuItem>
+                                            )}
+                                            <DropdownMenuItem onClick={() => setDeleteAlertState({ open: true, chat })} className="text-destructive">
+                                                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
                                 </div>
                             </div>
-                             <div className="flex items-center gap-0">
-                                 <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleOpenChat(chat, chatName || 'Chat')}>
-                                    <MessageSquare className="h-3.5 w-3.5" />
-                                 </Button>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0">
-                                            <MoreVertical className="h-4 w-4" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => handleToggleMute(chat.id)} disabled={isActing === chat.id}>
-                                            {isMuted ? <Bell className="mr-2 h-4 w-4" /> : <BellOff className="mr-2 h-4 w-4" />} 
-                                            {isMuted ? 'Unmute' : 'Mute'}
-                                        </DropdownMenuItem>
-                                        {isParticipant ? (
-                                            <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'leave')} disabled={isActing === chat.id}><LogOut className="mr-2 h-4 w-4" /> Leave</DropdownMenuItem>
-                                        ) : (
-                                            <DropdownMenuItem onClick={() => handleJoinLeave(chat.id, 'join')} disabled={isActing === chat.id}><PlusCircle className="mr-2 h-4 w-4" /> Join</DropdownMenuItem>
-                                        )}
-                                        {type === 'group' && (
-                                            <DropdownMenuItem onClick={() => handleConvertChatToCoaching(chat.id)} disabled={isActing === chat.id}>
-                                                <Repeat className="mr-2 h-4 w-4" /> Convert to Coaching
-                                            </DropdownMenuItem>
-                                        )}
-                                        <DropdownMenuItem onClick={() => setDeleteAlertState({ open: true, chat })} className="text-destructive">
-                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                        </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </div>
+                            {isCoachingTier && (
+                                <div className="flex items-center justify-end space-x-2 border-t mt-1 pt-1">
+                                    <Label htmlFor={`coaching-tools-${chat.id}`} className="text-xs flex items-center gap-1 text-muted-foreground"><Wand2 className="h-3 w-3"/> Coaching Tools</Label>
+                                    <Switch
+                                        id={`coaching-tools-${chat.id}`}
+                                        checked={!!chat.coachingToolsEnabled}
+                                        onCheckedChange={(checked) => handleCoachingToolsToggle(chat.id, checked)}
+                                        disabled={isActing === chat.id}
+                                    />
+                                </div>
+                            )}
                         </div>
                     )
                 })}

@@ -8,6 +8,30 @@ import { calculateDailySummaryForUser } from './summary-calculator';
 import { FieldValue, Timestamp, FieldPath, Query } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
 
+// FINAL FIX: This is the robust serialization function that handles all Timestamp formats recursively.
+function serializeTimestamps(data: any): any {
+    if (data === null || data === undefined || typeof data !== 'object') {
+        return data;
+    }
+    if (typeof data.toDate === 'function') {
+        return data.toDate().toISOString();
+    }
+    if (data instanceof Timestamp) {
+        return data.toDate().toISOString();
+    }
+    if (Array.isArray(data)) {
+        return data.map(item => serializeTimestamps(item));
+    }
+    const newObj: { [key: string]: any } = {};
+    for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+            newObj[key] = serializeTimestamps(data[key]);
+        }
+    }
+    return newObj;
+}
+
+
 // Inlined type definitions to avoid client-side dependencies
 export interface EnrichedFood {
     fdcId: number;
@@ -498,16 +522,7 @@ export async function getDataForDay(date: string, userId: string) {
             return (dateA as Timestamp).toMillis() - (dateB as Timestamp).toMillis();
         });
         
-
-        const serializableData = allEntries.map(entry => {
-            const newEntry = { ...entry };
-            for(const key in newEntry) {
-                if (newEntry[key] instanceof Timestamp) {
-                    newEntry[key] = newEntry[key].toDate().toISOString();
-                }
-            }
-            return newEntry;
-        });
+        const serializableData = serializeTimestamps(allEntries);
 
         return { success: true, data: serializableData };
 
@@ -584,15 +599,7 @@ export async function getAllDataForPeriod(days: number, userId: string, fromDate
             return timeB - timeA;
         });
         
-        const serializableData = allEntries.map(entry => {
-            const newEntry = { ...entry };
-            for(const key in newEntry) {
-                if (newEntry[key] && typeof newEntry[key].toDate === 'function') {
-                    newEntry[key] = newEntry[key].toDate().toISOString();
-                }
-            }
-            return newEntry;
-        });
+        const serializableData = serializeTimestamps(allEntries);
         
         return { success: true, data: serializableData };
         

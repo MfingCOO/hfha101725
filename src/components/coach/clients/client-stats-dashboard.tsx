@@ -9,7 +9,8 @@ import { differenceInDays, format, parseISO } from 'date-fns';
 import type { LucideIcon } from 'lucide-react';
 
 interface ClientStatsDashboardProps {
-  client: ClientProfile;
+  client: ClientProfile | null;
+  summary: DailySummary | null;
   onDeleteClient: () => void;
   isRefreshing: boolean;
 }
@@ -37,41 +38,32 @@ const MetricCard = ({ icon: Icon, title, value, unit, context }: { icon: LucideI
     </div>
 );
 
-// Helper to get the most recent summary, not just today's.
-const getLatestSummary = (summaries: { [date: string]: DailySummary } | undefined): DailySummary | undefined => {
-    if (!summaries || Object.keys(summaries).length === 0) {
-        return undefined;
-    }
-    const sortedDates = Object.keys(summaries).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-    return summaries[sortedDates[0]];
-};
-
 export function ClientStatsDashboard({
   client,
+  summary,
   onDeleteClient,
   isRefreshing,
 }: ClientStatsDashboardProps) {
 
-    const latestSummary = useMemo(() => getLatestSummary(client.dailySummaries), [client.dailySummaries]);
+    const latestSummary = summary;
 
-    // **THE FIX**: Fallback logic for Weight and WtHR
     const displayWeight = useMemo(() => {
-        const weight = latestSummary?.currentWeight ?? client.onboarding?.weight;
-        const unit = latestSummary?.unit ?? (client.onboarding?.units === 'imperial' ? 'lbs' : 'kg');
+        const weight = latestSummary?.currentWeight ?? client?.onboarding?.weight;
+        const unit = latestSummary?.unit ?? (client?.onboarding?.units === 'imperial' ? 'lbs' : 'kg');
         return weight ? `${weight} ${unit}` : 'N/A';
-    }, [latestSummary, client.onboarding]);
+    }, [latestSummary, client?.onboarding]);
 
     const displayWthr = useMemo(() => {
         let wthr = latestSummary?.currentWthr;
         if (!wthr) {
-            const waist = client.onboarding?.waist;
-            const height = client.onboarding?.height;
+            const waist = client?.onboarding?.waist;
+            const height = client?.onboarding?.height;
             if (waist && height && height > 0) {
                 wthr = waist / height;
             }
         }
         return wthr ? wthr.toFixed(2) : 'N/A';
-    }, [latestSummary, client.onboarding]);
+    }, [latestSummary, client?.onboarding]);
 
     const metricCards = useMemo(() => {
         if (!latestSummary) return []; 
@@ -89,7 +81,15 @@ export function ClientStatsDashboard({
         ];
     }, [latestSummary]);
     
-    const durationInDays = client.createdAt ? differenceInDays(new Date(), parseISO(client.createdAt as string)) : 0;
+    const durationInDays = client?.createdAt ? differenceInDays(new Date(), new Date(client.createdAt as any)) : 0;
+
+    if (!client) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        );
+    }
 
     return (
     <Card className="border-none shadow-none bg-transparent">
@@ -107,10 +107,9 @@ export function ClientStatsDashboard({
         <Separator />
         
         <div className="flex flex-wrap justify-around items-center gap-4">
-            {/* **THE FIX**: Using the new display variables with fallback logic */}
             <SummaryStat title="Weight" value={displayWeight} />
             <SummaryStat title="WtHR" value={displayWthr} />
-            <SummaryStat title="DOB" value={client.onboarding?.birthdate ? format(parseISO(client.onboarding.birthdate), 'MM/dd/yyyy') : 'N/A'} />
+            <SummaryStat title="DOB" value={client.onboarding?.birthdate ? format(new Date(client.onboarding.birthdate), 'MM/dd/yyyy') : 'N/A'} />
             <SummaryStat title="Sex" value={client.onboarding?.sex ? client.onboarding.sex.charAt(0).toUpperCase() : 'N/A'} />
             <SummaryStat title="Duration" value={`${durationInDays}d`} />
         </div>

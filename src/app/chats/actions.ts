@@ -11,7 +11,9 @@ import { getMessaging } from 'firebase-admin/messaging';
 
 const SERVER_ERROR = { success: false, error: { message: "Server configuration error." } };
 
-// Helper function to dynamically check if a user is a coach
+// FINAL FIX: This helper function will be used to safely handle the new 'participants' type.
+const getParticipantId = (p: string | ClientProfile): string => typeof p === 'string' ? p : p.uid;
+
 async function isUserCoach(userId: string): Promise<boolean> {
     if (!adminDb || !userId) return false;
     try {
@@ -19,7 +21,7 @@ async function isUserCoach(userId: string): Promise<boolean> {
         return clientSnap.exists && clientSnap.data()?.role === 'coach';
     } catch (error) {
         console.error(`Error checking if user ${userId} is a coach:`, error);
-        return false; // Fail safe
+        return false;
     }
 }
 
@@ -475,15 +477,13 @@ export async function uploadChatImageAction(input: z.infer<typeof UploadChatImag
             return { success: false, error: { message: "Chat not found." } };
         }
         const chatData = chatDoc.data() as Chat;
-        if (!chatData.participants.includes(requesterId)) {
+        if (!chatData.participants.map(getParticipantId).includes(requesterId)) {
             return { success: false, error: { message: "You are not a member of this chat." } };
         }
 
-        // ← ONLY THESE 3 LINES (uses your existing env var)
         const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '{}');
         const bucketName = `${serviceAccount.project_id}.appspot.com`;
         const bucket = adminStorage().bucket('hunger-free-and-happy-app.firebasestorage.app');
-        // ↑ end of change
 
         const base64Content = fileDataUrl.split(';base64,').pop();
         if (!base64Content) {
@@ -536,7 +536,6 @@ export async function postMessageAction(input: z.infer<typeof PostMessageInputSc
         const chatDocRef = adminDb.collection('chats').doc(chatId);
         const sentTimestamp = Timestamp.now();
 
-        // SURGICAL FIX: Sanitize the notification text
         const notificationText = text ? text.replace(/@\[([^\]]+)\]\([^)]+\)/g, '@$1') : (fileName ? 'Sent an attachment' : 'Sent a message');
 
         await adminDb.runTransaction(async (transaction) => {
@@ -633,7 +632,6 @@ export async function addReactionAction(input: z.infer<typeof AddReactionInputSc
             }
         });
 
-        // === SEND PUSH NOTIFICATION TO MESSAGE OWNER ===
         if (shouldNotify && messageOwnerId && messageOwnerId !== userId) {
             const authorProfile = await getUserProfile_Admin_Robust(messageOwnerId);
             if (authorProfile?.fcmTokens?.length) {
@@ -744,7 +742,7 @@ export async function getChatMessagesAction(chatId: string): Promise<{ success: 
 
         const participants: Record<string, ClientProfile> = {};
         if (chatData.participants && chatData.participants.length > 0) {
-            const profilePromises = chatData.participants.map(uid => getUserProfile_Admin_Robust(uid));
+            const profilePromises = chatData.participants.map(p => getUserProfile_Admin_Robust(getParticipantId(p)));
             const profileSnapshots = await Promise.all(profilePromises);
             profileSnapshots.forEach(snap => {
                 if (snap) { 
@@ -961,7 +959,8 @@ export async function deleteChatAction(input: { chatId: string, userId: string }
         });
 
         if (participants.length > 0) {
-            for (const participantId of participants) {
+            for (const participant of participants) {
+                const participantId = getParticipantId(participant);
                 const metadataRef = adminDb.collection('user_chat_metadata').doc(`${participantId}_${chatId}`);
                 batch.delete(metadataRef);
                 

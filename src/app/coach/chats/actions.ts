@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import { db as adminDb } from '@/lib/firebaseAdmin';
 import { postMessageAction } from '@/app/chats/actions';
+import { FieldValue } from 'firebase-admin/firestore';
 
 // Helper function to verify if the user is a coach by checking their role in the 'clients' collection
 async function verifyCoach(coachId: string): Promise<{ authorized: boolean; name: string }> {
@@ -80,4 +81,32 @@ export async function broadcastMiaMessageAction(input: z.infer<typeof BroadcastM
     console.error('Failed to broadcast MIA message:', error);
     return { success: false, error: { message: error.message || 'An unknown error occurred.' } };
   }
+}
+
+const UpdateCoachingToolsSchema = z.object({
+    chatId: z.string(),
+    enabled: z.boolean(),
+    coachId: z.string(),
+});
+
+export async function updateChatCoachingToolsAction(input: z.infer<typeof UpdateCoachingToolsSchema>) {
+    try {
+        const { chatId, enabled, coachId } = UpdateCoachingToolsSchema.parse(input);
+
+        const { authorized } = await verifyCoach(coachId);
+        if (!authorized) {
+            return { success: false, error: 'Unauthorized' };
+        }
+
+        const chatRef = adminDb.collection('chats').doc(chatId);
+        await chatRef.update({
+            coachingToolsEnabled: enabled,
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating coaching tools status:', error);
+        return { success: false, error: 'Failed to update chat' };
+    }
 }

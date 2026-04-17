@@ -1,18 +1,124 @@
 'use server';
 
 import { db as adminDb } from '@/lib/firebaseAdmin';
-import { Timestamp, DocumentSnapshot } from 'firebase-admin/firestore';
+import { Timestamp, DocumentSnapshot, FieldValue } from 'firebase-admin/firestore';
 import { subDays, addDays, isWithinInterval, format, startOfDay, endOfDay } from 'date-fns';
 import { calculateDailySummaryForUser } from '@/services/summary-calculator'; 
 import { revalidatePath } from 'next/cache';
 import { Program, Workout, PerformanceLog } from '@/types/workout-program';
 import { ScheduledEvent } from '@/types/event';
+import { getMessaging } from 'firebase-admin/messaging';
+import type { ClientProfile } from '@/types';
 
 const ALL_DATA_COLLECTIONS = ['nutrition', 'hydration', 'activity', 'sleep', 'stress', 'measurements', 'protocol', 'planner', 'cravings'];
 
+async function isUserCoach(userId: string): Promise<boolean> {
+    if (!adminDb || !userId) return false;
+    try {
+        const clientSnap = await adminDb.collection('clients').doc(userId).get();
+        return clientSnap.exists && clientSnap.data()?.role === 'coach';
+    } catch (error) {
+        console.error(`Error checking if user ${userId} is a coach:`, error);
+        return false;
+    }
+}
+
+async function getUserProfile(userId: string): Promise<ClientProfile | null> {
+    if (!userId) return null;
+    const userRef = adminDb.collection('clients').doc(userId);
+    const userSnap = await userRef.get();
+    if (userSnap.exists) {
+        return { uid: userSnap.id, ...userSnap.data() } as ClientProfile;
+    }
+    return null;
+}
+
+export async function addCoachFeedbackToAction(data: {
+    entryId: string;
+    clientId: string;
+    coachId: string;
+    feedbackType: 'like' | 'note';
+    noteText?: string;
+    pillar: string;
+}) {
+    const { entryId, clientId, coachId, feedbackType, noteText, pillar } = data;
+
+    if (!ALL_DATA_COLLECTIONS.includes(pillar)) {
+        return { success: false, error: 'Invalid pillar specified.' };
+    }
+    
+    if (!(await isUserCoach(coachId))) {
+        return { success: false, error: 'Unauthorized: User is not a coach.' };
+    }
+
+    try {
+        const coachProfile = await getUserProfile(coachId);
+        if (!coachProfile) {
+            return { success: false, error: 'Coach profile not found.' };
+        }
+
+        const entryRef = adminDb.collection(`clients/${clientId}/${pillar}`).doc(entryId);
+        const doc = await entryRef.get();
+
+        if (!doc.exists) {
+            return { success: false, error: 'Log entry not found.' };
+        }
+
+        if (feedbackType === 'like') {
+            const currentLike = doc.data()?.coachLike;
+            if (currentLike && currentLike.coachId === coachId) {
+                await entryRef.update({ coachLike: FieldValue.delete() });
+            } else {
+                await entryRef.update({
+                    'coachLike.coachId': coachId,
+                    'coachLike.timestamp': FieldValue.serverTimestamp(),
+                });
+            }
+        } else if (feedbackType === 'note' && noteText) {
+            await entryRef.update({
+                'coachNote.coachId': coachId,
+                'coachNote.coachName': coachProfile.fullName,
+                'coachNote.text': noteText,
+                'coachNote.timestamp': FieldValue.serverTimestamp(),
+            });
+        } else {
+            return { success: false, error: 'Invalid feedback type or missing note text.' };
+        }
+        
+        const clientProfile = await getUserProfile(clientId);
+        if (clientProfile?.fcmTokens && clientProfile.fcmTokens.length > 0) {
+            const entryDoc = await entryRef.get();
+            const entryData = entryDoc.data();
+            const entryDate = entryData?.entryDate ? entryData.entryDate.toDate() : new Date();
+
+            const message = {
+                notification: {
+                    title: 'New Feedback from Your Coach!',
+                    body: feedbackType === 'like' 
+                        ? `${coachProfile.fullName} liked your ${pillar} entry.`
+                        : `${coachProfile.fullName} left a note on your ${pillar} entry.`,
+                },
+                tokens: clientProfile.fcmTokens,
+                data: {
+                    notificationType: 'coach_feedback',
+                    entryId: entryId,
+                    pillar: pillar,
+                    entryDate: format(entryDate, 'yyyy-MM-dd')
+                },
+            };
+            await getMessaging().sendEachForMulticast(message);
+        }
+
+        return { success: true };
+
+    } catch (error: any) {
+        console.error("Error in addCoachFeedbackToAction: ", error);
+        return { success: false, error: error.message };
+    }
+}
+
 export async function triggerSummaryRecalculation(userId: string, date: string, userTimezone: string, timezoneOffset: number) {
     if (!userId || !date) {
-        console.error("[Action] Missing userId or date for summary recalculation");
         return { success: false, error: "User ID and date are required." };
     }
     try {
@@ -23,24 +129,27 @@ export async function triggerSummaryRecalculation(userId: string, date: string, 
     }
 }
 
+// FINAL FIX: This is the robust serialization function that handles all Timestamp formats recursively.
 function serializeTimestamps(data: any): any {
-    if (!data) return data;
+    if (data === null || data === undefined || typeof data !== 'object') {
+        return data;
+    }
+    if (typeof data.toDate === 'function') {
+        return data.toDate().toISOString();
+    }
     if (data instanceof Timestamp) {
         return data.toDate().toISOString();
     }
     if (Array.isArray(data)) {
-        return data.map(serializeTimestamps);
+        return data.map(item => serializeTimestamps(item));
     }
-    if (typeof data === 'object' && Object.prototype.toString.call(data) === '[object Object]') {
-        const newObject: { [key: string]: any } = {};
-        for (const key in data) {
-            if (Object.prototype.hasOwnProperty.call(data, key)) {
-                newObject[key] = serializeTimestamps(data[key]);
-            }
+    const newObj: { [key: string]: any } = {};
+    for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+            newObj[key] = serializeTimestamps(data[key]);
         }
-        return newObject;
     }
-    return data;
+    return newObj;
 }
 
 function unnestLogData(doc: DocumentSnapshot) {
@@ -56,11 +165,9 @@ function unnestLogData(doc: DocumentSnapshot) {
 
 export async function getCalendarDataForDay(userId: string, date: string, userTimezone: string, timezoneOffset: number): Promise<{ success: boolean; data?: any[]; summary?: any; error?: string }> {
     if (!userId) {
-        console.error("No user ID provided to getCalendarDataForDay");
         return { success: false, error: "User ID is required." };
     }
      if (userTimezone === undefined || timezoneOffset === undefined) {
-        console.error("Missing timezone information in getCalendarDataForDay");
         return { success: false, error: "Timezone information is required." };
     }
 
@@ -103,54 +210,21 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
             }
         });
 
-        const coachAppointmentsPromise = adminDb.collection('coachCalendar')
-            .where('clientId', '==', userId)
-            .where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC))
-            .where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC))
-            .get().then(snapshot =>
-                snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { ...data, id: doc.id, pillar: 'appointment', entryDate: data.start };
-                })
-            ).catch(err => {
-                console.error(`Failed to fetch coach appointments:`, err);
-                return [];
-            });
+        const coachAppointmentsPromise = adminDb.collection('coachCalendar').where('clientId', '==', userId).where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC)).get();
+        const clientCalendarEventsPromise = adminDb.collection('clientCalendar').where('userId', '==', userId).where('startTime', '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where('startTime', '<=', Timestamp.fromDate(firestoreQueryEndUTC)).get();
+        const liveEventsPromise = adminDb.collection('clientCalendar').where('userId', '==', userId).where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC)).where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC)).get();
 
-        const clientCalendarEventsPromise = adminDb.collection('clientCalendar')
-            .where('userId', '==', userId)
-            .where('startTime', '>=', Timestamp.fromDate(firestoreQueryStartUTC))
-            .where('startTime', '<=', Timestamp.fromDate(firestoreQueryEndUTC))
-            .get().then(snapshot =>
-                snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { ...data, id: doc.id, pillar: data.type || 'live-event', entryDate: data.startTime };
-                })
-            ).catch(err => {
-                console.error(`Failed to fetch client calendar events:`, err);
-                return [];
-            });
-            const liveEventsPromise = adminDb.collection('clientCalendar')
-            .where('userId', '==', userId)
-            .where('start', '>=', Timestamp.fromDate(firestoreQueryStartUTC))
-            .where('start', '<=', Timestamp.fromDate(firestoreQueryEndUTC))
-            .get().then(snapshot =>
-                snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return { ...data, id: doc.id, pillar: data.type || 'live-event', entryDate: data.start };
-                })
-            ).catch(err => {
-                console.error(`Failed to fetch live events from client calendar:`, err);
-                return [];
-            });
-
-            const [summarySnap, personalLogsNested, coachAppointments, clientCalendarEvents, liveEvents] = await Promise.all([
-                summaryPromise,
-                Promise.all(personalLogPromises),
-                coachAppointmentsPromise,
-                clientCalendarEventsPromise,
-                liveEventsPromise
-            ]);            
+        const [summarySnap, personalLogsNested, coachAppointmentsSnap, clientCalendarEventsSnap, liveEventsSnap] = await Promise.all([
+            summaryPromise,
+            Promise.all(personalLogPromises),
+            coachAppointmentsPromise,
+            clientCalendarEventsPromise,
+            liveEventsPromise
+        ]);
+    
+        const coachAppointments = coachAppointmentsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id, pillar: 'appointment', entryDate: doc.data().start }));
+        const clientCalendarEvents = clientCalendarEventsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id, pillar: doc.data().type || 'live-event', entryDate: doc.data().startTime }));
+        const liveEvents = liveEventsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id, pillar: doc.data().type || 'live-event', entryDate: doc.data().start }));
 
         const allEntriesRaw = (personalLogsNested as any).flat().concat(coachAppointments as any).concat(clientCalendarEvents as any).concat(liveEvents as any).filter(Boolean);
 
@@ -164,14 +238,9 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
 
             if (entry.pillar === 'sleep') {
                 const wakeUpDay = getJSDate(entry.wakeUpDay);
-                if (wakeUpDay && wakeUpDay.getTime() >= filterRangeStartUTC.getTime() && wakeUpDay.getTime() <= filterRangeEndUTC.getTime()) {
-                    return true;
-                }
+                if (wakeUpDay && wakeUpDay.getTime() >= filterRangeStartUTC.getTime() && wakeUpDay.getTime() <= filterRangeEndUTC.getTime()) return true;
                 const entryDate = getJSDate(entry.entryDate);
-                if (entry.isNap && entryDate && isWithinInterval(entryDate, { start: filterRangeStartUTC, end: filterRangeEndUTC })) {
-                    return true;
-                }
-                return false;
+                return entry.isNap && entryDate && isWithinInterval(entryDate, { start: filterRangeStartUTC, end: filterRangeEndUTC });
             }
             if (entry.pillar === 'planner') {
                 const indulgenceDate = getJSDate(entry.indulgenceDate);
@@ -180,53 +249,28 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
             const entryDate = getJSDate(entry.entryDate || entry.start || entry.startTime);
             return entryDate && isWithinInterval(entryDate, { start: filterRangeStartUTC, end: filterRangeEndUTC });
         });
-
+        
         finalEntries.sort((a: any, b: any) => {
-            const getJSDate = (d: any) => d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
-            const dateA = getJSDate(a.indulgenceDate || a.entryDate || a.wakeUpDay || a.start || a.startTime);
-            const dateB = getJSDate(b.indulgenceDate || b.entryDate || b.wakeUpDay || b.start || b.startTime);
-            return dateA.getTime() - dateB.getTime();
+             const getJSDate = (d: any) => d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
+             const dateA = getJSDate(a.indulgenceDate || a.entryDate || a.wakeUpDay || a.start || a.startTime);
+             const dateB = getJSDate(b.indulgenceDate || b.entryDate || b.wakeUpDay || b.start || b.startTime);
+             return dateA.getTime() - dateB.getTime();
         });
 
         const displayEntries = finalEntries.map(entry => {
-            if (entry.title) { 
-                return entry;
-            }
-
+            if (entry.title) return entry;
             let newTitle = 'Logged Entry';
-
             switch (entry.pillar) {
-                case 'nutrition':
-                    newTitle = entry.mealType || entry.name || 'Nutrition Entry';
-                    break;
-                case 'activity':
-                    newTitle = entry.name || 'Activity';
-                    break;
-                case 'sleep':
-                    newTitle = entry.isNap ? 'Nap' : 'Sleep';
-                    break;
-                case 'hydration':
-                    newTitle = `Hydration: ${entry.amount}${entry.unit || 'oz'}`;
-                    break;
-                case 'stress':
-                    newTitle = 'Stress Log';
-                    break;
-                case 'measurements':
-                    newTitle = 'Measurement';
-                    break;
-                case 'planner':
-                    newTitle = entry.name || 'Planned Indulgence';
-                    break;
-                case 'cravings':
-                    newTitle = 'Craving/Binge Log';
-                    break;
-                default:
-                    if (entry.name) {
-                        newTitle = entry.name;
-                    }
-                    break;
+                case 'nutrition': newTitle = entry.mealType || entry.name || 'Nutrition Entry'; break;
+                case 'activity': newTitle = entry.name || 'Activity'; break;
+                case 'sleep': newTitle = entry.isNap ? 'Nap' : 'Sleep'; break;
+                case 'hydration': newTitle = `Hydration: ${entry.amount}${entry.unit || 'oz'}`; break;
+                case 'stress': newTitle = 'Stress Log'; break;
+                case 'measurements': newTitle = 'Measurement'; break;
+                case 'planner': newTitle = entry.name || 'Planned Indulgence'; break;
+                case 'cravings': newTitle = 'Craving/Binge Log'; break;
+                default: if (entry.name) newTitle = entry.name; break;
             }
-            
             return { ...entry, title: newTitle };
         });
 
@@ -237,7 +281,7 @@ export async function getCalendarDataForDay(userId: string, date: string, userTi
 
     } catch (e: any) {
         console.error("CRITICAL ERROR in getCalendarDataForDay: ", e);
-        return { success: false, data: [], summary: {}, error: e.message || "An unknown server error occurred." };
+        return { success: false, data: [], error: e.message || "An unknown server error occurred." };
     }
 }
 

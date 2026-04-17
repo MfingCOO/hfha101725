@@ -2,10 +2,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, ThumbsUp, MessageSquare } from 'lucide-react';
 import { format, addMinutes, addHours, differenceInMinutes, addDays } from 'date-fns';
 import { pillarDetails } from '@/lib/pillars';
-import type { ClientProfile } from '@/types';
+import type { ClientProfile, LogEntry } from '@/types';
 import { cn } from '@/lib/utils';
 import { DataEntryDialog } from '../dashboard/data-entry-dialog';
 import { deleteData } from '@/services/firestore';
@@ -13,13 +13,16 @@ import { useToast } from '@/hooks/use-toast';
 import { pillarsAndTools } from '@/lib/pillars';
 import { AppointmentDetailDialog } from './AppointmentDetailDialog';
 import { LiveEventDetailDialog } from './LiveEventDetailDialog';
-import { triggerSummaryRecalculation } from '@/app/calendar/actions';
+import { triggerSummaryRecalculation, addCoachFeedbackToAction } from '@/app/calendar/actions';
 import { WorkoutActionDialog } from './WorkoutActionDialog';
 import { EditWorkoutDialog } from './EditWorkoutDialog';
 import { getWorkoutByIdAction } from '@/app/workouts/actions';
 import { ActiveWorkoutDialog } from '../client/ActiveWorkoutDialog';
 import { FullWorkoutHistoryDialog } from '../client/FullWorkoutHistoryDialog';
 import type { Workout, Exercise } from '@/types/workout-program';
+import { useAuth } from '../auth/auth-provider';
+import { Textarea } from '../ui/textarea';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 
 const pillarColors: Record<string, string> = {
     nutrition: 'bg-amber-500 border-amber-700',
@@ -48,7 +51,7 @@ interface PositionedEntry {
     height: number;
     left: number;
     width: number;
-    originalData: any;
+    originalData: LogEntry;
 }
 
 const safeParseDate = (dateSource: any): Date | null => {
@@ -59,8 +62,8 @@ const safeParseDate = (dateSource: any): Date | null => {
     return isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezone: string): PositionedEntry[] => {
-    if (!entries || entries.length === 0 || !userTimezone) return [];
+const processEntriesForLayout = (entries: LogEntry[], selectedDate: Date): PositionedEntry[] => {
+    if (!entries || entries.length === 0) return [];
     
     const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0, 0);
     const totalMinutesInDay = 24 * 60;
@@ -98,14 +101,13 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
         if (!start || !end) return null;
         
         return {
-            ...entry,
             id: entry.id,
             startMinutes: Math.max(0, differenceInMinutes(start, dayStart)),
             endMinutes: Math.min(totalMinutesInDay, differenceInMinutes(end, dayStart)),
             originalData: entry,
         };
     })
-    .filter((e): e is { id: string; startMinutes: number; endMinutes: number; originalData: any; } => e !== null && e.endMinutes > e.startMinutes)
+    .filter((e): e is { id: string; startMinutes: number; endMinutes: number; originalData: LogEntry; } => e !== null && e.endMinutes > e.startMinutes)
     .sort((a, b) => a!.startMinutes - b!.startMinutes || b!.endMinutes - a!.endMinutes);
 
     const positionedEntries: PositionedEntry[] = [];
@@ -163,62 +165,152 @@ const processEntriesForLayout = (entries: any[], selectedDate: Date, userTimezon
     return positionedEntries;
 };
 
-const TimelineEntry = ({ entry, onSelect, isHighlighted }: { entry: PositionedEntry, onSelect: (entry: any) => void, isHighlighted: boolean }) => {
-const original = entry.originalData;
-let pillarKey;
-if (original.type === 'workout') {
-  if (original.isCompleted === false) {
-    pillarKey = 'scheduled-workout'; 
-  } else {
-    pillarKey = 'workout';
-  }
-} else {
-  pillarKey = original.pillar || 'default';
-}
+const getInitials = (name: string) => {
+    if (!name) return '';
+    return name.split(' ').map(n => n[0]).join('');
+};
 
-let displayName = original.title || original.name;
+const TimelineEntry = ({ entry, onSelect, isHighlighted, client, onEntryChange }: { entry: PositionedEntry, onSelect: (entry: any) => void, isHighlighted: boolean, client: ClientProfile, onEntryChange: () => void }) => {
+    const { user, isCoach } = useAuth();
+    const { toast } = useToast();
+    const [noteText, setNoteText] = useState(entry.originalData.coachNote?.text || '');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isNotePopoverOpen, setIsNotePopoverOpen] = useState(false);
+    
+    // Create local state for feedback to provide immediate UI updates
+    const [localLike, setLocalLike] = useState(!!entry.originalData.coachLike);
+    const [localNote, setLocalNote] = useState(entry.originalData.coachNote);
 
-if (original.type === 'relief' && original.pillar === 'stress') {
-    pillarKey = 'relief';
-    displayName = 'Stress Relief';
-} else if (original.type === 'craving') {
-    pillarKey = 'craving';
-    displayName = 'Craving Log';
-} else if (original.type === 'binge') {
-    pillarKey = 'binge';
-    displayName = 'Binge Log';
-} else if (original.pillar === 'stress') { 
-    displayName = 'Stress Log';
-}
+    const original = entry.originalData;
+    let pillarKey;
+    if (original.type === 'workout') {
+      pillarKey = original.isCompleted === false ? 'scheduled-workout' : 'workout';
+    } else {
+      pillarKey = original.pillar || 'default';
+    }
 
-const details = pillarDetails[pillarKey] || pillarDetails.default;
-const Icon = details.icon;
-const colorClass = pillarColors[pillarKey] || pillarColors.default;
+    let displayName = original.title || original.name;
+    if (original.type === 'relief' && original.pillar === 'stress') { pillarKey = 'relief'; displayName = 'Stress Relief'; } 
+    else if (original.type === 'craving') { pillarKey = 'craving'; displayName = 'Craving Log'; } 
+    else if (original.type === 'binge') { pillarKey = 'binge'; displayName = 'Binge Log'; } 
+    else if (original.pillar === 'stress') { displayName = 'Stress Log'; }
 
-if (!displayName) {
-    displayName = details.getTitle(original);
-}
+    const details = pillarDetails[pillarKey] || pillarDetails.default;
+    const Icon = details.icon;
+    const colorClass = pillarColors[pillarKey] || pillarColors.default;
+
+    if (!displayName) {
+        displayName = details.getTitle(original);
+    }
+    
+    const hasUserNote = original.notes && original.notes.trim() !== '';
+
+    const handleFeedback = async (type: 'like' | 'note') => {
+        if (!user || !isCoach) return;
+        setIsSubmitting(true);
+        
+        // Optimistic UI update
+        if (type === 'like') {
+            setLocalLike(!localLike);
+        }
+        if (type === 'note') {
+            const newNote = { 
+                text: noteText, 
+                coachName: user.displayName || 'Coach', 
+                coachId: user.uid, 
+                timestamp: new Date().toISOString() 
+            };
+            setLocalNote(newNote);
+        }
+
+        try {
+            const result = await addCoachFeedbackToAction({
+                entryId: original.id,
+                clientId: client.uid,
+                coachId: user.uid,
+                feedbackType: type,
+                noteText: type === 'note' ? noteText : undefined,
+                pillar: original.pillar,
+            });
+            if (result.success) {
+                toast({ title: 'Feedback Sent!' });
+                setIsNotePopoverOpen(false);
+                // No full re-fetch, just let the optimistic update stand
+            } else {
+                // Revert on failure
+                if (type === 'like') setLocalLike(!!original.coachLike); 
+                if (type === 'note') setLocalNote(original.coachNote);
+                throw new Error(result.error);
+            }
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Error', description: error.message });
+             // Revert on failure
+             if (type === 'like') setLocalLike(!!original.coachLike);
+             if (type === 'note') setLocalNote(original.coachNote);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     return (
         <div 
             id={`timeline-entry-${entry.id}`}
-            style={{ 
-                top: `${entry.top}%`, 
-                height: `${entry.height}%`,
-                left: `${entry.left}%`,
-                width: `${entry.width}%`,
-                padding: '1px',
-            }} 
-            className={cn(
-                "absolute rounded-lg overflow-hidden cursor-pointer transition-all duration-300", 
-                colorClass,
-                isHighlighted && 'ring-2 ring-offset-2 ring-offset-background ring-white'
-            )}
-            onClick={() => onSelect(entry.originalData)}
+            style={{ top: `${entry.top}%`, height: `${entry.height}%`, left: `${entry.left}%`, width: `${entry.width}%`, padding: '1px' }} 
+            className="absolute"
         >
-             <div className="relative flex items-center gap-1 p-1 text-white h-full bg-black/20 rounded-md">
-                <Icon className="h-4 w-4 flex-shrink-0" />
-                <span className="text-[10px] font-medium truncate">{displayName}</span>
+             <div className={cn("relative flex flex-col gap-1 p-1 text-white h-full bg-black/20 rounded-md overflow-hidden", colorClass, isHighlighted && 'ring-2 ring-offset-2 ring-offset-background ring-white')}>
+                <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1 cursor-pointer flex-1 min-w-0" onClick={() => onSelect(entry.originalData)}>
+                        <Icon className="h-4 w-4 flex-shrink-0" />
+                        <span className="text-[10px] font-medium truncate">{displayName}</span>
+                    </div>
+                     <div className="flex items-center gap-1 flex-shrink-0">
+                        {isCoach && (
+                            <>
+                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleFeedback('like')} disabled={isSubmitting}>
+                                    <ThumbsUp className={cn("h-3 w-3", localLike && "text-black")} />
+                                </Button>
+                                <Popover open={isNotePopoverOpen} onOpenChange={setIsNotePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="h-5 w-5">
+                                            <MessageSquare className={cn("h-3 w-3", !!localNote && "text-black")} />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-48 p-2">
+                                        <div className="space-y-2">
+                                            <Textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add a note..." className="text-xs h-20" />
+                                            <Button size="xs" className="w-full" onClick={() => handleFeedback('note')} disabled={isSubmitting}>
+                                                {isSubmitting ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save Note'}
+                                            </Button>
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
+                            </>
+                        )}
+                        {!isCoach && (
+                            <>
+                                {localLike && <ThumbsUp className="h-3 w-3 text-black" />}
+                                {localNote && (
+                                     <Popover>
+                                        <PopoverTrigger>
+                                            <MessageSquare className="h-3 w-3 text-black" />
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-48 p-2 text-xs">
+                                            <p className="font-bold">{localNote.coachName} says:</p>
+                                            <p className="italic">{localNote.text}</p>
+                                        </PopoverContent>
+                                    </Popover>
+                                )}
+                            </>
+                        )}
+                     </div>
+                </div>
+
+                {hasUserNote && !isCoach && (
+                    <div className="text-[10px] bg-black/10 p-1 rounded-sm italic truncate">
+                        &quot;{original.notes}&quot;
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -237,6 +329,7 @@ interface DayViewProps {
 
 export function DayView({ client, selectedDate, entries, isLoading, onDateChange, onEntryChange, highlightedEntryId }: DayViewProps) {
     const { toast } = useToast();
+    const { isCoach } = useAuth(); // CORRECTED: Moved hook to top level
     const [selectedEntry, setSelectedEntry] = useState<any | null>(null);
     const [activePillar, setActivePillar] = useState<any | null>(null);
     const [selectedAppointment, setSelectedAppointment] = useState<any | null>(null);
@@ -257,9 +350,8 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     }, []);
 
     const processedEntries = useMemo(() => {
-        if (!userTimezone) return [];
-        return processEntriesForLayout(entries, selectedDate, userTimezone);
-    }, [entries, selectedDate, userTimezone]);
+        return processEntriesForLayout(entries, selectedDate);
+    }, [entries, selectedDate]);
 
     useEffect(() => {
         if (isLoading || isInitialScrollDone || !viewportRef.current) return;
@@ -304,8 +396,16 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
     }, [isLoading, client, highlightedEntryId, processedEntries, isInitialScrollDone, entries]);
     
     const handleSelectEntry = (entryData: any) => {
-        const isWorkout = (entryData.pillar === 'activity' && entryData.type === 'workout') || (entryData.type === 'workout');
+        if (isCoach) {
+            const pillarConfig = pillarsAndTools.find(p => p.id === entryData.pillar);
+            if (pillarConfig) {
+                setActivePillar(pillarConfig);
+                setSelectedEntry(entryData);
+                return;
+            }
+        }
         
+        const isWorkout = (entryData.pillar === 'activity' && entryData.type === 'workout') || (entryData.type === 'workout');
         if (isWorkout) {
             setEventToAction(entryData);
             setIsActionDialogOpen(true);
@@ -326,13 +426,13 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
             setActivePillar(pillarConfig);
             setSelectedEntry(entryData);
         } else {
-                 toast({
-                    variant: 'destructive',
-                    title: 'Error',
-                    description: 'Could not identify the type of this entry.',
-                });
-            }
-        };
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Could not identify the type of this entry.',
+            });
+        }
+    };
         
     const handleDialogClose = (wasSaved: boolean) => {
         setSelectedEntry(null);
@@ -368,10 +468,8 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
 
     const handleStartWorkout = async (event: any) => {
         if (!event || !event.relatedId) return;
-
         setIsActionDialogOpen(false);
         setIsPreparingWorkout(true);
-
         try {
             const workoutResult = await getWorkoutByIdAction(event.relatedId);
             if (workoutResult.success === false) { 
@@ -442,6 +540,8 @@ export function DayView({ client, selectedDate, entries, isLoading, onDateChange
                                  entry={entry} 
                                  onSelect={handleSelectEntry} 
                                  isHighlighted={entry.id === highlightedEntryId}
+                                 client={client}
+                                 onEntryChange={onEntryChange}
                                 />
                            ))}
                         </div>
