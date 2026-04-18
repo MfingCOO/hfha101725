@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import {
     Form,
     FormControl,
+    FormDescription,
     FormField,
     FormItem,
     FormLabel,
@@ -29,21 +30,29 @@ import { Purchases } from '@revenuecat/purchases-capacitor';
 import { unifiedSignupAction, signupOrUpgradeClientAction } from '@/app/coach/clients/actions';
 import { CreateClientInput } from '@/types';
 
-const onboardingSchema = z.object({
+const step1Schema = z.object({
     email: z.string().email("Please enter a valid email."),
     password: z.string().min(8, "Password must be at least 8 characters"),
     fullName: z.string().min(2, "Please enter your full name."),
+});
+
+const step2Schema = z.object({
     birthdate: z.string().min(1, "Birthdate is required."),
     sex: z.enum(['male', 'female', 'unspecified']),
-    height: z.coerce.number().positive("Height must be positive"),
-    weight: z.coerce.number().positive("Weight must be positive"),
+    height: z.coerce.number().min(10, "Please enter a valid height in inches.").positive("Height must be positive"),
+    weight: z.coerce.number().min(10, "Please enter a valid weight in pounds.").positive("Weight must be positive"),
     waist: z.coerce.number().positive("Waist must be positive"),
     zipCode: z.string().regex(/^\d{5}$/, "Invalid Zip Code (5 digits)"),
+});
+
+const step3Schema = z.object({
     activityLevel: z.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']),
     wakeTime: z.string().min(1, "Wake time is required"),
     sleepTime: z.string().min(1, "Sleep time is required"),
     disclaimer: z.boolean().refine(val => val === true, { message: "You must accept the disclaimer to continue." }),
 });
+
+const onboardingSchema = step1Schema.merge(step2Schema).merge(step3Schema);
 
 export type OnboardingValues = z.infer<typeof onboardingSchema>;
 type TierKey = 'free' | 'premium' | 'basic_tier' | 'ad_free_tier';
@@ -184,6 +193,9 @@ export function OnboardingForm() {
 
                         {step === 2 && (
                             <div className="space-y-4 animate-in fade-in">
+                                <FormDescription className="text-center">
+                                    Your privacy is important. This data helps us personalize your goals and is never shared.
+                                </FormDescription>
                                 <FormField control={form.control} name="birthdate" render={({ field }) => (
                                     <FormItem><FormLabel>Date of Birth</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                                 )} />
@@ -199,15 +211,15 @@ export function OnboardingForm() {
                                         </FormControl>
                                     </FormItem>
                                 )} />
-                                <div className="grid grid-cols-3 gap-2">
+                                 <div className="grid grid-cols-1 gap-4">
                                     <FormField control={form.control} name="height" render={({ field }) => (
-                                        <FormItem><FormLabel>Height</FormLabel><AppNumberInput {...field} /></FormItem>
+                                        <FormItem><FormLabel>Height (in)</FormLabel><AppNumberInput {...field} /><FormDescription className="text-xs">If you don&apos;t know, your best guess is fine!</FormDescription></FormItem>
                                     )} />
                                     <FormField control={form.control} name="weight" render={({ field }) => (
-                                        <FormItem><FormLabel>Weight</FormLabel><AppNumberInput {...field} /></FormItem>
+                                        <FormItem><FormLabel>Weight (lbs)</FormLabel><AppNumberInput {...field} /><FormDescription className="text-xs">If you don&apos;t know, your best guess is fine!</FormDescription></FormItem>
                                     )} />
                                     <FormField control={form.control} name="waist" render={({ field }) => (
-                                        <FormItem><FormLabel>Waist</FormLabel><AppNumberInput {...field} /></FormItem>
+                                        <FormItem><FormLabel>Waist (in)</FormLabel><AppNumberInput {...field} /><FormDescription className="text-xs">Measure at the belly button. Best guess is okay!</FormDescription></FormItem>
                                     )} />
                                 </div>
                                 <FormField control={form.control} name="zipCode" render={({ field }) => (

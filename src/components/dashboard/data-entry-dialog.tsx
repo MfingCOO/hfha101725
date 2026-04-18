@@ -644,6 +644,11 @@ export function DataEntryDialog({
                         <DateTimePicker date={entryDate} setDate={setEntryDate} showTime={pillarUsesTime} />
                     </div>
                 )}
+                 {pillar.id === 'nutrition' && (
+                    <p className="text-center text-yellow-400 text-xs py-2">
+                        After You Hit Save Entry Your Meal Will Be On Your Calendar for Viewing/Editing
+                    </p>
+                )}
                 {isLoadingContent ? (
                     <div className="flex-1 flex items-center justify-center h-64">
                         <Loader2 className="w-8 h-8 animate-spin" />
