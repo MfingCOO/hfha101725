@@ -357,7 +357,8 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
       className="h-[90dvh] w-[95vw] sm:max-w-4xl flex flex-col"
       footer={
         currentMealItems.length > 0 ? (
-            <div className="flex justify-end w-full">
+            <div className="flex justify-between items-center w-full">
+                <p className="text-xs text-muted-foreground">Once you hit &quot;Add Item(s) to Log&quot; your meal will appear on your calendar to view/edit.</p>
                 <Button onClick={handleAddMealAndClose}>
                     Add {currentMealItems.length} Item(s) to Log
                 </Button>
@@ -366,25 +367,27 @@ export function NutritionModal({ isOpen, onClose, onAddItems, userId }: Nutritio
       }
     >
       <div 
-        className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-0"
+        className="flex flex-col gap-4 flex-1 min-h-0"
         style={{ paddingBottom: `${adBannerHeight}px` }}
       >
-        <div className="flex flex-col space-y-4 min-h-0 relative">
+        {currentMealItems.length > 0 && (
+            <div className="flex-shrink-0 bg-background/50 rounded-lg p-4">
+               <CurrentMealView 
+                items={currentMealItems}
+                onRemoveItem={handleRemoveItem}
+                onClearMeal={handleClearMeal}
+                userId={userId}
+               />
+            </div>
+        )}
+
+        <div className="flex flex-col space-y-4 min-h-0 flex-1 relative">
           {isAnalyzing && (
             <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-50 rounded-lg">
               <Loader2 className="h-12 w-12 animate-spin text-primary" />
             </div>
           )}
           {renderPrimaryView()}
-        </div>
-
-        <div className="flex flex-col min-h-0 bg-background/50 rounded-lg p-4">
-           <CurrentMealView 
-            items={currentMealItems}
-            onRemoveItem={handleRemoveItem}
-            onClearMeal={handleClearMeal}
-            userId={userId}
-           />
         </div>
       </div>
       <UpgradeModal 
