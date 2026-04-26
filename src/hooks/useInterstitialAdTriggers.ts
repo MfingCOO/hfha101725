@@ -9,7 +9,7 @@ import { useSearchStore } from '@/store/search-store';
 
 export const useInterstitialAdTriggers = () => {
   const { showInterstitialAd, prepareInterstitialAd } = useAdMob();
-  const adId = 'ca-app-pub-3940256099942544/1033173712'; // Test ID
+  const adId = process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID!; 
   
   // Ref to store the listener handle to ensure it persists across renders
   // and is available for the cleanup function.

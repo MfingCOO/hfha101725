@@ -164,7 +164,7 @@ export function CalendarDialog({ isOpen, onClose, client: initialClient, initial
 
   useEffect(() => {
     if (isOpen && process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
-        prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: process.env.NODE_ENV !== 'production' });
+        prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
     }
 }, [isOpen, prepareInterstitialAd]);
 
