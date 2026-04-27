@@ -256,12 +256,21 @@ export function DataEntryDialog({
         }
     }, []);    
 
+    // Prepare ad when dialog opens
     useEffect(() => {
-        if (pillar?.id === 'nutrition' && process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID) {
-            prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID, isTesting: false });
+        if (open && pillar?.id) {
+            if (['nutrition', 'activity', 'sleep'].includes(pillar.id)) {
+                if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID) {
+                    prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID, isTesting: false });
+                }
+            } else if (pillar.id === 'hydration') {
+                if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
+                    prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
+                }
+            }
         }
-    }, [pillar?.id, prepareInterstitialAd]);
-
+    }, [open, pillar?.id, prepareInterstitialAd]);
+    
     useEffect(() => {
         if (!open || !pillar) return;
     
@@ -309,6 +318,7 @@ export function DataEntryDialog({
         const randomIndex = Math.floor(Math.random() * pillar.quotes.length);
         return pillar.quotes[randomIndex];
     }, [pillar]);
+
     const responseContent = {
         craving: {
           title: "Your Craving Logged – Let's Reflect on This",
@@ -326,27 +336,12 @@ export function DataEntryDialog({
       
     if (!pillar) return null;
     
-    const handlePillarAdTrigger = useCallback(async () => {
-        const pillarId = pillar?.id;
-        if (pillarId === 'activity' || pillarId === 'sleep') {
-            if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID) {
-                await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID, isTesting: false });
-                await showInterstitialAd();
-            }
-        } else if (pillarId === 'hydration') {
-            if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
-                await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
-                await showInterstitialAd();
-            }
-        }
-    }, [pillar?.id, prepareInterstitialAd, showInterstitialAd]);
-
     const handleClose = useCallback(async (wasSaved: boolean) => {
-        if (!wasSaved) {
-            await handlePillarAdTrigger();
+        if (!wasSaved && ['activity', 'sleep', 'hydration'].includes(pillar?.id)) {
+            await showInterstitialAd();
         }
         onOpenChange(wasSaved);
-    }, [onOpenChange, handlePillarAdTrigger]);
+    }, [pillar?.id, onOpenChange, showInterstitialAd]);
     
     const handleSave = async () => {
         setIsSaving(true);
@@ -524,26 +519,23 @@ export function DataEntryDialog({
                     await triggerSummaryRecalculation(currentUserId, format(entryDate, 'yyyy-MM-dd'), userTimezone, entryDate.getTimezoneOffset());
                 }
                 router.refresh();
-                const responseType = pillar.id === 'cravings'
 
+                if (['nutrition', 'activity', 'sleep', 'hydration'].includes(pillar.id)) {
+                    await showInterstitialAd();
+                }
+
+                const responseType = pillar.id === 'cravings'
                     ? formState.activeTab
                     : (pillar.id === 'stress' && formState.activeTab === 'event')
                     ? 'stress'
                     : null;
-
-                 if (pillar.id === 'nutrition') {
-                    await showInterstitialAd();
-                } else if (['activity', 'sleep', 'hydration'].includes(pillar.id)) {
-                    await handlePillarAdTrigger();
+                
+                if (responseType && responseContent[responseType]) {
+                    setActionableResponseContent(responseContent[responseType]);
+                    setIsActionableResponseOpen(true);
+                } else {
+                    onOpenChange(true);
                 }
-
-
-            if (responseType && responseContent[responseType]) {
-                setActionableResponseContent(responseContent[responseType]);
-                setIsActionableResponseOpen(true);
-            } else {
-                onOpenChange(true);
-            }
                               
                 if (pillar.id === 'measurements' && dataToSave.waist > 0 && currentUserId) {
                     await updateClientWthr(currentUserId, dataToSave.waist);
@@ -559,6 +551,7 @@ export function DataEntryDialog({
             setIsSaving(false);
         }
     };
+
     const handleSaveSettings = async () => {
         if (pillar.id !== 'hydration') return;
     

@@ -10,20 +10,13 @@ const InsightPopup: React.FC<InsightPopupProps> = ({ message, onClose }) => {
   const { prepareInterstitialAd, showInterstitialAd } = useAdMob();
 
   useEffect(() => {
-    const showAd = async () => {
-      if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
-        await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
-        await showInterstitialAd();
-      }
-    };
-    showAd();
-  }, [prepareInterstitialAd, showInterstitialAd]);
+    if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
+      prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
+    }
+  }, [prepareInterstitialAd]);
 
   const handleClose = async () => {
-    if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
-      await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
-      await showInterstitialAd();
-    }
+    await showInterstitialAd();
     onClose();
   };
   
