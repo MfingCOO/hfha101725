@@ -334,8 +334,8 @@ export function DataEntryDialog({
                 await showInterstitialAd();
             }
         } else if (pillarId === 'hydration') {
-            if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID) {
-                await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID, isTesting: false });
+            if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
+                await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
                 await showInterstitialAd();
             }
         }

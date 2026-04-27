@@ -11,8 +11,8 @@ const InsightPopup: React.FC<InsightPopupProps> = ({ message, onClose }) => {
 
   useEffect(() => {
     const showAd = async () => {
-      if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID) {
-        await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID, isTesting: false });
+      if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
+        await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
         await showInterstitialAd();
       }
     };
@@ -20,8 +20,8 @@ const InsightPopup: React.FC<InsightPopupProps> = ({ message, onClose }) => {
   }, [prepareInterstitialAd, showInterstitialAd]);
 
   const handleClose = async () => {
-    if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID) {
-      await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID, isTesting: false });
+    if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
+      await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
       await showInterstitialAd();
     }
     onClose();
