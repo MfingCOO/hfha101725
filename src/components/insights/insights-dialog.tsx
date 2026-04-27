@@ -17,6 +17,7 @@ import { WeightTrendChartDialog } from './weight-trend-chart';
 import { WthrTrendChartDialog } from './wthr-trend-chart';
 import { ScrollArea } from '../ui/scroll-area';
 import type { LucideIcon } from 'lucide-react';
+import { useAdMob } from '@/hooks/useAdMob';
 
 interface InsightsDialogProps {
   isOpen: boolean;
@@ -69,6 +70,7 @@ const DataCard = ({ icon: Icon, title, value, unit, context }: { icon: LucideIco
 export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
     const { toast } = useToast();
     const { user } = useAuth();
+    const { prepareInterstitialAd, showInterstitialAd } = useAdMob();
     
     const [summary, setSummary] = useState<AggregatedSummaryData | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -179,30 +181,40 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
     }, []);
 
     useEffect(() => {
-        if (isOpen && user) {
-            const fetchDataAndAggregate = async () => {
-                setIsLoading(true);
-                setSummary(null);
-                try {
-                    const result = await getAllDataForPeriod(insightPeriod, user.uid);
-                    if (result.success && result.data) {
-                        if(result.data.length === 0) {
-                             toast({ variant: 'default', title: 'Not Enough Data', description: `No data recorded in the last ${insightPeriod} days.` });
+        if (isOpen) {
+            if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID) {
+                prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CLOSE_CALENDAR_ID, isTesting: false });
+            }
+            if (user) {
+                const fetchDataAndAggregate = async () => {
+                    setIsLoading(true);
+                    setSummary(null);
+                    try {
+                        const result = await getAllDataForPeriod(insightPeriod, user.uid);
+                        if (result.success && result.data) {
+                            if(result.data.length === 0) {
+                                 toast({ variant: 'default', title: 'Not Enough Data', description: `No data recorded in the last ${insightPeriod} days.` });
+                            }
+                            const summaryData = aggregateLogs(result.data as ClientLog[]);
+                            setSummary(summaryData);
+                        } else {
+                            throw new Error(result.error || 'Failed to fetch data.');
                         }
-                        const summaryData = aggregateLogs(result.data as ClientLog[]);
-                        setSummary(summaryData);
-                    } else {
-                        throw new Error(result.error || 'Failed to fetch data.');
+                    } catch (error: any) {
+                        toast({ variant: 'destructive', title: 'Error', description: error.message });
+                    } finally {
+                        setIsLoading(false);
                     }
-                } catch (error: any) {
-                    toast({ variant: 'destructive', title: 'Error', description: error.message });
-                } finally {
-                    setIsLoading(false);
-                }
-            };
-            fetchDataAndAggregate();
+                };
+                fetchDataAndAggregate();
+            }
         }
-    }, [isOpen, user, insightPeriod, aggregateLogs, toast]);
+    }, [isOpen, user, insightPeriod, aggregateLogs, toast, prepareInterstitialAd]);
+
+    const handleClose = async () => {
+        await showInterstitialAd();
+        onClose();
+    };
 
     const metricCards = useMemo(() => {
         if (!summary) return [];
@@ -222,7 +234,7 @@ export function InsightsDialog({ isOpen, onClose }: InsightsDialogProps) {
 
     return (
         <>
-        <Dialog open={isOpen} onOpenChange={onClose}>
+        <Dialog open={isOpen} onOpenChange={handleClose}>
              <DialogContent className="w-[95vw] sm:max-w-sm p-0 grid grid-rows-[auto_auto_1fr_auto] max-h-[90dvh] bg-neutral-900 border-neutral-800">
                 <DialogHeader className="p-4 pt-5 text-center">
                     <DialogTitle className="text-lg font-bold tracking-tight text-white">Data Insights</DialogTitle>
