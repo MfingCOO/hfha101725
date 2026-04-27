@@ -302,7 +302,7 @@ export function OnboardingForm() {
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
                                         <li>• Everything From Ad-Free</li>
-                                            <li>• Full access to all App tracking tools</li>
+                                            <li>• Full access to all App tracking tools and Insights Tracking</li>
                                             <li>• Craving/Binge & Stress Tracking</li>
                                             <li>• Indulgence Planning & 75/20/20 Protocol</li>
                                             <li>• Historical progress charts & insights</li>
@@ -328,6 +328,7 @@ export function OnboardingForm() {
                                         </div>
                                         <ul className="text-[11px] space-y-1 text-muted-foreground">
                                             <li>• Basic Habit Tracking (Hydration, Nutrition, Activity)</li>
+                                            <li>• Limited Insights Tracking on Nutrion, Sleep, Hydration, and Activity</li>
                                             <li>• UPF Percentage and Gluten Free Rating of Food</li>
                                             <li>• Full Calendar Access</li>
                                             <li>• Supported by advertisements</li>

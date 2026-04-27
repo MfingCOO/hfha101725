@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useAdMob } from '@/hooks/useAdMob';
 
 interface InsightPopupProps {
   message: string;
@@ -6,7 +7,26 @@ interface InsightPopupProps {
 }
 
 const InsightPopup: React.FC<InsightPopupProps> = ({ message, onClose }) => {
-  // Prevents the popup from closing if the user clicks inside the content area.
+  const { prepareInterstitialAd, showInterstitialAd } = useAdMob();
+
+  useEffect(() => {
+    const showAd = async () => {
+      if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID) {
+        await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID, isTesting: false });
+        await showInterstitialAd();
+      }
+    };
+    showAd();
+  }, [prepareInterstitialAd, showInterstitialAd]);
+
+  const handleClose = async () => {
+    if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID) {
+      await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID, isTesting: false });
+      await showInterstitialAd();
+    }
+    onClose();
+  };
+  
   const handleContentClick = (e: React.MouseEvent) => {
     e.stopPropagation();
   };
@@ -25,7 +45,7 @@ const InsightPopup: React.FC<InsightPopupProps> = ({ message, onClose }) => {
         justifyContent: 'center',
         zIndex: 1000, // High z-index to ensure it's on top
       }}
-      onClick={onClose} // Close when clicking the overlay
+      onClick={handleClose} // Close when clicking the overlay
     >
       <div
         style={{
@@ -60,7 +80,7 @@ const InsightPopup: React.FC<InsightPopupProps> = ({ message, onClose }) => {
           {message}
         </div>
         <button
-          onClick={onClose}
+          onClick={handleClose}
           style={{
             marginTop: '24px',
             width: '100%',

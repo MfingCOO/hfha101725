@@ -66,7 +66,7 @@ const pillarsAndTools: Pillar[] = [
   { id: 'protocol', label: '75/20/20 Protocol', icon: UserCheck, color: 'text-foreground', bgColor: 'bg-teal-400', borderColor: 'border-teal-600', requiredTier: UserTier.Basic },
   { id: 'planner', label: 'Indulgence Planner', icon: Salad, color: 'text-foreground', bgColor: 'bg-lime-400', borderColor: 'border-lime-600', requiredTier: UserTier.Basic },
   { id: 'cravings', label: 'Cravings/Binges', icon: Apple, color: 'text-foreground', bgColor: 'bg-red-400', borderColor: 'border-red-600', requiredTier: UserTier.Basic },
-  { id: 'insights', label: 'Insights', icon: Lightbulb, color: 'text-foreground', bgColor: 'bg-yellow-400', borderColor: 'border-yellow-600', requiredTier: UserTier.Basic },
+  { id: 'insights', label: 'Insights', icon: Lightbulb, color: 'text-foreground', bgColor: 'bg-yellow-400', borderColor: 'border-yellow-600', requiredTier: UserTier.Free },
   { id: 'measurements', label: 'Measurements', icon: Scale, color: 'text-foreground', bgColor: 'bg-gray-400', borderColor: 'border-gray-600', requiredTier: UserTier.Free },
 ];
 

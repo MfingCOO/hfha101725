@@ -326,6 +326,28 @@ export function DataEntryDialog({
       
     if (!pillar) return null;
     
+    const handlePillarAdTrigger = useCallback(async () => {
+        const pillarId = pillar?.id;
+        if (pillarId === 'activity' || pillarId === 'sleep') {
+            if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID) {
+                await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_ADD_MEAL_ID, isTesting: false });
+                await showInterstitialAd();
+            }
+        } else if (pillarId === 'hydration') {
+            if (process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID) {
+                await prepareInterstitialAd({ adId: process.env.NEXT_PUBLIC_ADMOB_INTERSTITIAL_CALENDAR_ID, isTesting: false });
+                await showInterstitialAd();
+            }
+        }
+    }, [pillar?.id, prepareInterstitialAd, showInterstitialAd]);
+
+    const handleClose = useCallback(async (wasSaved: boolean) => {
+        if (!wasSaved) {
+            await handlePillarAdTrigger();
+        }
+        onOpenChange(wasSaved);
+    }, [onOpenChange, handlePillarAdTrigger]);
+    
     const handleSave = async () => {
         setIsSaving(true);
         if (!currentUserId) {
@@ -511,7 +533,10 @@ export function DataEntryDialog({
 
                  if (pillar.id === 'nutrition') {
                     await showInterstitialAd();
+                } else if (['activity', 'sleep', 'hydration'].includes(pillar.id)) {
+                    await handlePillarAdTrigger();
                 }
+
 
             if (responseType && responseContent[responseType]) {
                 setActionableResponseContent(responseContent[responseType]);
@@ -610,7 +635,7 @@ export function DataEntryDialog({
             <Button onClick={onDelete} variant="destructive" size="sm" className="flex-shrink-0"><Trash2 className="w-4 h-4 mr-2" />Delete</Button>
         )}
         <div className="flex-1" />
-        <Button onClick={() => onOpenChange(false)} variant="outline" size="sm" className="flex-shrink-0">Dismiss</Button>
+        <Button onClick={() => handleClose(false)} variant="outline" size="sm" className="flex-shrink-0">Dismiss</Button>
         
 
         <Button onClick={handleSave} size="sm" className="flex-shrink-0 text-white bg-green-500 hover:bg-green-600" disabled={isSaving || isLoadingContent}>
@@ -625,7 +650,7 @@ export function DataEntryDialog({
         <>
         <BaseModal
             isOpen={open && !isActionableResponseOpen}
-            onClose={() => onOpenChange(false)}
+            onClose={() => handleClose(false)}
             title={dialogTitle}
             description={dialogDescription}
             footer={dialogFooter}
