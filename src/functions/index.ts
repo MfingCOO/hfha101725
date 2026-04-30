@@ -1,15 +1,17 @@
 'use strict';
 
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getMessaging, MulticastMessage } from 'firebase-admin/messaging';
 import { getFunctions } from 'firebase-admin/functions';
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { onRequest } from 'firebase-functions/v2/https';
-import { admin } from '@/lib/firebaseAdmin';
+import { initializeApp } from 'firebase-admin/app';
 
-const db = getFirestore(admin.app());
-const messaging = getMessaging(admin.app());
+// Standard initialization for Cloud Functions environment
+initializeApp();
+const db = getFirestore();
+const messaging = getMessaging();
 
 const debugLog = (msg: string, data?: any) => {
     console.log(`[DEBUG] ${msg}`, data ? JSON.stringify(data, null, 2) : '');
@@ -241,6 +243,7 @@ export const onAppointmentScheduled = onDocumentCreated("coachCalendar/{appointm
     }
 });
 
+// This function now exclusively handles scheduling for HYDRATION and other RECURRING reminders.
 export const onReminderScheduled = onDocumentCreated("user_scheduled_reminders/{reminderId}", async (event) => {
     if (!event.data) return;
     const reminder = event.data.data();
@@ -255,7 +258,36 @@ export const onReminderScheduled = onDocumentCreated("user_scheduled_reminders/{
     }
 });
 
-export const onWorkoutScheduled = onDocumentCreated("scheduledWorkouts/{workoutId}", async (event) => {
+// NEW: This function exclusively handles scheduling for CUSTOM POPUPS sent by coaches.
+export const onCustomPopupCreated = onDocumentCreated("clients/{userId}/notifications/{notificationId}", async (event) => {
+    if (!event.data) return;
+    const popup = event.data.data();
+    const userId = event.params.userId;
+    const notificationId = event.params.notificationId;
+
+    // IMPORTANT: Only act on documents that are 'custom-popup' and have a schedule.
+    if (popup.type !== 'custom-popup' || !popup.scheduledAt) {
+        return;
+    }
+
+    const scheduledAt = popup.scheduledAt.toDate ? popup.scheduledAt.toDate() : new Date(popup.scheduledAt);
+    
+    // Use the existing reminderTaskHandler to do the final sending.
+    const queue = getFunctions().taskQueue('reminderTaskHandler');
+    
+    // If the scheduled time is in the future, schedule the task. Otherwise, send it immediately.
+    if (scheduledAt > new Date()) {
+        await queue.enqueue({ 
+            userId, 
+            reminderId: notificationId, // Pass the ID of the document from this collection
+            isCustomPopup: true // Add a flag to ensure the handler knows what this is
+        }, { scheduleTime: scheduledAt });
+    } else {
+        await queue.enqueue({ userId, reminderId: notificationId, isCustomPopup: true });
+    }
+});
+
+export const onWorkoutScheduled = onDocumentCreated("workouts/{workoutId}", async (event) => {
     if (!event.data) return;
     const workout = event.data.data();
     const workoutId = event.params.workoutId;
@@ -284,15 +316,47 @@ export const onIndulgencePlanCreated = onDocumentCreated("indulgencePlans/{planI
     const planId = event.params.planId;
     const userId = plan.userId;
 
-    await sendPushNotification(userId, 'Indulgence Plan Ready', plan.message || 'Your indulgence plan is ready', `/client/dashboard?notificationType=indulgence_plan&entityId=${planId}`, 'indulgence_plan', planId);
+    const queue = getFunctions().taskQueue('indulgenceReminderHandler');
+    const indulgenceTime = (plan.startTime as Timestamp).toDate();
+
+    const now = new Date();
+
+    // 1. Pep talk reminder (-10 hours)
+    const tenHoursBefore = new Date(indulgenceTime.getTime() - (10 * 3600 * 1000));
+    if (tenHoursBefore > now) {
+        await queue.enqueue(
+            { userId, planId, type: 'pre_indulgence_pep_talk', message: "You've got this! Stick to your plan and enjoy your treat guilt-free." },
+            { scheduleTime: tenHoursBefore }
+        );
+    }
+
+    // 2. Enjoyment reminder (-2 hours)
+    const twoHoursBefore = new Date(indulgenceTime.getTime() - (2 * 3600 * 1000));
+    if (twoHoursBefore > now) {
+        await queue.enqueue(
+            { userId, planId, type: 'pre_indulgence_enjoy', message: "It's almost time! Savor and enjoy your indulgence." },
+            { scheduleTime: twoHoursBefore }
+        );
+    }
+
+    // 3. Recovery reminder (+12 hours)
+    const twelveHoursAfter = new Date(indulgenceTime.getTime() + (12 * 3600 * 1000));
+    if (twelveHoursAfter > now) {
+        await queue.enqueue(
+            { userId, planId, type: 'post_indulgence_recovery', message: "Hope you enjoyed it! Now let's get back on track with your recovery plan." },
+            { scheduleTime: twelveHoursAfter }
+        );
+    }
 });
 
-export const onChallengeEnrollmentCreated = onDocumentCreated("challenges/{challengeId}/enrollments/{enrollmentId}", async (event) => {
+export const onChallengeEnrollmentCreated = onDocumentCreated("clientChallenges/{enrollmentId}", async (event) => {
     if (!event.data) return;
-    const userId = event.data.data().userId;
-    const challengeId = event.params.challengeId;
+    const enrollment = event.data.data();
+    const userId = enrollment.userId;
+    const challengeId = enrollment.challengeId;
     await sendPushNotification(userId, 'Challenge Enrolled', 'You joined a new challenge!', `/client/dashboard?notificationType=challenge_enrolled&entityId=${challengeId}`, 'challenge_enrolled', challengeId);
 });
+
 
 export const onStreakAchieved = onDocumentUpdated("clients/{userId}", async (event) => {
     if (!event.data) return;
@@ -308,21 +372,27 @@ export const onStreakAchieved = onDocumentUpdated("clients/{userId}", async (eve
 // ============================================================================
 
 export const reminderTaskHandler = onTaskDispatched<any>({}, async (req) => {
-    const { userId, reminderId } = req.data;
-    const doc = await db.collection('user_scheduled_reminders').doc(reminderId).get();
+    const { userId, reminderId, isCustomPopup } = req.data; // Destructure the new flag
+
+    // Determine which collection to read from based on the flag
+    const collectionPath = isCustomPopup ? `clients/${userId}/notifications` : 'user_scheduled_reminders';
+    const doc = await db.collection(collectionPath).doc(reminderId).get();
+    
     if (!doc.exists) return;
     const reminder = doc.data()!;
 
-    const ctaUrl = `/client/dashboard?openHydration=true&notificationType=${reminder.type}&entityId=${reminderId}`;
+    const ctaUrl = `/client/dashboard?notificationType=${reminder.type}&entityId=${reminderId}`;
     await sendPushNotification(userId, reminder.title, reminder.message, ctaUrl, reminder.type, reminderId, reminder.imageUrl);
 
-    if (reminder.isRecurring) {
+    // This logic should only run for recurring hydration reminders, not for one-off popups
+    if (reminder.isRecurring && !isCustomPopup) {
         const nextTime = new Date(reminder.scheduledAt.toDate().getTime() + 24 * 60 * 60 * 1000);
         await doc.ref.update({ scheduledAt: nextTime, status: 'scheduled' });
         const queue = getFunctions().taskQueue('reminderTaskHandler');
         await queue.enqueue({ userId, reminderId }, { scheduleTime: nextTime });
     } else {
-        await doc.ref.update({ status: 'completed' });
+        // Mark as completed if it's not a recurring hydration reminder
+        await doc.ref.update({ status: 'completed', seen: true });
     }
 });
 

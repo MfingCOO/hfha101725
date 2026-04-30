@@ -176,13 +176,13 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   useEffect(() => {
     if (notificationAppointmentId && user) {
       setIsAppointmentDetailOpen(true);
+      setIsCalendarOpen(true)
     }
     if (notificationWorkoutId) {
       setIsWorkoutActionOpen(true);
     }
     if (triggerHydrationModal) {
       openModal('hydration');
-      setTriggerHydrationModal(false);
     }
   }, [notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal, user]);
 
