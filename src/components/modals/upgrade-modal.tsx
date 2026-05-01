@@ -134,7 +134,7 @@ export function UpgradeModal({ isOpen, onClose, requiredTier, featureName, reaso
                         <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('ad_free_tier', billingCycle)}>
                             <div className="flex justify-between items-center mb-2">
                                 <h4 className="font-bold text-lg">Ad-Free</h4>
-                                <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$2.49' : '$24.99'}</span>
+                                <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$2.99' : '$29.99'}</span>
                             </div>
                             <ul className="text-[11px] space-y-1 text-muted-foreground">
                             <li>• Everything in Free</li>

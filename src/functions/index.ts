@@ -381,8 +381,10 @@ export const reminderTaskHandler = onTaskDispatched<any>({}, async (req) => {
     if (!doc.exists) return;
     const reminder = doc.data()!;
 
-    const ctaUrl = `/client/dashboard?notificationType=${reminder.type}&entityId=${reminderId}`;
-    await sendPushNotification(userId, reminder.title, reminder.message, ctaUrl, reminder.type, reminderId, reminder.imageUrl);
+    // For custom popups, prioritize the specific URL provided by the coach
+    const finalCtaUrl = reminder.url || `/client/dashboard?notificationType=${reminder.type}&entityId=${reminderId}`;
+    await sendPushNotification(userId, reminder.title, reminder.message, finalCtaUrl, reminder.type, reminderId, reminder.imageUrl);
+
 
     // This logic should only run for recurring hydration reminders, not for one-off popups
     if (reminder.isRecurring && !isCustomPopup) {

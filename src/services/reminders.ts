@@ -28,6 +28,7 @@ export async function createUserNotification(userId: string, reminder: Omit<Remi
         const notificationRef = db.collection(`clients/${userId}/notifications`).doc();
         await notificationRef.set({
             ...reminder,
+            type: reminder.type, // Explicitly set the type to ensure it's not dropped
             createdAt: FieldValue.serverTimestamp(),
             seen: false,
         });
