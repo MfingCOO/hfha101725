@@ -24,24 +24,24 @@ export default function BottomNavBar() {
 
     const navItems: NavItem[] = [
         { href: "/client/dashboard", label: "Home", icon: Home },
-        {
-            href: "#",
-            label: "Calendar",
-            icon: Calendar,
-            onClick: onOpenCalendar
+        { 
+            href: "#", 
+            label: "Calendar", 
+            icon: Calendar, 
+            onClick: onOpenCalendar 
         },
-        {
-            href: "#",
-            label: "Chats",
-            icon: MessageSquare,
-            notificationCount: unreadChatCount,
-            onClick: () => openChatModal()
+        { 
+            href: "#", 
+            label: "Chats", 
+            icon: MessageSquare, 
+            notificationCount: unreadChatCount, 
+            onClick: () => openChatModal() 
         },
-        {
-            href: "#",
-            label: "Challenges",
-            icon: Trophy,
-            onClick: onOpenChallenges
+        { 
+            href: "#", 
+            label: "Challenges", 
+            icon: Trophy, 
+            onClick: onOpenChallenges 
         },
     ];
 
@@ -52,8 +52,8 @@ export default function BottomNavBar() {
     return (
         <footer 
             // CORRECTED: Reduced z-index to 40, which is below the dialog's default of 50.
-            className="fixed bottom-0 left-0 right-0 bg-background border-t z-40 md:hidden"
-            style={{ bottom: `${adBannerHeight}px` }}
+            className="fixed left-0 right-0 bg-background border-t z-40 md:hidden"
+            style={{ bottom: `calc(${adBannerHeight}px + env(safe-area-inset-bottom))` }}
         >
             <nav className="flex justify-around items-center h-16">
                 {navItems.map((item) => {
