@@ -1,20 +1,18 @@
 'use server';
 
 import { z } from 'zod';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { revalidatePath } from 'next/cache';
 import { db as adminDb } from '@/lib/firebaseAdmin';
-import { createUserNotification } from '@/services/reminders';
-import type { Reminder } from '@/services/reminders';
 
 const popupSchema = z.object({
     id: z.string().optional(),
     name: z.string().min(3, "Campaign name is required."),
     title: z.string().min(3, "Title is required."),
     message: z.string().min(10, "Message is required."),
-    imageUrl: z.string().optional(),
+    imageUrl: z.string().url().optional().or(z.literal('')),
     ctaText: z.string().min(2, "Button text is required."),
-    ctaUrl: z.string().url().optional().or(z.literal('')),
+    ctaUrl: z.string().url("Must be a valid URL").optional().or(z.literal('')),
     scheduledAt: z.date(),
     targetType: z.enum(['all', 'tier', 'user']),
     targetValue: z.string().optional(),
@@ -32,37 +30,29 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
             throw new Error(validation.error.errors.map(e => e.message).join(', '));
         }
 
-        const { name, targetType, targetValue, ctaText, ctaUrl, imageUrl, ...popupData } = validation.data;
-        const campaignId = data.id || adminDb.collection('temp').doc().id;
+        const { id, ...validatedData } = validation.data;
+        const now = FieldValue.serverTimestamp();
 
-        const targetUserIds = await getTargetUserIds(targetType, targetValue);
-        if (targetUserIds.length === 0) {
-            return { success: false, error: "No clients found for the selected target." };
+        let docRef;
+        if (id) {
+            docRef = adminDb.collection('popups').doc(id);
+            await docRef.update({
+                ...validatedData,
+                scheduledAt: Timestamp.fromDate(validatedData.scheduledAt),
+                updatedAt: now,
+            });
+        } else {
+            docRef = await adminDb.collection('popups').add({
+                ...validatedData,
+                scheduledAt: Timestamp.fromDate(validatedData.scheduledAt),
+                createdAt: now,
+                updatedAt: now,
+                status: 'scheduled', // Initial status
+            });
         }
 
-        const reminderData: Omit<Reminder, 'id'> = {
-            type: 'custom-popup',
-            title: popupData.title,
-            message: popupData.message,
-            pillarId: 'megaphone', // Assuming a pillar for popups
-            deliverAt: Timestamp.fromDate(popupData.scheduledAt),
-            entityId: campaignId,
-            url: ctaUrl || '',
-            isCoach: String(false),
-            data: {
-                imageUrl: imageUrl || '',
-                ctaText: ctaText,
-                campaignName: name,
-                targetType: targetType,
-                targetValue: targetValue || null,
-            }
-        };
-
-        const promises = targetUserIds.map(userId => createUserNotification(userId, reminderData));
-        await Promise.all(promises);
-
         revalidatePath('/coach/popups');
-        return { success: true, campaignId };
+        return { success: true, campaignId: docRef.id };
 
     } catch (error: any) {
         console.error("Error saving pop-up campaign:", error);
@@ -70,6 +60,9 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
     }
 }
 
+// This function is no longer needed as popups are now stored centrally and dispatched by a Cloud Function.
+// Keeping it commented out for now in case there's a need to revert parts or for reference.
+/*
 async function getTargetUserIds(targetType: string, targetValue?: string): Promise<string[]> {
     const usersRef = adminDb.collection('clients');
     let querySnapshot;
@@ -91,43 +84,32 @@ async function getTargetUserIds(targetType: string, targetValue?: string): Promi
 
     return querySnapshot.docs.map(doc => doc.id);
 }
+*/
 
 export async function getPopupsForCoach(): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
-        const clientsSnapshot = await adminDb.collection('clients').get();
-        const allPopups: any[] = [];
-        
-        const campaignMap = new Map<string, any>();
+        const popupsSnapshot = await adminDb.collection('popups').orderBy('createdAt', 'desc').get();
+        const popupsList = popupsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id,
+                name: data.name,
+                title: data.title,
+                message: data.message,
+                ctaText: data.ctaText,
+                ctaUrl: data.ctaUrl || '', // Ensure ctaUrl is retrieved
+                imageUrl: data.imageUrl || '',
+                // Safely convert Timestamps, providing a fallback for potentially missing fields
+                scheduledAt: data.scheduledAt?.toDate().toISOString() ?? new Date(0).toISOString(), // Fallback to epoch start if missing
+                createdAt: data.createdAt?.toDate().toISOString() ?? new Date(0).toISOString(),   // Fallback to epoch start if missing
+                updatedAt: data.updatedAt?.toDate().toISOString() ?? new Date(0).toISOString(),   // Fallback to epoch start if missing
+                targetType: data.targetType,
+                targetValue: data.targetValue || null,
+                status: data.status,
+            };
+        });
 
-        for (const clientDoc of clientsSnapshot.docs) {
-            const popupsSnapshot = await adminDb.collection(`clients/${clientDoc.id}/notifications`)
-                .where('type', '==', 'custom-popup')
-                .get();
-            
-            popupsSnapshot.forEach(doc => {
-                const data = doc.data();
-                const campaignId = data.entityId;
-                if (campaignId && !campaignMap.has(campaignId)) {
-                    campaignMap.set(campaignId, {
-                        id: campaignId,
-                        name: data.data?.campaignName,
-                        title: data.title,
-                        message: data.message,
-                        ctaText: data.data?.ctaText,
-                        ctaUrl: data.url,
-                        imageUrl: data.data?.imageUrl,
-                        scheduledAt: (data.deliverAt as Timestamp).toDate().toISOString(),
-                        createdAt: (data.createdAt as Timestamp).toDate().toISOString(),
-                    });
-                }
-            });
-        }
-        
-        const campaignList = Array.from(campaignMap.values());
-        campaignList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-
-        return { success: true, data: campaignList };
+        return { success: true, data: popupsList };
 
     } catch (error: any) {
         console.error("Error fetching pop-up campaigns for coach:", error);
@@ -139,19 +121,7 @@ export async function deletePopupAction(campaignId: string): Promise<{ success: 
     try {
         if (!campaignId) throw new Error("No campaign ID provided for deletion.");
 
-        const clientsSnapshot = await adminDb.collection('clients').get();
-        const batch = adminDb.batch();
-
-        for (const clientDoc of clientsSnapshot.docs) {
-            const popupsToDelete = await adminDb.collection(`clients/${clientDoc.id}/notifications`)
-                .where('entityId', '==', campaignId)
-                .where('type', '==', 'custom-popup')
-                .get();
-            
-            popupsToDelete.forEach(doc => batch.delete(doc.ref));
-        }
-
-        await batch.commit();
+        await adminDb.collection('popups').doc(campaignId).delete();
 
         revalidatePath('/coach/popups');
         return { success: true };

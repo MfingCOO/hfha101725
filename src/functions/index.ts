@@ -145,6 +145,31 @@ export async function sendPushNotification(
     }
 };
 
+// Helper to get target user IDs based on popup configuration
+async function getTargetUserIds(targetType: string, targetValue?: string): Promise<string[]> {
+    const usersRef = db.collection('clients');
+    let querySnapshot;
+
+    switch (targetType) {
+        case 'all':
+            querySnapshot = await usersRef.get();
+            break;
+        case 'tier':
+            if (!targetValue) return [];
+            querySnapshot = await usersRef.where('tier', '==', targetValue).get();
+            break;
+        case 'user':
+            if (!targetValue) return [];
+            // For a single user, we just return their ID
+            const userDoc = await usersRef.doc(targetValue).get();
+            return userDoc.exists ? [userDoc.id] : [];
+        default:
+            return [];
+    }
+
+    return querySnapshot.docs.map(doc => doc.id);
+}
+
 // ============================================================================
 // FIRESTORE TRIGGERS
 // ============================================================================
@@ -258,33 +283,13 @@ export const onReminderScheduled = onDocumentCreated("user_scheduled_reminders/{
     }
 });
 
-// NEW: This function exclusively handles scheduling for CUSTOM POPUPS sent by coaches.
+// OLD: This function previously handled scheduling for CUSTOM POPUPS sent by coaches.
+// It is now replaced by onPopupCampaignCreated and dispatchPopupNotificationTaskHandler.
 export const onCustomPopupCreated = onDocumentCreated("clients/{userId}/notifications/{notificationId}", async (event) => {
-    if (!event.data) return;
-    const popup = event.data.data();
-    const userId = event.params.userId;
-    const notificationId = event.params.notificationId;
-
-    // IMPORTANT: Only act on documents that are 'custom-popup' and have a schedule.
-    if (popup.type !== 'custom-popup' || !popup.scheduledAt) {
-        return;
-    }
-
-    const scheduledAt = popup.scheduledAt.toDate ? popup.scheduledAt.toDate() : new Date(popup.scheduledAt);
-    
-    // Use the existing reminderTaskHandler to do the final sending.
-    const queue = getFunctions().taskQueue('reminderTaskHandler');
-    
-    // If the scheduled time is in the future, schedule the task. Otherwise, send it immediately.
-    if (scheduledAt > new Date()) {
-        await queue.enqueue({ 
-            userId, 
-            reminderId: notificationId, // Pass the ID of the document from this collection
-            isCustomPopup: true // Add a flag to ensure the handler knows what this is
-        }, { scheduleTime: scheduledAt });
-    } else {
-        await queue.enqueue({ userId, reminderId: notificationId, isCustomPopup: true });
-    }
+    // This function is now deprecated in favor of a central popup collection and dispatching.
+    // No action needed here, as the new flow will handle popups.
+    console.log("onCustomPopupCreated (old trigger) fired but deprecated. No action taken.");
+    return;
 });
 
 export const onWorkoutScheduled = onDocumentCreated("workouts/{workoutId}", async (event) => {
@@ -367,33 +372,123 @@ export const onStreakAchieved = onDocumentUpdated("clients/{userId}", async (eve
     }
 });
 
+// NEW: Trigger for new popup campaigns in the top-level 'popups' collection
+export const onPopupCampaignCreated = onDocumentCreated("popups/{popupId}", async (event) => {
+    debugLog('=== onPopupCampaignCreated TRIGGERED ===', event.params.popupId);
+    if (!event.data) {
+        debugLog('Abort: No event.data for popup campaign');
+        return;
+    }
+
+    const popup = event.data.data();
+    const popupId = event.params.popupId;
+
+    // Ensure the popup has a scheduledAt timestamp
+    if (!popup.scheduledAt) {
+        console.error(`Popup ${popupId} is missing scheduledAt. Cannot dispatch.`);
+        return;
+    }
+
+    const targetUserIds = await getTargetUserIds(popup.targetType, popup.targetValue);
+
+    if (targetUserIds.length === 0) {
+        debugLog(`No target users found for popup campaign ${popupId}.`);
+        // Update popup status to reflect no users found if needed
+        await db.collection('popups').doc(popupId).update({ status: 'no_users_found' });
+        return;
+    }
+
+    const scheduledAt = (popup.scheduledAt as Timestamp).toDate();
+    const now = new Date();
+
+    const queue = getFunctions().taskQueue('dispatchPopupNotificationTaskHandler');
+
+    for (const userId of targetUserIds) {
+        const taskPayload = {
+            userId: userId,
+            popupId: popupId,
+        };
+
+        if (scheduledAt > now) {
+            // Schedule the task for future delivery
+            await queue.enqueue(taskPayload, { scheduleTime: scheduledAt });
+        } else {
+            // If scheduled time is in the past or now, enqueue immediately
+            await queue.enqueue(taskPayload);
+        }
+    }
+
+    await db.collection('popups').doc(popupId).update({ status: 'dispatched' });
+    debugLog(`Popup campaign ${popupId} dispatched for ${targetUserIds.length} users.`);
+});
+
+// NEW: Task handler for dispatching individual popup notifications
+export const dispatchPopupNotificationTaskHandler = onTaskDispatched<{
+    userId: string;
+    popupId: string;
+}>({}, async (req) => {
+    debugLog('=== dispatchPopupNotificationTaskHandler TRIGGERED ===', req.data);
+    const { userId, popupId } = req.data;
+
+    const popupDoc = await db.collection('popups').doc(popupId).get();
+
+    if (!popupDoc.exists) {
+        console.error(`Popup campaign ${popupId} not found for user ${userId}.`);
+        return;
+    }
+
+    const popup = popupDoc.data()!;
+
+    await sendPushNotification(
+        userId,
+        popup.title,
+        popup.message,
+        popup.ctaUrl || '/client/dashboard', // Fallback URL
+        'custom-popup',
+        popupId,
+        popup.imageUrl,
+        undefined, // senderId
+        undefined, // senderName
+        undefined, // messageText
+        undefined, // appointmentStartTimeMillis
+        String(false) // isCoachParam
+    );
+
+    debugLog(`Custom popup notification sent to user ${userId} for campaign ${popupId}.`);
+
+    // Optionally, you could log in the user's notification subcollection that this was sent.
+    // For now, keeping it minimal to avoid duplicate notifications and costs.
+
+});
+
 // ============================================================================
-// TASK QUEUE HANDLERS
+// TASK QUEUE HANDLERS (Existing)
 // ============================================================================
 
 export const reminderTaskHandler = onTaskDispatched<any>({}, async (req) => {
-    const { userId, reminderId, isCustomPopup } = req.data; // Destructure the new flag
+    const { userId, reminderId, isCustomPopup } = req.data; 
 
-    // Determine which collection to read from based on the flag
-    const collectionPath = isCustomPopup ? `clients/${userId}/notifications` : 'user_scheduled_reminders';
-    const doc = await db.collection(collectionPath).doc(reminderId).get();
+    // This handler will no longer process 'isCustomPopup' as that logic is moved to dispatchPopupNotificationTaskHandler
+    if (isCustomPopup) {
+        console.log("reminderTaskHandler received an isCustomPopup task. This is deprecated. Ignoring.");
+        return;
+    }
+
+    const doc = await db.collection('user_scheduled_reminders').doc(reminderId).get();
     
     if (!doc.exists) return;
     const reminder = doc.data()!;
 
-    // For custom popups, prioritize the specific URL provided by the coach
     const finalCtaUrl = reminder.url || `/client/dashboard?notificationType=${reminder.type}&entityId=${reminderId}`;
     await sendPushNotification(userId, reminder.title, reminder.message, finalCtaUrl, reminder.type, reminderId, reminder.imageUrl);
 
 
-    // This logic should only run for recurring hydration reminders, not for one-off popups
-    if (reminder.isRecurring && !isCustomPopup) {
+    if (reminder.isRecurring) {
         const nextTime = new Date(reminder.scheduledAt.toDate().getTime() + 24 * 60 * 60 * 1000);
         await doc.ref.update({ scheduledAt: nextTime, status: 'scheduled' });
         const queue = getFunctions().taskQueue('reminderTaskHandler');
         await queue.enqueue({ userId, reminderId }, { scheduleTime: nextTime });
     } else {
-        // Mark as completed if it's not a recurring hydration reminder
         await doc.ref.update({ status: 'completed', seen: true });
     }
 });

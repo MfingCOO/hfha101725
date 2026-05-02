@@ -1,4 +1,3 @@
-'use client';
 import { CoachPageModal } from '@/components/ui/coach-page-modal';
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback, useMemo } from "react";
@@ -30,11 +29,22 @@ import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
-
-type SerializablePopup = Omit<Popup, 'scheduledAt' | 'createdAt'> & {
-    scheduledAt: string;
-    createdAt: string;
-};
+// Corrected SerializablePopup to match the data returned by getPopupsForCoach
+interface SerializablePopup {
+    id: string;
+    name: string;
+    title: string;
+    message: string;
+    imageUrl: string;
+    ctaText: string;
+    ctaUrl: string;
+    scheduledAt: string; // ISO string
+    createdAt: string;   // ISO string
+    updatedAt: string;   // ISO string
+    targetType: 'all' | 'tier' | 'user';
+    targetValue?: string | null;
+    status: string;
+}
 
 interface ManagePopupsDialogProps {
   open: boolean;
