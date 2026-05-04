@@ -283,14 +283,12 @@ export const onReminderScheduled = onDocumentCreated("user_scheduled_reminders/{
     }
 });
 
-// OLD: This function previously handled scheduling for CUSTOM POPUPS sent by coaches.
-// It is now replaced by onPopupCampaignCreated and dispatchPopupNotificationTaskHandler.
-export const onCustomPopupCreated = onDocumentCreated("clients/{userId}/notifications/{notificationId}", async (event) => {
-    // This function is now deprecated in favor of a central popup collection and dispatching.
-    // No action needed here, as the new flow will handle popups.
-    console.log("onCustomPopupCreated (old trigger) fired but deprecated. No action taken.");
-    return;
-});
+// DEPRECATED: This function was previously used for custom popups but is now replaced by onPopupCampaignCreated.
+// It is being removed to streamline the codebase.
+// export const onCustomPopupCreated = onDocumentCreated("clients/{userId}/notifications/{notificationId}", async (event) => {
+//     console.log("onCustomPopupCreated (old trigger) fired but deprecated. No action taken.");
+//     return;
+// });
 
 export const onWorkoutScheduled = onDocumentCreated("workouts/{workoutId}", async (event) => {
     if (!event.data) return;
@@ -386,6 +384,8 @@ export const onPopupCampaignCreated = onDocumentCreated("popups/{popupId}", asyn
     // Ensure the popup has a scheduledAt timestamp
     if (!popup.scheduledAt) {
         console.error(`Popup ${popupId} is missing scheduledAt. Cannot dispatch.`);
+        // Update popup status to reflect error if needed
+        await db.collection('popups').doc(popupId).update({ status: 'error_no_schedule' });
         return;
     }
 
@@ -403,23 +403,28 @@ export const onPopupCampaignCreated = onDocumentCreated("popups/{popupId}", asyn
 
     const queue = getFunctions().taskQueue('dispatchPopupNotificationTaskHandler');
 
+    // Determine if the popup should be sent instantly or scheduled
+    // Instant if scheduledAt is now or in the past, or within a small threshold (e.g., 2 minutes) into the future.
+    const instantThresholdMs = 2 * 60 * 1000; // 2 minutes
+    const isInstant = scheduledAt.getTime() <= (now.getTime() + instantThresholdMs);
+
     for (const userId of targetUserIds) {
         const taskPayload = {
             userId: userId,
             popupId: popupId,
         };
 
-        if (scheduledAt > now) {
-            // Schedule the task for future delivery
-            await queue.enqueue(taskPayload, { scheduleTime: scheduledAt });
-        } else {
-            // If scheduled time is in the past or now, enqueue immediately
+        if (isInstant) {
+            // Enqueue immediately without a scheduleTime
             await queue.enqueue(taskPayload);
+        } else {
+            // Enqueue with scheduleTime for future delivery
+            await queue.enqueue(taskPayload, { scheduleTime: scheduledAt });
         }
     }
 
-    await db.collection('popups').doc(popupId).update({ status: 'dispatched' });
-    debugLog(`Popup campaign ${popupId} dispatched for ${targetUserIds.length} users.`);
+    await db.collection('popups').doc(popupId).update({ status: isInstant ? 'dispatched_instantly' : 'dispatched_scheduled' });
+    debugLog(`Popup campaign ${popupId} dispatched for ${targetUserIds.length} users. Instant: ${isInstant}`);
 });
 
 // NEW: Task handler for dispatching individual popup notifications

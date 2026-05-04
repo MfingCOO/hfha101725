@@ -34,8 +34,10 @@ const popupSchema = z.object({
     message: z.string().min(10, "Message is required."),
     imageUrl: z.string().optional(),
     ctaText: z.string().min(2, "Button text is required."),
-    ctaUrl: z.string().url("Please enter a valid URL.").optional().or(z.literal('')),
-    scheduledAt: z.date(),
+    // CORRECTED: Explicitly define ctaUrl as a string, allowing both absolute and relative paths.
+    // Removed .url() validator that was causing issues with relative paths.
+    ctaUrl: z.string().optional(), 
+    scheduledAt: z.date(), // Keep schema for backend validation, value will be set to Date.now()
     targetType: z.enum(['all', 'tier', 'user']),
     targetValue: z.string().optional(),
 }).refine(data => {
@@ -75,7 +77,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
             imageUrl: '',
             ctaText: 'Learn More',
             ctaUrl: '',
-            scheduledAt: new Date(),
+            scheduledAt: new Date(), // Default to current date for new popups
             targetType: 'all',
             targetValue: '',
         },
@@ -107,7 +109,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
                 imageUrl: initialData?.imageUrl || '',
                 ctaText: initialData?.ctaText || 'Learn More',
                 ctaUrl: initialData?.ctaUrl || '',
-                scheduledAt: initialData?.scheduledAt ? new Date(initialData.scheduledAt) : new Date(),
+                scheduledAt: initialData?.scheduledAt ? new Date(initialData.scheduledAt) : new Date(), // For editing, use existing date; for new, use current date
                 targetType: initialData?.targetType || 'all',
                 targetValue: initialData?.targetValue || '',
             };
@@ -130,7 +132,11 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
     
     const onSubmit = async (data: PopupFormValues) => {
         try {
-            // Ensure seconds and milliseconds are zeroed out for clean scheduling
+            // When creating a new popup, force scheduledAt to be now for instant dispatch.
+            // For editing, we maintain the existing scheduledAt or set to now if it was previously unset/invalid.
+            if (!isEditing || !data.scheduledAt || isNaN(data.scheduledAt.getTime())) {
+                data.scheduledAt = new Date();
+            }
             data.scheduledAt.setSeconds(0, 0);
 
             const result = await savePopupAction(data);
@@ -172,7 +178,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
                             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                             <Button type="submit" form="popup-form" disabled={form.formState.isSubmitting}>
                                 {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {isEditing ? 'Update Campaign' : 'Create & Schedule'}
+                                {isEditing ? 'Update Campaign' : 'Create & Send'}
                             </Button>
                         </DialogFooter>
                     }
@@ -207,47 +213,7 @@ export function CreatePopupDialog({ open, onOpenChange, onPopupSaved, initialDat
                             )} />
                         </div>
                         
-                        <FormField control={form.control} name="scheduledAt" render={({ field }) => (
-                            <FormItem className="space-y-2"><FormLabel>Schedule Time</FormLabel>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                 <Popover>
-                                    <PopoverTrigger asChild>
-                                        <FormControl>
-                                            <Button variant={"outline"} className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
-                                                {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                            </Button>
-                                        </FormControl>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                        <Calendar
-                                            mode="single"
-                                            selected={field.value}
-                                            onSelect={(date) => {
-                                                if (!date) return;
-                                                const newDate = new Date(field.value);
-                                                newDate.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
-                                                field.onChange(newDate);
-                                            }}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                                <FormControl>
-                                     <Input
-                                        type="time"
-                                        value={field.value instanceof Date && !isNaN(field.value.getTime()) ? format(field.value, 'HH:mm') : ''}
-                                        onChange={e => {
-                                            const [hours, minutes] = e.target.value.split(':').map(Number);
-                                            const newDate = new Date(field.value);
-                                            newDate.setHours(hours, minutes, 0, 0); 
-                                            field.onChange(newDate);
-                                        }}
-                                    />
-                                </FormControl>
-                            </div>
-                            <FormMessage /></FormItem>
-                        )}/>
+                        {/* REMOVED: Scheduling fields for date and time */}
 
                         <FormField
                             control={form.control}

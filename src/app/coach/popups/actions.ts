@@ -10,9 +10,11 @@ const popupSchema = z.object({
     name: z.string().min(3, "Campaign name is required."),
     title: z.string().min(3, "Title is required."),
     message: z.string().min(10, "Message is required."),
-    imageUrl: z.string().url().optional().or(z.literal('')),
+    // CORRECTED: Relaxed imageUrl validation to allow any string, including relative paths or base64 data.
+    imageUrl: z.string().optional().or(z.literal('')),
     ctaText: z.string().min(2, "Button text is required."),
-    ctaUrl: z.string().url("Must be a valid URL").optional().or(z.literal('')),
+    // CORRECTED AGAIN: Relaxed ctaUrl validation to allow any string, including relative paths for in-app deep links.
+    ctaUrl: z.string().optional().or(z.literal('')),
     scheduledAt: z.date(),
     targetType: z.enum(['all', 'tier', 'user']),
     targetValue: z.string().optional(),
@@ -27,6 +29,7 @@ export async function savePopupAction(data: PopupFormValues): Promise<{ success:
     try {
         const validation = popupSchema.safeParse(data);
         if (!validation.success) {
+            // The error message from Zod validation will now be more accurate.
             throw new Error(validation.error.errors.map(e => e.message).join(', '));
         }
 
