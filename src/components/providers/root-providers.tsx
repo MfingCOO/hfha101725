@@ -43,7 +43,9 @@ function RevenueCatInitializer() {
         // Give the Capacitor native bridge a tiny moment to be fully ready
         await new Promise(resolve => setTimeout(resolve, 150));
 
-        const revenueCatApiKey = "goog_NklNVostxEsZmVEiHkgORKJMJgp";
+        const revenueCatApiKey = Capacitor.getPlatform() === 'ios' 
+          ? "appl_DDutqwXiGASUOINloansPtOoSPt" 
+          : "goog_NklNVostxEsZmVEiHkgORKJMJgp";
 
         // Dynamic import that also brings in LOG_LEVEL (fixes your TypeScript error)
         const { Purchases, LOG_LEVEL } = await import('@revenuecat/purchases-capacitor');
