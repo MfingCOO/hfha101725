@@ -22,34 +22,42 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultText, setResultText] = useState('');
-  const [isLoadingScanner, setIsLoadingScanner] = useState(false); // ADDED: Loading state for Capacitor scanner
+  const [isLoadingScanner, setIsLoadingScanner] = useState(false);
+
+  // Safe platform detection (prevents hydration/hook mismatch)
+  const [isNative, setIsNative] = useState(false);
+
+  useEffect(() => {
+    setIsNative(Capacitor.isNativePlatform());
+  }, []);
 
   // Web/PWA camera stream using useZxing
+  // We now use the stable `isNative` state instead of calling Capacitor directly during render
   const { ref } = useZxing({
     constraints: { video: { facingMode: 'environment' } },
-    paused: paused || Capacitor.isNativePlatform(), // Pause if native platform is active
+    paused: paused || isNative,
     onDecodeResult(result) {
-      if (!Capacitor.isNativePlatform()) { // Only process if not native, native will use custom logic
+      if (!isNative) {
         setResultText(result.getText());
         setPaused(true);
         handleScannedBarcode(result.getText());
       }
     },
     onDecodeError(err) {
-      if (!Capacitor.isNativePlatform() && (err.message.includes('device') || err.message.includes('stream'))) {
-          console.error('[BarcodeScannerView] Web Scanner Error:', err);
-          setError('Scanner error: Could not access camera. Please ensure permissions are granted and no other app is using the camera.');
-          setPaused(true);
+      if (!isNative && (err.message.includes('device') || err.message.includes('stream'))) {
+        console.error('[BarcodeScannerView] Web Scanner Error:', err);
+        setError('Scanner error: Could not access camera. Please ensure permissions are granted and no other app is using the camera.');
+        setPaused(true);
       }
     },
   });
 
   // ADDED: Function to scan a static image for a barcode
   const scanImageForBarcode = async (dataUrl: string): Promise<string | null> => {
-    // @ts-ignore - Ignoring TS error related to BrowserCodeReader constructor args, as it functions correctly at runtime for decodeFromImage
-    const codeReader = new BrowserCodeReader(); // Initialize without arguments for decodeFromImage
+    // @ts-ignore
+    const codeReader = new BrowserCodeReader();
     try {
-      const hints = new Map<DecodeHintType, any>(); // Explicitly type hints map
+      const hints = new Map<DecodeHintType, any>();
       hints.set(DecodeHintType.TRY_HARDER, true);
       hints.set(DecodeHintType.POSSIBLE_FORMATS, ["CODE_128", "EAN_13", "EAN_8", "QR_CODE", "CODE_39", "UPC_A", "UPC_E"]);
 
@@ -57,7 +65,7 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
       image.src = dataUrl;
       await new Promise(resolve => image.onload = resolve);
 
-      const result = await codeReader.decodeFromImage(image, hints as any); // Pass hints to decodeFromImage
+      const result = await codeReader.decodeFromImage(image, hints as any);
       return result.getText();
     } catch (err) {
       console.warn("No barcode found in image or scanning error:", err);
@@ -76,7 +84,7 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
       const photo = await Camera.getPhoto({
         quality: 80,
         allowEditing: false,
-        resultType: CameraResultType.DataUrl, // We need DataUrl for ZXing to process static image
+        resultType: CameraResultType.DataUrl,
         source: source,
       });
 
@@ -124,7 +132,7 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
   const handleRetry = () => {
     setError(null);
     setResultText('');
-    if (!Capacitor.isNativePlatform()) {
+    if (!isNative) {
       setPaused(false);
     }
   };
@@ -147,12 +155,12 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
         </div>
       ) : resultText ? (
         <div className="text-center">
-            <p className="text-white">{resultText}</p>
-            {!resultText.startsWith("Barcode found") && <p className="text-white mt-2">Processing...</p>}
+          <p className="text-white">{resultText}</p>
+          {!resultText.startsWith("Barcode found") && <p className="text-white mt-2">Processing...</p>}
         </div>
       ) : (
         <>
-          {Capacitor.isNativePlatform() ? (
+          {isNative ? (
             <div className="flex flex-col items-center gap-4">
               <Button onClick={() => handleCapacitorScan(CameraSource.Camera)} disabled={isLoadingScanner}>
                 <CameraIcon className="mr-2 h-4 w-4" /> Scan with Camera
@@ -164,9 +172,9 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
             </div>
           ) : (
             <>
-              <video 
-                ref={ref as React.RefObject<HTMLVideoElement>} 
-                className="w-full h-auto max-h-[70vh] rounded-md" 
+              <video
+                ref={ref as React.RefObject<HTMLVideoElement>}
+                className="w-full h-auto max-h-[70vh] rounded-md"
               />
               <p className="text-white mt-4">Point the camera at a barcode</p>
             </>
