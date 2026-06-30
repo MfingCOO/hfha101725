@@ -160,14 +160,9 @@ export default function ClientLayout({
   const { user, loading, isCoach } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const [isMounted, setIsMounted] = useState(false);
 
   // Activate the interstitial ad triggers
   useInterstitialAdTriggers();
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   useEffect(() => {
     if (!loading && user && isCoach) {
@@ -175,14 +170,8 @@ export default function ClientLayout({
     }
   }, [user, loading, isCoach, router]);
 
-  if (!isMounted || loading || !user || isCoach) {
-    return (
-        <div className="w-full h-screen flex items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin" />
-        </div>
-    );
-  }
-
+  // Always render the exact same tree structure.
+  // This keeps the hook count identical between server render and client hydration.
   return (
     <DashboardProvider>
       <SidebarProvider>
@@ -190,7 +179,7 @@ export default function ClientLayout({
           <Suspense fallback={null}>
             <SearchParamHandler />
           </Suspense>
-          
+
           <AppSidebar />
           <SidebarInset className="h-dvh flex flex-col md:ml-64">
             <AppHeader />
@@ -207,5 +196,5 @@ export default function ClientLayout({
           <Toaster />
       </SidebarProvider>
     </DashboardProvider>
-  )
+  );
 }
