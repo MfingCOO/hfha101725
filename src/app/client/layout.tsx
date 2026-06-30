@@ -10,9 +10,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { ChallengesDialog } from '@/components/challenges/challenges-dialog';
 import { ChatsDialog } from '@/components/chats/chats-dialog';
 import { DashboardProvider, useDashboardActions } from '@/contexts/DashboardActionsContext';
-import { CalendarDialog } from '@/components/calendar/calendar-dialog';
 import type { ClientProfile, Challenge } from '@/types';
-import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
@@ -21,6 +19,14 @@ import { getAllChallengesForClient } from '@/app/challenges/actions';
 import { Toaster } from '@/components/ui/toaster';
 import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 import { useInterstitialAdTriggers } from '@/hooks/useInterstitialAdTriggers';
+import dynamic from 'next/dynamic';
+
+// Lazy-load the two dialogs that still had static top-level native imports
+// (Purchases / AdMob). Their modules will now only be evaluated on the client
+// after the initial hydration pass completes. This is the final piece for the
+// #310 on the dashboard path.
+const CalendarDialog = dynamic(() => import('@/components/calendar/calendar-dialog').then((mod) => mod.CalendarDialog), { ssr: false });
+const SettingsDialog = dynamic(() => import('@/components/settings/SettingsDialog').then((mod) => mod.SettingsDialog), { ssr: false });
 
 // --- NO CHANGES TO ERRORBOUNDARY ---
 interface ErrorBoundaryProps {
@@ -114,7 +120,7 @@ function DialogManager() {
                 isLoading={isLoading} // Pass loading state
             />
             <ChatsDialog key="chats" />
-            {profile && (
+            {profile && isCalendarOpen && (
                 <CalendarDialog
                     key="calendar"
                     isOpen={isCalendarOpen}
@@ -122,11 +128,13 @@ function DialogManager() {
                     client={profile as ClientProfile}
                 />
             )}
-            <SettingsDialog
-                key="settings"
-                open={isSettingsOpen}
-                onOpenChange={onCloseSettings}
-            />
+            {isSettingsOpen && (
+                <SettingsDialog
+                    key="settings"
+                    open={isSettingsOpen}
+                    onOpenChange={onCloseSettings}
+                />
+            )}
             <NotificationsDialog />
         </>
     );
