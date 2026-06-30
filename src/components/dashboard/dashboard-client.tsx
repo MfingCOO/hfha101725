@@ -5,7 +5,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Apple, Droplet, Flame, Lightbulb, Moon, Salad, Scale, CloudSun, UserCheck, UtensilsCrossed, ArrowRight, Lock, Calendar, RefreshCw, Trophy } from 'lucide-react';
 import Image from 'next/image';
-import { DataEntryDialog } from '@/components/dashboard/data-entry-dialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '../auth/auth-provider';
 import { ClientProfile, UserTier, Challenge } from '@/types';
@@ -13,20 +12,18 @@ import { getUpcomingIndulgences, resetBingeStreakAction } from '@/services/fires
 import { getAllChallengesForClient, joinChallengeAction } from '@/app/challenges/actions';
 import { Skeleton } from '../ui/skeleton';
 import { Badge } from '../ui/badge';
-import { InsightsDialog } from '../insights/insights-dialog';
 import { useDashboardActions } from '@/contexts/DashboardActionsContext';
 import { differenceInCalendarDays, format, isPast, isFuture, endOfDay } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
-import { CalendarDialog } from '../calendar/calendar-dialog';
-import { 
-  AlertDialog, 
-  AlertDialogAction, 
-  AlertDialogCancel, 
-  AlertDialogContent, 
-  AlertDialogDescription, 
-  AlertDialogFooter, 
-  AlertDialogHeader, 
-  AlertDialogTitle 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { Loader2 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -35,17 +32,22 @@ import quotes from '@/lib/quotes.json';
 
 import { LucideIcon } from 'lucide-react';
 import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
-import { UpgradeModal } from '../modals/upgrade-modal';
-import { SettingsDialog } from '../settings/SettingsDialog';
 import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
 import { ProgramWidget } from '@/components/client/ProgramWidget';
-import { ProgramListDialog } from '@/components/programs/program-list-dialog';
-import { ProgramHubDialog } from '@/components/client/ProgramHubDialog';
 import { useNotificationStore } from '@/store/notification-store';
-import { AppointmentDetailDialog } from '../calendar/AppointmentDetailDialog';
-import { WorkoutActionDialog } from '../calendar/WorkoutActionDialog';
 import { useAdBanner } from '../providers/AdBannerProvider';
-import { ChallengesDialog } from '@/components/challenges/challenges-dialog';   // ← Added
+import dynamic from 'next/dynamic';
+
+const DataEntryDialog = dynamic(() => import('@/components/dashboard/data-entry-dialog').then((mod) => mod.DataEntryDialog), { ssr: false });
+const UpgradeModal = dynamic(() => import('../modals/upgrade-modal').then((mod) => mod.UpgradeModal), { ssr: false });
+const SettingsDialog = dynamic(() => import('../settings/SettingsDialog').then((mod) => mod.SettingsDialog), { ssr: false });
+const ProgramListDialog = dynamic(() => import('@/components/programs/program-list-dialog').then((mod) => mod.ProgramListDialog), { ssr: false });
+const ProgramHubDialog = dynamic(() => import('@/components/client/ProgramHubDialog').then((mod) => mod.ProgramHubDialog), { ssr: false });
+const CalendarDialog = dynamic(() => import('../calendar/calendar-dialog').then((mod) => mod.CalendarDialog), { ssr: false });
+const InsightsDialog = dynamic(() => import('../insights/insights-dialog').then((mod) => mod.InsightsDialog), { ssr: false });
+const AppointmentDetailDialog = dynamic(() => import('../calendar/AppointmentDetailDialog').then((mod) => mod.AppointmentDetailDialog), { ssr: false });
+const WorkoutActionDialog = dynamic(() => import('../calendar/WorkoutActionDialog').then((mod) => mod.WorkoutActionDialog), { ssr: false });
+const ChallengesDialog = dynamic(() => import('@/components/challenges/challenges-dialog').then((mod) => mod.ChallengesDialog), { ssr: false });
 
 export interface Pillar {
   id: string;
@@ -94,17 +96,17 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const { modalType, closeModal, openModal } = useDataEntryModal();
 
   // Expanded notification store destructuring
-  const { 
-    notificationChatId, 
-    notificationAppointmentId, 
-    notificationWorkoutId, 
-    triggerHydrationModal, 
+  const {
+    notificationChatId,
+    notificationAppointmentId,
+    notificationWorkoutId,
+    triggerHydrationModal,
     openChallengeList,
-    setNotificationChatId, 
-    setNotificationAppointmentId, 
-    setNotificationWorkoutId, 
+    setNotificationChatId,
+    setNotificationAppointmentId,
+    setNotificationWorkoutId,
     setTriggerHydrationModal,
-    setOpenChallengeList 
+    setOpenChallengeList
   } = useNotificationStore();
 
   // const { adBannerHeight } = useAdBanner();
@@ -156,17 +158,17 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
     if (notificationType === 'chat' && openChatId) {
         setNotificationChatId(openChatId);
-    } 
+    }
     else if (notificationType === 'workout_reminder' && openWorkoutId) {
         setNotificationWorkoutId(openWorkoutId);
-    } 
+    }
     else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
         if (!user) {
             toast({ variant: 'destructive', title: 'Authentication Required', description: 'Please log in to view appointment details.' });
             return;
         }
         setNotificationAppointmentId(openAppointmentId);
-    } 
+    }
     else if (notificationType === 'hydration' && openHydration === 'true') {
         setTriggerHydrationModal(true);
     }
@@ -406,7 +408,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
             return new Date(a.dates.from).getTime() - new Date(b.dates.from).getTime();
         });
 
-    const challengeToShow = 
+    const challengeToShow =
         relevantChallenges.find(c => isParticipant(c) && isActiveChallenge(c)) ||
         relevantChallenges.find(c => isParticipant(c)) ||
         relevantChallenges.find(c => isActiveChallenge(c)) ||
@@ -484,12 +486,12 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     );
   };
 
-  return ( 
+  return (
     <div className="space-y-6">
-      
-      <div> 
-        <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2> 
-        <p className="text-base sm:text-lg text-muted-foreground"> “{quoteOfTheDay}” </p> 
+
+      <div>
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2>
+        <p className="text-base sm:text-lg text-muted-foreground"> “{quoteOfTheDay}” </p>
       </div>
 
       <div className="flex justify-around">
