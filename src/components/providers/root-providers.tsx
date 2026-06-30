@@ -113,13 +113,7 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
               <Suspense fallback={null}>
                 <ChatProvider>
                   <PushNotificationProvider>
-                    {isNative ? (
-                      <AdBannerProvider>
-                        <MainContent />
-                      </AdBannerProvider>
-                    ) : (
-                      <MainContent />
-                    )}
+                  <MainContent />
                   </PushNotificationProvider>
                 </ChatProvider>
               </Suspense>

@@ -107,7 +107,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     setOpenChallengeList 
   } = useNotificationStore();
 
-  const { adBannerHeight } = useAdBanner();
+  // const { adBannerHeight } = useAdBanner();
 
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
   const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
@@ -485,10 +485,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   };
 
   return ( 
-    <div 
-      className="space-y-6" 
-      style={{ paddingBottom: `${adBannerHeight + 80}px` }}
-    >
+    <div className="space-y-6">
+      
       <div> 
         <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2> 
         <p className="text-base sm:text-lg text-muted-foreground"> “{quoteOfTheDay}” </p> 
