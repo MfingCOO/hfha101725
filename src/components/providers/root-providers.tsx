@@ -26,45 +26,29 @@ function RevenueCatInitializer() {
   const { setIsRevenueCatReady } = useNotificationStore();
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
     let mounted = true;
 
     const initializeRevenueCat = async () => {
       console.log('🚀 RevenueCat init started');
       console.log('📱 isNativePlatform:', Capacitor.isNativePlatform());
 
-      if (!Capacitor.isNativePlatform()) {
-        console.log('🌐 Running on web → skipping native RevenueCat');
-        if (mounted) setIsRevenueCatReady(false);
-        return;
-      }
-
       try {
-        // Give the Capacitor native bridge a tiny moment to be fully ready
-        await new Promise(resolve => setTimeout(resolve, 150));
+        if (!Capacitor.isNativePlatform()) {
+          console.log('🌐 Running on web → skipping native RevenueCat');
+          if (mounted) setIsRevenueCatReady(true);
+          return;
+        }
 
-        const revenueCatApiKey = Capacitor.getPlatform() === 'ios'
-          ? "appl_DDutqwXiGASUOINloansPtOoSPt"
+        const { Purchases } = await import('@revenuecat/purchases-capacitor');
+        const revenueCatApiKey = Capacitor.getPlatform() === 'ios' 
+          ? "appl_DDutqwXiGASUOINloansPtOoSPt" 
           : "goog_NklNVostxEsZmVEiHkgORKJMJgp";
 
-        // Dynamic import that also brings in LOG_LEVEL (fixes your TypeScript error)
-        const { Purchases, LOG_LEVEL } = await import('@revenuecat/purchases-capacitor');
+        await Purchases.configure({ apiKey: revenueCatApiKey });
 
-        // Force native debug logging
-        await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
-
-        await Purchases.configure({
-          apiKey: revenueCatApiKey,
-          appUserID: user?.uid || null
-        });
-
-        console.log("✅ RevenueCat NATIVE mode configured. User ID:", user?.uid || "Anonymous");
         if (mounted) setIsRevenueCatReady(true);
-
-        if (user?.uid) {
-          await Purchases.addCustomerInfoUpdateListener((customerInfo) => {
-            console.log("📨 Subscription status updated:", customerInfo);
-          });
-        }
       } catch (error) {
         console.error("❌ RevenueCat initialization error:", error);
         if (mounted) setIsRevenueCatReady(false);
@@ -80,10 +64,6 @@ function RevenueCatInitializer() {
 }
 
 export function RootProviders({ children }: { children: React.ReactNode }) {
-  // IMPORTANT: We start as false to match what the server renders during SSR/hydration.
-  // Only after the component mounts on the client do we check the real platform.
-  // This prevents React hydration error #418 on iOS WKWebView while keeping
-  // identical runtime behavior for Android (free + paid) users.
   const [isNative, setIsNative] = useState(false);
 
   useEffect(() => {
@@ -91,7 +71,6 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
       console.error('[Firebase] Init Error:', err)
     );
 
-    // This runs only after first render / hydration is complete.
     setIsNative(Capacitor.isNativePlatform());
   }, []);
 
@@ -113,7 +92,7 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
               <Suspense fallback={null}>
                 <ChatProvider>
                   <PushNotificationProvider>
-                  <MainContent />
+                    <MainContent />
                   </PushNotificationProvider>
                 </ChatProvider>
               </Suspense>
