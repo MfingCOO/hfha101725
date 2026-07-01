@@ -32,10 +32,7 @@ import quotes from '@/lib/quotes.json';
 
 import { LucideIcon } from 'lucide-react';
 import { useDataEntryModal } from '@/contexts/DataEntryModalContext';
-import { UpcomingEventWidget } from '@/components/client/UpcomingEventWidget';
-import { ProgramWidget } from '@/components/client/ProgramWidget';
 import { useNotificationStore } from '@/store/notification-store';
-import { useAdBanner } from '../providers/AdBannerProvider';
 import dynamic from 'next/dynamic';
 
 const DataEntryDialog = dynamic(() => import('@/components/dashboard/data-entry-dialog').then((mod) => mod.DataEntryDialog), { ssr: false });
@@ -48,6 +45,8 @@ const InsightsDialog = dynamic(() => import('../insights/insights-dialog').then(
 const AppointmentDetailDialog = dynamic(() => import('../calendar/AppointmentDetailDialog').then((mod) => mod.AppointmentDetailDialog), { ssr: false });
 const WorkoutActionDialog = dynamic(() => import('../calendar/WorkoutActionDialog').then((mod) => mod.WorkoutActionDialog), { ssr: false });
 const ChallengesDialog = dynamic(() => import('@/components/challenges/challenges-dialog').then((mod) => mod.ChallengesDialog), { ssr: false });
+const UpcomingEventWidget = dynamic(() => import('@/components/client/UpcomingEventWidget').then((mod) => mod.UpcomingEventWidget), { ssr: false });
+const ProgramWidget = dynamic(() => import('@/components/client/ProgramWidget').then((mod) => mod.ProgramWidget), { ssr: false });
 
 export interface Pillar {
   id: string;
@@ -90,6 +89,11 @@ interface DashboardClientProps {
 }
 
 export function DashboardClient({ searchParams }: DashboardClientProps) {
+  // Guard for SSR/hydration safety
+  if (typeof window === 'undefined') {
+    return <div className="p-8 text-center">Loading dashboard...</div>;
+  }
+
   const { onOpenChallenges, onOpenCalendar, isSettingsOpen, onCloseSettings } = useDashboardActions();
   const { user, isCoach, loading } = useAuth();
   const { toast } = useToast();
@@ -676,7 +680,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       )}
 
       {/* NEW: Challenge List Modal - This makes challenge notifications work */}
-      {clientProfile && (
+      {clientProfile && isChallengeListOpen && (
         <ChallengesDialog
           isOpen={isChallengeListOpen}
           onClose={() => {
