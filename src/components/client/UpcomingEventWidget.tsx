@@ -2,6 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { getUpcomingLiveEvent } from '@/app/coach/events/actions';
+
+// Guard for hydration safety
+if (typeof window === 'undefined') {
+  throw new Error('This component must run on client only');
+}
 import { AllEventsDialog } from './AllEventsDialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, CalendarPlus } from 'lucide-react';

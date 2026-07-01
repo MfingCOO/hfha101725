@@ -2,6 +2,11 @@
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+
+// Guard for hydration safety
+if (typeof window === 'undefined') {
+  throw new Error('This component must run on client only');
+}
 import { Dumbbell, ArrowRight } from 'lucide-react';
 import { ClientProfile } from '@/types';
 

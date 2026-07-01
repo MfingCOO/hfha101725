@@ -288,7 +288,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     }
   }, [modalType]);
 
-  const handleDataEntryDialogClose = (wasSaved: boolean) => {
+const handleDataEntryDialogClose = (wasSaved: boolean) => {
     setDataEntryDialogOpen(false);
     setActivePillar(null);
     closeModal();
