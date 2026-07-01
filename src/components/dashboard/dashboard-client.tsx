@@ -584,15 +584,19 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
         />
       )}
 
-      <InsightsDialog
-        isOpen={insightsDialogOpen}
-        onClose={() => setInsightsDialogOpen(false)}
-      />
+      {insightsDialogOpen && (
+        <InsightsDialog
+          isOpen={insightsDialogOpen}
+          onClose={() => setInsightsDialogOpen(false)}
+        />
+      )}
 
-      <SettingsDialog
-        open={isSettingsOpen}
-        onOpenChange={onCloseSettings}
-      />
+      {isSettingsOpen && (
+        <SettingsDialog
+          open={isSettingsOpen}
+          onOpenChange={onCloseSettings}
+        />
+      )}
 
       <UpgradeModal
         isOpen={isUpgradeModalOpen}
@@ -605,8 +609,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
         reason={activePillar ? `Access to the ${activePillar.label} pillar requires a subscription.` : 'Access to this feature requires an upgrade.'}
       />
 
-      {clientProfile && (
-        <CalendarDialog
+      {clientProfile && isCalendarOpen && (
+          <CalendarDialog
             isOpen={isCalendarOpen}
             onClose={() => setIsCalendarOpen(false)}
             client={clientProfile as ClientProfile}

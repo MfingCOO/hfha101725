@@ -334,14 +334,14 @@ export function DataEntryDialog({
         }
       };
       
-    if (!pillar) return null;
-    
-    const handleClose = useCallback(async (wasSaved: boolean) => {
-        if (!wasSaved && ['activity', 'sleep', 'hydration'].includes(pillar?.id)) {
+      const handleClose = useCallback(async (wasSaved: boolean) => {
+        if (!wasSaved && pillar && ['activity', 'sleep', 'hydration'].includes(pillar.id)) {
             await showInterstitialAd();
         }
         onOpenChange(wasSaved);
     }, [pillar?.id, onOpenChange, showInterstitialAd]);
+
+    if (!pillar) return null;
     
     const handleSave = async () => {
         setIsSaving(true);
