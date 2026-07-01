@@ -134,7 +134,6 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const [liveBingeFreeSince, setLiveBingeFreeSince] = useState<any>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
 
-  const [isMounted, setIsMounted] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [isProgramListOpen, setIsProgramListOpen] = useState(false);
   const [isProgramHubOpen, setIsProgramHubOpen] = useState(false);
@@ -145,10 +144,6 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
   // NEW: Challenge list modal state
   const [isChallengeListOpen, setIsChallengeListOpen] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   // Process URL searchParams from notifications
   useEffect(() => {
@@ -210,7 +205,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   }
 
   const handlePillarClick = (pillar: Pillar) => {
-    if (!clientProfile || !isMounted) return;
+    if (!clientProfile) return;
 
     const currentTierIndex = tierRank.indexOf(clientProfile.tier || UserTier.Free);
     const requiredTierIndex = tierRank.indexOf(pillar.requiredTier);
@@ -288,7 +283,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     }
   }, [modalType]);
 
-const handleDataEntryDialogClose = (wasSaved: boolean) => {
+  const handleDataEntryDialogClose = (wasSaved: boolean) => {
     setDataEntryDialogOpen(false);
     setActivePillar(null);
     closeModal();
