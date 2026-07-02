@@ -26,24 +26,20 @@ function RevenueCatInitializer() {
   const { setIsRevenueCatReady } = useNotificationStore();
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    // Only run on native platforms (iOS/Android)
+    if (!Capacitor.isNativePlatform()) {
+      setIsRevenueCatReady(true); // Mark as ready on web so the app doesn't hang
+      return;
+    }
 
     let mounted = true;
 
     const initializeRevenueCat = async () => {
-      console.log('🚀 RevenueCat init started');
-      console.log('📱 isNativePlatform:', Capacitor.isNativePlatform());
-
       try {
-        if (!Capacitor.isNativePlatform()) {
-          console.log('🌐 Running on web → skipping native RevenueCat');
-          if (mounted) setIsRevenueCatReady(true);
-          return;
-        }
-
         const { Purchases } = await import('@revenuecat/purchases-capacitor');
-        const revenueCatApiKey = Capacitor.getPlatform() === 'ios' 
-          ? "appl_DDutqwXiGASUOINloansPtOoSPt" 
+
+        const revenueCatApiKey = Capacitor.getPlatform() === 'ios'
+          ? "appl_DDutqwXiGASUOINloansPtOoSPt"
           : "goog_NklNVostxEsZmVEiHkgORKJMJgp";
 
         await Purchases.configure({ apiKey: revenueCatApiKey });
@@ -70,34 +66,34 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
     initializeFirebasePersistence().catch(err =>
       console.error('[Firebase] Init Error:', err)
     );
-
     setIsNative(Capacitor.isNativePlatform());
   }, []);
-
-  const MainContent = () => (
-    <>
-      {children}
-      <NotificationsDialog />
-    </>
-  );
 
   return (
     <QueryProvider>
       <AuthProvider>
         <RevenueCatInitializer />
-
         <AppCheckProvider>
           <DataEntryModalProvider>
             <DashboardProvider>
               <Suspense fallback={null}>
                 <ChatProvider>
                   <PushNotificationProvider>
-                    <MainContent />
+                    {isNative ? (
+                      <AdBannerProvider>
+                        {children}
+                        <NotificationsDialog />
+                      </AdBannerProvider>
+                    ) : (
+                      <>
+                        {children}
+                        <NotificationsDialog />
+                      </>
+                    )}
                   </PushNotificationProvider>
                 </ChatProvider>
               </Suspense>
             </DashboardProvider>
-
             <Toaster />
             <SonnerToaster position="top-center" expand={true} richColors />
           </DataEntryModalProvider>
