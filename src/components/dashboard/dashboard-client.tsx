@@ -89,16 +89,6 @@ interface DashboardClientProps {
 }
 
 export function DashboardClient({ searchParams }: DashboardClientProps) {
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  if (!isMounted) {
-    return <div className="p-8 text-center">Loading dashboard...</div>;
-  }
-
   const { onOpenChallenges, onOpenCalendar, isSettingsOpen, onCloseSettings } = useDashboardActions();
   const { user, isCoach, loading } = useAuth();
   const { toast } = useToast();
