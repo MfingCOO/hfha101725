@@ -89,8 +89,13 @@ interface DashboardClientProps {
 }
 
 export function DashboardClient({ searchParams }: DashboardClientProps) {
-  // Guard for SSR/hydration safety
-  if (typeof window === 'undefined') {
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
     return <div className="p-8 text-center">Loading dashboard...</div>;
   }
 
