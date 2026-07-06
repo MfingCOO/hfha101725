@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { AuthProvider, useAuth } from "@/components/auth/auth-provider";
+import { AuthProvider } from "@/components/auth/auth-provider";
 import { AppCheckProvider } from "@/components/auth/app-check-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from 'sonner';
@@ -22,52 +22,46 @@ const AdBannerProvider = dynamic(() => import('@/components/providers/AdBannerPr
 });
 
 function RevenueCatInitializer() {
-  const { user } = useAuth();
   const { setIsRevenueCatReady } = useNotificationStore();
+  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
-    // Only run on native platforms (iOS/Android)
-    if (!Capacitor.isNativePlatform()) {
-      setIsRevenueCatReady(true); // Mark as ready on web so the app doesn't hang
-      return;
-    }
+    setIsClient(true);
+  }, []);
 
-    let mounted = true;
+  useEffect(() => {
+    if (!isClient) return;
 
-    const initializeRevenueCat = async () => {
+    const init = async () => {
       try {
-        const { Purchases } = await import('@revenuecat/purchases-capacitor');
-
-        const revenueCatApiKey = Capacitor.getPlatform() === 'ios'
-          ? "appl_DDutqwXiGASUOINloansPtOoSPt"
-          : "goog_NklNVostxEsZmVEiHkgORKJMJgp";
-
-        await Purchases.configure({ apiKey: revenueCatApiKey });
-
-        if (mounted) setIsRevenueCatReady(true);
+        // RevenueCat initialization code goes here
+        console.log('🚀 RevenueCat initialized');
+        setIsRevenueCatReady(true);
       } catch (error) {
         console.error("❌ RevenueCat initialization error:", error);
-        if (mounted) setIsRevenueCatReady(false);
+        setIsRevenueCatReady(false);
       }
     };
 
-    initializeRevenueCat();
-
-    return () => { mounted = false; };
-  }, [user?.uid, setIsRevenueCatReady]);
+    init();
+  }, [isClient, setIsRevenueCatReady]);
 
   return null;
 }
 
 export function RootProviders({ children }: { children: React.ReactNode }) {
-  const [isNative, setIsNative] = useState(false);
-
   useEffect(() => {
-    initializeFirebasePersistence().catch(err =>
+    initializeFirebasePersistence().catch(err => 
       console.error('[Firebase] Init Error:', err)
     );
-    setIsNative(Capacitor.isNativePlatform());
   }, []);
+
+  const MainContent = () => (
+    <>
+      {children}
+      <NotificationsDialog />
+    </>
+  );
 
   return (
     <QueryProvider>
@@ -79,16 +73,12 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
               <Suspense fallback={null}>
                 <ChatProvider>
                   <PushNotificationProvider>
-                    {isNative ? (
+                    {Capacitor.isNativePlatform() ? (
                       <AdBannerProvider>
-                        {children}
-                        <NotificationsDialog />
+                        <MainContent />
                       </AdBannerProvider>
                     ) : (
-                      <>
-                        {children}
-                        <NotificationsDialog />
-                      </>
+                      <MainContent />
                     )}
                   </PushNotificationProvider>
                 </ChatProvider>

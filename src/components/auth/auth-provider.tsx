@@ -22,12 +22,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<ClientProfile | null>(null);
   const [isCoach, setIsCoach] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isClient, setIsClient] = useState(false);
+
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isClient) return;
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setIsLoading(true);
+
       if (firebaseUser) {
         setUser(firebaseUser);
         try {
@@ -50,37 +59,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(null);
         setIsCoach(false);
       }
+
       setIsLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isClient]);
 
   useEffect(() => {
-    if (isLoading) return; // Wait until auth state is loaded
+    if (!isClient || isLoading) return;
 
     const isLoggedIn = user && profile;
     const isPublicPage = ['/login', '/signup'].includes(pathname);
     const isProtectedPage = ['/coach', '/client'].some(p => pathname.startsWith(p));
 
     if (isLoggedIn && isPublicPage) {
-      // User is logged in and on a public page, redirect to their dashboard.
       const targetDashboard = isCoach ? '/coach/dashboard' : '/client/dashboard';
       router.push(targetDashboard);
     } else if (!isLoggedIn && isProtectedPage) {
-      // User is not logged in but trying to access a protected page, redirect to login.
       router.push('/login');
     }
-  }, [user, profile, isCoach, isLoading, pathname, router]);
+  }, [isClient, user, profile, isCoach, isLoading, pathname, router]);
 
   return (
-    <AuthContext.Provider 
-      value={{ 
-        user, 
-        profile, 
-        userProfile: profile as unknown as UserProfile, // Alias for compatibility
-        loading: isLoading, 
-        isCoach 
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        userProfile: profile as unknown as UserProfile,
+        loading: isLoading,
+        isCoach,
       }}
     >
       {children}
