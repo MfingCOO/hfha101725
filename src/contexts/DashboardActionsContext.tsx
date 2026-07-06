@@ -90,8 +90,8 @@ const DashboardActionsContext = createContext<DashboardActions | undefined>(unde
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  
-  // These refs act as the gatekeeper to prevent infinite loops
+
+  const [isClient, setIsClient] = useState(false);
   const lastFetchedUid = useRef<string | null>(null);
   const isFetching = useRef(false);
 
@@ -102,24 +102,21 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
-  /**
-   * Main data fetcher. 
-   * @param isManual If true, bypasses the UID check (used for notifications/refresh)
-   */
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
   const fetchChats = useCallback(async (isManual = false) => {
     const currentUid = user?.uid;
-    if (!currentUid) return;
+    if (!currentUid || !isClient) return;
 
-    // Logic Gate: Stop if we already have data for this user AND it's not a manual refresh
     if (!isManual && lastFetchedUid.current === currentUid) return;
-    
-    // Concurrency Gate: Stop if a fetch is already in flight
     if (isFetching.current) return;
 
     isFetching.current = true;
     try {
-      console.log(isManual ? "🔄 Dashboard Refreshing (Manual/Notification)" : "🚀 Dashboard Initial Load");
-      
+      console.log(isManual ? "Dashboard Refreshing (Manual/Notification)" : "Dashboard Initial Load");
+
       const [chatsResult, metadataResult] = await Promise.all([
         getChatsForClient(currentUid),
         getChatMetadataForUser(currentUid)
@@ -132,37 +129,33 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         setChatMetadata(metadataResult.data);
       }
 
-      // Mark this UID as successfully loaded
       lastFetchedUid.current = currentUid;
     } catch (error) {
       console.error("DashboardProvider: Failed to fetch data", error);
     } finally {
       isFetching.current = false;
     }
-  }, [user?.uid]);
+  }, [user?.uid, isClient]);
 
-  // Handle automatic load when user logs in
   useEffect(() => {
-    if (user?.uid) {
-      fetchChats(false); // Runs the gated fetch
+    if (isClient && user?.uid) {
+      fetchChats(false);
     } else {
-      // Clear tracking if user logs out
       lastFetchedUid.current = null;
     }
-  }, [user?.uid, fetchChats]);
+  }, [isClient, user?.uid, fetchChats]);
 
-  // Derived unread count logic
   const unreadChatCount = useMemo(() => {
     if (!chats || !chatMetadata || !user?.uid) return 0;
 
     return chats.reduce((count, chat) => {
       const metadata = chatMetadata[chat.id];
-      const lastRead = metadata?.lastReadTimestamp 
-        ? new Date(metadata.lastReadTimestamp.seconds * 1000) 
+      const lastRead = metadata?.lastReadTimestamp
+        ? new Date(metadata.lastReadTimestamp.seconds * 1000)
         : new Date(0);
-      
-      const lastMessageTimestamp = chat.lastMessage?.timestamp 
-        ? new Date(chat.lastMessage.timestamp) 
+
+      const lastMessageTimestamp = chat.lastMessage?.timestamp
+        ? new Date(chat.lastMessage.timestamp)
         : new Date(0);
 
       if (lastMessageTimestamp > lastRead && chat.lastMessage?.userId !== user.uid) {
