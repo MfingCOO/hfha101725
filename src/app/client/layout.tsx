@@ -168,7 +168,11 @@ export default function ClientLayout({
   const { user, loading, isCoach } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
+  const [showDialogManager, setShowDialogManager] = useState(false);
 
+  useEffect(() => {
+    setShowDialogManager(true);
+  }, []);
   // Activate the interstitial ad triggers
   useInterstitialAdTriggers();
 
@@ -200,7 +204,7 @@ export default function ClientLayout({
             </main>
             <BottomNavBar />
           </SidebarInset>
-          <DialogManager />
+          {showDialogManager && <DialogManager />}
           <Toaster />
       </SidebarProvider>
     </DashboardProvider>
