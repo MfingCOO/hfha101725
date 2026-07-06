@@ -10,7 +10,7 @@ import BottomNavBar from '@/components/layout/bottom-nav-bar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { ChallengesDialog } from '@/components/challenges/challenges-dialog';
 import { ChatsDialog } from '@/components/chats/chats-dialog';
-import { DashboardProvider, useDashboardActions } from '@/contexts/DashboardActionsContext';
+import { useDashboardActions } from '@/contexts/DashboardActionsContext';
 import type { ClientProfile, Challenge } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
@@ -188,28 +188,26 @@ export default function ClientLayout({
   }, [user, loading, isCoach, router]);
 
   return (
-    <DashboardProvider>
-      <SidebarProvider>
-        <Suspense fallback={null}>
-          <SearchParamHandler />
-        </Suspense>
+    <SidebarProvider>
+      <Suspense fallback={null}>
+        <SearchParamHandler />
+      </Suspense>
 
-        <AppSidebar />
-        <SidebarInset className="h-dvh flex flex-col md:ml-64">
-          <AppHeader />
-          <main className="flex-1 overflow-y-auto">
-            <ErrorBoundary router={router} toast={toast}>
-              <div className="p-4 sm:p-6 lg:p-8 pb-24">
-                {showContent && children}
-              </div>
-            </ErrorBoundary>
-          </main>
-          <BottomNavBar />
-        </SidebarInset>
+      <AppSidebar />
+      <SidebarInset className="h-dvh flex flex-col md:ml-64">
+        <AppHeader />
+        <main className="flex-1 overflow-y-auto">
+          <ErrorBoundary router={router} toast={toast}>
+            <div className="p-4 sm:p-6 lg:p-8 pb-24">
+              {showContent && children}
+            </div>
+          </ErrorBoundary>
+        </main>
+        <BottomNavBar />
+      </SidebarInset>
 
-        {showDialogManager && <DialogManager />}
-        <Toaster />
-      </SidebarProvider>
-    </DashboardProvider>
+      {showDialogManager && <DialogManager />}
+      <Toaster />
+    </SidebarProvider>
   );
 }

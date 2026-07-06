@@ -4,7 +4,7 @@ import { useAuth } from '@/components/auth/auth-provider';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AppHeader } from '@/components/layout/app-header';
-import { DashboardProvider, useDashboardActions } from '@/contexts/DashboardActionsContext';
+import { useDashboardActions } from '@/contexts/DashboardActionsContext';
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
@@ -76,12 +76,10 @@ export default function CoachLayout({
   }
 
   return (
-    <DashboardProvider>
-      <SidebarProvider>
-        {showContent && (
-          <CoachLayoutContent>{children}</CoachLayoutContent>
-        )}
-      </SidebarProvider>
-    </DashboardProvider>
+    <SidebarProvider>
+      {showContent && (
+        <CoachLayoutContent>{children}</CoachLayoutContent>
+      )}
+    </SidebarProvider>
   );
 }
