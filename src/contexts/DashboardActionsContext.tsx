@@ -5,7 +5,6 @@ import type { Chat } from '@/types';
 import { useAuth } from '@/components/auth/auth-provider';
 import { getChatsForClient, getChatMetadataForUser } from '@/app/chats/actions';
 
-// --- ChatDialog Context ---
 interface ChatDialogContextType {
   isChatOpen: boolean;
   openChat: () => void;
@@ -62,7 +61,6 @@ export const useChatDialog = () => {
   return context;
 };
 
-// --- Dashboard Context ---
 interface DashboardState {
   chats: Chat[];
   unreadChatCount: number;
@@ -90,8 +88,8 @@ const DashboardActionsContext = createContext<DashboardActions | undefined>(unde
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-
   const [isClient, setIsClient] = useState(false);
+
   const lastFetchedUid = useRef<string | null>(null);
   const isFetching = useRef(false);
 
@@ -114,9 +112,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     if (isFetching.current) return;
 
     isFetching.current = true;
-    try {
-      console.log(isManual ? "Dashboard Refreshing (Manual/Notification)" : "Dashboard Initial Load");
 
+    try {
       const [chatsResult, metadataResult] = await Promise.all([
         getChatsForClient(currentUid),
         getChatMetadataForUser(currentUid)
