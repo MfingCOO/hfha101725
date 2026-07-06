@@ -49,10 +49,7 @@ function RevenueCatInitializer() {
 }
 
 export function RootProviders({ children }: { children: React.ReactNode }) {
-  const [isClient, setIsClient] = useState(false);
-
   useEffect(() => {
-    setIsClient(true);
     initializeFirebasePersistence().catch(err => 
       console.error('[Firebase] Init Error:', err)
     );
