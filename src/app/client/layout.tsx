@@ -49,7 +49,10 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Caught by local error boundary:", error, errorInfo);
+    console.error("Global Error Boundary Caught:", error);
+    console.error("Error Info:", errorInfo);
+    console.error("Error Stack:", error.stack);
+  
     this.props.toast({
       variant: 'default',
       title: 'So Sorry!',
