@@ -21,9 +21,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 import { useInterstitialAdTriggers } from '@/hooks/useInterstitialAdTriggers';
 import dynamic from 'next/dynamic';
-import { Capacitor } from '@capacitor/core';
 
-// Lazy-load the two dialogs that still had static top-level native imports
+// Lazy-load dialogs
 const CalendarDialog = dynamic(() => import('@/components/calendar/calendar-dialog').then((mod) => mod.CalendarDialog), { ssr: false });
 const SettingsDialog = dynamic(() => import('@/components/settings/SettingsDialog').then((mod) => mod.SettingsDialog), { ssr: false });
 
@@ -52,7 +51,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     console.error("Global Error Boundary Caught:", error);
     console.error("Error Info:", errorInfo);
     console.error("Error Stack:", error.stack);
-  
+
     this.props.toast({
       variant: 'default',
       title: 'So Sorry!',
@@ -76,7 +75,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
-// Dialog Manager Component
+// Dialog Manager
 function DialogManager() {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -166,6 +165,18 @@ function SearchParamHandler() {
   return null;
 }
 
+// Lazy Interstitial Manager - Only initializes for free users on first relevant action
+function InterstitialManager() {
+  const isFreeUser = true; // TODO: Replace with real free/paid check (RevenueCat)
+
+  if (!isFreeUser) return null;
+
+  // Only call the hook here (top level of component) for free users
+  useInterstitialAdTriggers();
+
+  return null;
+}
+
 export default function ClientLayout({
   children,
 }: {
@@ -174,8 +185,6 @@ export default function ClientLayout({
   const { user, loading, isCoach } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-
-  useInterstitialAdTriggers();
 
   useEffect(() => {
     if (!loading && user && isCoach) {
@@ -203,6 +212,7 @@ export default function ClientLayout({
       </SidebarInset>
 
       <DialogManager />
+      <InterstitialManager />
       <Toaster />
     </SidebarProvider>
   );
