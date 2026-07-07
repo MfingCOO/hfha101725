@@ -49,12 +49,7 @@ function RevenueCatInitializer() {
 }
 
 export function RootProviders({ children }: { children: React.ReactNode }) {
-  const [isClient, setIsClient] = useState(false);
-  const [isNativePlatform, setIsNativePlatform] = useState(false);
-
   useEffect(() => {
-    setIsClient(true);
-    setIsNativePlatform(Capacitor.isNativePlatform());
     initializeFirebasePersistence().catch(err => 
       console.error('[Firebase] Init Error:', err)
     );
@@ -77,13 +72,7 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
               <Suspense fallback={null}>
                 <ChatProvider>
                   <PushNotificationProvider>
-                    {isNativePlatform ? (
-                      <AdBannerProvider>
-                        <MainContent />
-                      </AdBannerProvider>
-                    ) : (
-                      <MainContent />
-                    )}
+                    <MainContent />
                   </PushNotificationProvider>
                 </ChatProvider>
               </Suspense>

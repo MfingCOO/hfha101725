@@ -171,14 +171,6 @@ export default function ClientLayout({
   const router = useRouter();
   const { toast } = useToast();
 
-  const [showDialogManager, setShowDialogManager] = useState(false);
-  const [showContent, setShowContent] = useState(false);
-
-  useEffect(() => {
-    setShowDialogManager(true);
-    setShowContent(true);
-  }, []);
-
   useInterstitialAdTriggers();
 
   useEffect(() => {
@@ -198,15 +190,15 @@ export default function ClientLayout({
         <AppHeader />
         <main className="flex-1 overflow-y-auto">
           <ErrorBoundary router={router} toast={toast}>
-            <div className="p-4 sm:p-6 lg:p-8 pb-24">
-              {showContent && children}
+          <div className="p-4 sm:p-6 lg:p-8 pb-24">
+              {children}
             </div>
           </ErrorBoundary>
         </main>
         <BottomNavBar />
       </SidebarInset>
 
-      {showDialogManager && <DialogManager />}
+      <DialogManager />
       <Toaster />
     </SidebarProvider>
   );

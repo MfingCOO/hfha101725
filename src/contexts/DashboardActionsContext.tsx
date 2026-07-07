@@ -88,7 +88,6 @@ const DashboardActionsContext = createContext<DashboardActions | undefined>(unde
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [isClient, setIsClient] = useState(false);
 
   const lastFetchedUid = useRef<string | null>(null);
   const isFetching = useRef(false);
@@ -100,13 +99,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
   const fetchChats = useCallback(async (isManual = false) => {
     const currentUid = user?.uid;
-    if (!currentUid || !isClient) return;
+    if (!currentUid) return;
 
     if (!isManual && lastFetchedUid.current === currentUid) return;
     if (isFetching.current) return;
@@ -132,15 +127,15 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     } finally {
       isFetching.current = false;
     }
-  }, [user?.uid, isClient]);
+  }, [user?.uid]);
 
   useEffect(() => {
-    if (isClient && user?.uid) {
+    if (user?.uid) {
       fetchChats(false);
     } else {
       lastFetchedUid.current = null;
     }
-  }, [isClient, user?.uid, fetchChats]);
+  }, [user?.uid, fetchChats]);
 
   const unreadChatCount = useMemo(() => {
     if (!chats || !chatMetadata || !user?.uid) return 0;
