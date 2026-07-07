@@ -21,6 +21,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 import { useInterstitialAdTriggers } from '@/hooks/useInterstitialAdTriggers';
 import dynamic from 'next/dynamic';
+import { Capacitor } from '@capacitor/core';
 
 // Lazy-load the two dialogs that still had static top-level native imports
 const CalendarDialog = dynamic(() => import('@/components/calendar/calendar-dialog').then((mod) => mod.CalendarDialog), { ssr: false });

@@ -131,11 +131,15 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (user?.uid) {
-      fetchChats(false);
+      const timer = setTimeout(() => {
+        fetchChats(false);
+      }, 600);
+
+      return () => clearTimeout(timer);
     } else {
       lastFetchedUid.current = null;
     }
-  }, [user?.uid, fetchChats]);
+  }, [user?.uid]);
 
   const unreadChatCount = useMemo(() => {
     if (!chats || !chatMetadata || !user?.uid) return 0;
