@@ -53,12 +53,12 @@ export default function CoachLayout({
 }) {
   const { isCoach, loading, user } = useAuth();
   const router = useRouter();
+
+  // Minimal initial render
   const [isMounted, setIsMounted] = useState(false);
-  const [showContent, setShowContent] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
-    setShowContent(true);
   }, []);
 
   useEffect(() => {
@@ -77,9 +77,7 @@ export default function CoachLayout({
 
   return (
     <SidebarProvider>
-      {showContent && (
-        <CoachLayoutContent>{children}</CoachLayoutContent>
-      )}
+      <CoachLayoutContent>{children}</CoachLayoutContent>
     </SidebarProvider>
   );
 }

@@ -22,11 +22,11 @@ import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 import { useInterstitialAdTriggers } from '@/hooks/useInterstitialAdTriggers';
 import dynamic from 'next/dynamic';
 
-// Lazy-load dialogs
+// Lazy-load heavy dialogs
 const CalendarDialog = dynamic(() => import('@/components/calendar/calendar-dialog').then((mod) => mod.CalendarDialog), { ssr: false });
 const SettingsDialog = dynamic(() => import('@/components/settings/SettingsDialog').then((mod) => mod.SettingsDialog), { ssr: false });
 
-// Error Boundary
+// Error Boundary (improved)
 interface ErrorBoundaryProps {
   children: React.ReactNode;
   router: { push: (path: string) => void };
@@ -75,7 +75,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
-// Dialog Manager
+// Dialog Manager (lazy)
 function DialogManager() {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -165,13 +165,12 @@ function SearchParamHandler() {
   return null;
 }
 
-// Lazy Interstitial Manager - Only initializes for free users on first relevant action
+// Lazy Interstitial Manager - Only for free users
 function InterstitialManager() {
-  const isFreeUser = true; // TODO: Replace with real free/paid check (RevenueCat)
+  const isFreeUser = true; // TODO: Replace with real RevenueCat check
 
   if (!isFreeUser) return null;
 
-  // Only call the hook here (top level of component) for free users
   useInterstitialAdTriggers();
 
   return null;
@@ -203,7 +202,7 @@ export default function ClientLayout({
         <AppHeader />
         <main className="flex-1 overflow-y-auto">
           <ErrorBoundary router={router} toast={toast}>
-          <div className="p-4 sm:p-6 lg:p-8 pb-24">
+            <div className="p-4 sm:p-6 lg:p-8 pb-24">
               {children}
             </div>
           </ErrorBoundary>

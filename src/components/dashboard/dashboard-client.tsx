@@ -243,7 +243,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       fetchDashboardData();
     }
 
-    if (user?.uid && !isCoach) {
+    if (user && typeof user.uid === 'string' && !isCoach) {
       const docRef = doc(db, 'clients', user.uid);
       const unsubscribe = onSnapshot(docRef, (docSnap) => {
         if (docSnap.exists()) {
