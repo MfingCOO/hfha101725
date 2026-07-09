@@ -53,15 +53,8 @@ export function LoginForm() {
       const result = await getUserProfileAndRole(user.uid);
 
       if (result.success && 'data' in result) {
-        const profileData = result.data as any;
         toast({ title: "Login Successful", description: "Welcome back!" });
-
-        // 3. Smart Redirect based on role
-        if (profileData?.role === 'coach') {
-          router.push('/coach/dashboard');
-        } else {
-          router.push('/client/dashboard');
-        }
+        router.push('/client/dashboard'); // Always go to client dashboard
       } else {
         // Fallback: If no profile exists, they likely need to complete signup
         toast({ title: "Profile incomplete", description: "Redirecting to setup..." });

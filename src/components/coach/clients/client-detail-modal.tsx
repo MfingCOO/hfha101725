@@ -1,4 +1,5 @@
 'use client';
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ClientStatsDashboard } from './client-stats-dashboard';
@@ -23,8 +24,9 @@ import { ClientCalendarView } from './ClientCalendarView';
 import { CoachNotes } from './CoachNotes';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { WeightTrendAnalysisModal } from '@/components/client/insights/weight-trend-analysis-modal';
+import { ProgramListDialog } from '@/components/programs/program-list-dialog';
+import { assignProgramToClient, getProgramByIdAction } from '@/app/coach/clients/actions';
 
-// This interface and the aggregation logic are copied directly from the working insights-dialog.tsx
 interface ClientLog {
     entryDate: string;
     pillar: string;
@@ -51,8 +53,11 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isWeightTrendModalOpen, setIsWeightTrendModalOpen] = useState(false);
 
-  // LOGIC COPIED FROM insights-dialog.tsx
+  const [currentProgramName, setCurrentProgramName] = useState<string | null>(null);
+  const [isProgramDialogOpen, setIsProgramDialogOpen] = useState(false);
+
   const aggregateLogs = useCallback((logs: ClientLog[]): DailySummary => {
+        // ... (keep your existing aggregateLogs function exactly as it is)
         const dailyData = new Map<string, any>();
         let totalStressEvents = 0;
         let totalStressReliefs = 0;
@@ -117,7 +122,6 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
         };
     }, [client?.dailySummary]);
 
-  // LOGIC COPIED FROM insights-dialog.tsx
   useEffect(() => {
     if (isOpen && initialClient.uid) {
       setClient(initialClient); 
@@ -134,13 +138,70 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
     }
   }, [isOpen, initialClient, aggregateLogs, toast]);
 
+  // FIXED: Use server action to avoid permission errors
+  useEffect(() => {
+    const fetchCurrentProgram = async () => {
+      const activeProgramId = client?.activeProgramId || initialClient?.activeProgramId;
+
+      if (!activeProgramId) {
+        setCurrentProgramName(null);
+        return;
+      }
+
+      try {
+        const result = await getProgramByIdAction(activeProgramId);
+
+        if (result.success && result.data) {
+          setCurrentProgramName(result.data.name || result.data.title || 'Unnamed Program');
+        } else {
+          setCurrentProgramName(null);
+        }
+      } catch (error) {
+        console.error('Error fetching current program:', error);
+        setCurrentProgramName(null);
+      }
+    };
+
+    if (isOpen) {
+      fetchCurrentProgram();
+    }
+  }, [isOpen, client?.activeProgramId, initialClient?.activeProgramId]);
+
   const handleDeleteClient = async () => {
     if (!client?.uid) return;
     setIsDeletingClient(true);
-    // ... delete logic
+    // keep your existing delete logic
   };
 
   const isTrendAnalysisEnabled = client?.tier === 'premium' || client?.tier === 'coaching';
+
+  const handleProgramSelected = async (program: any) => {
+    if (!client?.uid) return;
+
+    try {
+      const result = await assignProgramToClient(client.uid, program.id);
+
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+
+      setClient(prev => prev ? { ...prev, activeProgramId: program.id } : null);
+      setCurrentProgramName(program.name);
+      setIsProgramDialogOpen(false);
+
+      toast({
+        title: "Program Assigned",
+        description: `${program.name} has been assigned to ${client.fullName}.`,
+      });
+    } catch (error: any) {
+      console.error('Error assigning program:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to assign program. Please try again.",
+      });
+    }
+  };
 
   return (
     <>
@@ -171,6 +232,22 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
                                       onDeleteClient={() => setDeleteClientAlertOpen(true)}
                                       isRefreshing={isRefreshing}
                                   />
+
+                                  <div className="flex items-center justify-between border-t pt-4 mt-4">
+                                    <div>
+                                      <p className="text-sm text-muted-foreground">Current Workout</p>
+                                      <p className="font-medium">
+                                        {currentProgramName || 'None'}
+                                      </p>
+                                    </div>
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      onClick={() => setIsProgramDialogOpen(true)}
+                                    >
+                                      {currentProgramName ? 'Change' : 'Add Program'}
+                                    </Button>
+                                  </div>
                               </AccordionContent>
                           </AccordionItem>
                           
@@ -227,6 +304,14 @@ export function ClientDetailModal({ client: initialClient, isOpen, onClose }: Cl
           clientId={client.uid}
         />
       )}
+
+      <ProgramListDialog
+        isOpen={isProgramDialogOpen}
+        onClose={() => setIsProgramDialogOpen(false)}
+        userProfile={client}
+        onOpenUpgradeModal={() => {}}
+        onProgramSelect={handleProgramSelected}
+      />
     </>
   );
 }

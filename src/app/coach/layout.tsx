@@ -1,50 +1,36 @@
 'use client';
 
 import { useAuth } from '@/components/auth/auth-provider';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import { AppHeader } from '@/components/layout/app-header';
-import { useDashboardActions } from '@/contexts/DashboardActionsContext';
-import { SettingsDialog } from '@/components/settings/SettingsDialog';
+import { AppSidebar } from '@/components/layout/app-sidebar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
-import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
-import { useNotificationStore } from '@/store/notification-store';
-import React from 'react';
+import { Toaster } from '@/components/ui/toaster';
 import { Loader2 } from 'lucide-react';
+import { useDashboardActions } from '@/contexts/DashboardActionsContext';
+import { ChatsDialog } from '@/components/chats/chats-dialog';
+import { SettingsDialog } from '@/components/settings/SettingsDialog';
 
-const CoachLayoutContent = ({ children }: { children: React.ReactNode }) => {
-  const { isSettingsOpen, onCloseSettings } = useDashboardActions();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { setNotificationChatId } = useNotificationStore();
-
-  useEffect(() => {
-    if (searchParams) {
-      const chatId = searchParams.get('chatId');
-      if (chatId) {
-        console.log(`[CoachLayout] Deep link: Found chatId=${chatId} in URL. Opening chat.`);
-        setNotificationChatId(chatId);
-        router.replace('/coach/dashboard', { scroll: false });
-      }
-    }
-  }, [searchParams, setNotificationChatId, router]);
+function DialogManager() {
+  const { profile } = useAuth();
+  const {
+    isSettingsOpen,
+    onCloseSettings
+  } = useDashboardActions();
 
   return (
     <>
-      <NotificationActionHandler />
-      <SidebarInset>
-        <AppHeader />
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          {children}
-        </div>
-      </SidebarInset>
-      <SettingsDialog
-        open={isSettingsOpen}
-        onOpenChange={onCloseSettings}
-      />
+      <ChatsDialog />
+      {isSettingsOpen && (
+        <SettingsDialog
+          open={isSettingsOpen}
+          onOpenChange={onCloseSettings}
+        />
+      )}
     </>
   );
-};
+}
 
 export default function CoachLayout({
   children,
@@ -54,30 +40,44 @@ export default function CoachLayout({
   const { isCoach, loading, user } = useAuth();
   const router = useRouter();
 
-  // Minimal initial render
-  const [isMounted, setIsMounted] = useState(false);
-
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (isMounted && !loading && user && !isCoach) {
-      router.replace('/');
+    if (!loading) {
+      if (!user) {
+        router.replace('/');
+      } else if (!isCoach) {
+        // Only non-coaches get redirected away from coach routes
+        router.replace('/client/dashboard');
+      }
     }
-  }, [isMounted, isCoach, loading, user, router]);
+  }, [isCoach, loading, user, router]);
 
-  if (!isMounted || loading || !user) {
+  if (loading || !user) {
     return (
-      <div className="w-full h-screen flex items-center justify-center">
+      <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
   }
 
+  // Don't render coach layout content for non-coaches
+  if (!isCoach) {
+    return null;
+  }
+
   return (
     <SidebarProvider>
-      <CoachLayoutContent>{children}</CoachLayoutContent>
+      <AppSidebar />
+      <SidebarInset className="h-dvh flex flex-col md:ml-64">
+        <AppHeader />
+        <main className="flex-1 overflow-y-auto">
+          <div className="p-4 sm:p-6 lg:p-8 pb-24">
+            {children}
+          </div>
+        </main>
+      </SidebarInset>
+
+      <DialogManager />
+      <Toaster />
     </SidebarProvider>
   );
 }

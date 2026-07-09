@@ -2,7 +2,7 @@
 
 import { admin, db as adminDb } from "@/lib/firebaseAdmin";
 import { Chat, Challenge, ClientProfile } from "@/types";
-import { Timestamp, FieldValue } from "firebase-admin/firestore";
+import { Timestamp, FieldValue, FieldPath } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
 // Helper function to serialize Firestore Timestamps
@@ -126,14 +126,46 @@ export async function createOpenChat(name: string, description: string, rules: s
 }
 
 /**
- * Fetches all challenges for coach.
+ * Fetches all challenges for coach (enriched with participant details).
  */
 export async function getChallengesForCoach(): Promise<{ success: boolean; data?: Challenge[]; error?: any; }> {
     try {
         const q = adminDb.collection("challenges").orderBy("dates.from", "desc");
         const querySnapshot = await q.get();
         const challenges = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Challenge));
-        const serializedChallenges = serializeTimestamps(challenges);
+
+        // Enrich with participant names (same as events)
+        const allParticipantIds = [...new Set(challenges.flatMap(c => c.participants || []))];
+        let participantProfiles: { [uid: string]: any } = {};
+
+        if (allParticipantIds.length > 0) {
+            const MAX_IDS_PER_QUERY = 30;
+            for (let i = 0; i < allParticipantIds.length; i += MAX_IDS_PER_QUERY) {
+                const chunk = allParticipantIds.slice(i, i + MAX_IDS_PER_QUERY);
+                if (chunk.length > 0) {
+                    const q2 = adminDb.collection('clients').where(FieldPath.documentId(), 'in', chunk);
+                    const snapshot = await q2.get();
+                    snapshot.forEach(doc => {
+                        participantProfiles[doc.id] = doc.data();
+                    });
+                }
+            }
+        }
+
+        const enrichedChallenges = challenges.map(challenge => {
+            const serializedParticipants = (challenge.participants || []).map(uid => {
+                const profile = participantProfiles[uid];
+                return {
+                    fullName: profile?.fullName || profile?.displayName || `Client ${uid.slice(0,8)}...`,
+                };
+            });
+            return {
+                ...challenge,
+                participantDetails: serializedParticipants,
+            };
+        });
+
+        const serializedChallenges = serializeTimestamps(enrichedChallenges);
 
         return { success: true, data: serializedChallenges };
     } catch (error) {
@@ -258,4 +290,80 @@ export async function deleteChallengeAction(challengeId: string): Promise<{ succ
         console.error("Error deleting challenge:", error);
         return { success: false, error: error.message };
     }
+}
+
+export async function addClientToChallenge(
+  challengeId: string, 
+  clientId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!challengeId || !clientId) {
+    return { success: false, error: "Challenge ID and Client ID are required" };
+  }
+
+  try {
+    const challengeRef = adminDb.collection('challenges').doc(challengeId);
+    const challengeSnap = await challengeRef.get();
+
+    if (!challengeSnap.exists) {
+      return { success: false, error: "Challenge not found" };
+    }
+
+    const challengeData = challengeSnap.data();
+
+    const currentParticipants: string[] = challengeData?.participants || [];
+    if (!currentParticipants.includes(clientId)) {
+      await challengeRef.update({
+        participants: FieldValue.arrayUnion(clientId),
+      });
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error adding client to challenge:", error);
+    return { success: false, error: error.message || "Failed to add client to challenge" };
+  }
+}
+
+export async function searchClients(query: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+  if (!query || query.length < 2) {
+    return { success: true, data: [] };
+  }
+
+  try {
+    const lowerQuery = query.toLowerCase();
+
+    // Search by name (prefix match)
+    const nameQuery = adminDb.collection('clients')
+      .where('fullName', '>=', query)
+      .where('fullName', '<=', query + '\uf8ff')
+      .limit(30);
+
+    const nameSnap = await nameQuery.get();
+
+    // Search by email
+    const emailQuery = adminDb.collection('clients')
+      .where('email', '>=', lowerQuery)
+      .where('email', '<=', lowerQuery + '\uf8ff')
+      .limit(30);
+
+    const emailSnap = await emailQuery.get();
+
+    const resultsMap = new Map();
+
+    [...nameSnap.docs, ...emailSnap.docs].forEach(doc => {
+      const data = doc.data();
+      if (!resultsMap.has(doc.id)) {
+        resultsMap.set(doc.id, {
+          uid: doc.id,
+          fullName: data.fullName || data.displayName || 'Unknown',
+          email: data.email || '',
+        });
+      }
+    });
+
+    return { success: true, data: Array.from(resultsMap.values()) };
+  } catch (error: any) {
+    console.error("Error searching clients:", error);
+    return { success: false, error: error.message };
+  }
 }

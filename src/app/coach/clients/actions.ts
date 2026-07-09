@@ -5,10 +5,8 @@ import type { ClientProfile, CoachNote, CreateClientInput, UserTier, Chat } from
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { calculateIdealBodyWeight, calculateNutritionalGoals } from '@/services/goals';
 
-// FINAL FIX: Added the missing helper function.
 const getParticipantId = (p: string | ClientProfile): string => typeof p === 'string' ? p : p.uid;
 
-// FINAL FIX: This is the robust serialization function that handles all Timestamp formats recursively.
 function serializeTimestamps(data: any): any {
     if (data === null || data === undefined || typeof data !== 'object') {
         return data;
@@ -318,7 +316,7 @@ export async function signupOrUpgradeClientAction(data: CreateClientInput & { pa
         try {
             const existingUser = await auth.getUserByEmail(email);
             uid = existingUser.uid;
-            console.log(`[SIGNUP/UPGRADE] Existing user found → ${uid} (treating as upgrade)`);
+            console.log(`[SIGNUP/UPGRADE] Existing user found → ${uid} (treat as upgrade)`);
         } catch (error: any) {
             if (error.code === 'auth/user-not-found') {
                 const newUser = await auth.createUser({
@@ -386,4 +384,53 @@ export async function signupOrUpgradeClientAction(data: CreateClientInput & { pa
         }
         return { success: false, error: error.message || 'Failed to create/upgrade account' };
     }
+}
+
+// Assign program to client (used by coaches)
+export async function assignProgramToClient(
+  clientId: string, 
+  programId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!clientId || !programId) {
+    return { success: false, error: 'Missing clientId or programId' };
+  }
+
+  try {
+    const clientRef = adminDb.collection('clients').doc(clientId);
+    await clientRef.update({
+      activeProgramId: programId,
+    });
+    return { success: true };
+  } catch (error: any) {
+    console.error(`Error assigning program to client ${clientId}:`, error);
+    return { success: false, error: error.message };
+  }
+}
+
+// NEW: Safe server-side fetch for program details (fixes permission error)
+export async function getProgramByIdAction(programId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  try {
+    if (!programId) {
+      return { success: false, error: "Program ID is required" };
+    }
+
+    const programRef = adminDb.collection('programs').doc(programId);
+    const programSnap = await programRef.get();
+
+    if (!programSnap.exists) {
+      return { success: false, error: "Program not found" };
+    }
+
+    const programData = programSnap.data();
+    return { 
+      success: true, 
+      data: { 
+        id: programSnap.id, 
+        ...programData 
+      } 
+    };
+  } catch (error: any) {
+    console.error(`Error fetching program ${programId}:`, error);
+    return { success: false, error: error.message };
+  }
 }

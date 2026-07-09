@@ -16,15 +16,23 @@ interface ProgramListDialogProps {
   onClose: () => void;
   userProfile: UserProfile | null;
   onOpenUpgradeModal: () => void;
+  onProgramSelect?: (program: Program) => void; // NEW: For coach assignment
 }
 
-export function ProgramListDialog({ isOpen, onClose, userProfile, onOpenUpgradeModal }: ProgramListDialogProps) {
+export function ProgramListDialog({ 
+  isOpen, 
+  onClose, 
+  userProfile, 
+  onOpenUpgradeModal,
+  onProgramSelect 
+}: ProgramListDialogProps) {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubscribing, setIsSubscribing] = useState<string | null>(null);
   const { toast } = useToast();
 
   const hasProgramAccess = userProfile?.tier === UserTier.Premium || userProfile?.tier === UserTier.Coaching;
+  const isCoachAssignMode = !!onProgramSelect; // If callback is passed, we're in coach mode
 
   useEffect(() => {
     const fetchPrograms = async () => {
@@ -68,23 +76,39 @@ export function ProgramListDialog({ isOpen, onClose, userProfile, onOpenUpgradeM
     setIsSubscribing(null);
   };
 
+  // NEW: Handler for coach assigning a program
+  const handleProgramSelect = (program: Program) => {
+    if (onProgramSelect) {
+      onProgramSelect(program);
+    }
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Workout Programs</DialogTitle>
-          <DialogDescription>Browse and subscribe to a program to start your journey.</DialogDescription>
+          <DialogDescription>
+            {isCoachAssignMode 
+              ? "Select a program to assign to the client." 
+              : "Browse and subscribe to a program to start your journey."
+            }
+          </DialogDescription>
         </DialogHeader>
+
         <div className="mt-4 space-y-4 max-h-[60vh] overflow-y-auto pr-2">
           {isLoading ? (
             <div className="flex justify-center items-center h-40">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : programs.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">No workout programs available at the moment. Please check back later.</p>
+            <p className="text-center text-muted-foreground py-8">
+              No workout programs available at the moment. Please check back later.
+            </p>
           ) : (
             programs.map(program => {
               const isSubscribed = userProfile?.activeProgramId === program.id;
+
               return (
                 <Card key={program.id} className="hover:bg-muted/50 transition-colors">
                   <CardContent className="p-4">
@@ -92,10 +116,23 @@ export function ProgramListDialog({ isOpen, onClose, userProfile, onOpenUpgradeM
                       <div className="flex-1 space-y-1 min-w-0">
                         <h3 className="font-semibold text-lg">{program.name}</h3>
                         <p className="text-sm text-muted-foreground line-clamp-2">{program.description}</p>
-                        <Badge variant="outline" className="text-xs">{typeof program.duration === 'number' ? `${program.duration} Weeks` : 'Continuous'}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {typeof program.duration === 'number' ? `${program.duration} Weeks` : 'Continuous'}
+                        </Badge>
                       </div>
+
                       <div className="flex-shrink-0">
-                        {hasProgramAccess ? (
+                        {isCoachAssignMode ? (
+                          // Coach Assign Mode
+                          <Button 
+                            size="sm"
+                            onClick={() => handleProgramSelect(program)}
+                            className="whitespace-nowrap"
+                          >
+                            Select
+                          </Button>
+                        ) : hasProgramAccess ? (
+                          // Normal Client Mode
                           <Button 
                             size="sm"
                             onClick={() => handleSubscribe(program.id)}

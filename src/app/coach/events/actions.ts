@@ -20,7 +20,6 @@ type LiveEventInput = z.infer<typeof LiveEventInputSchema>;
 
 /**
  * Creates a new live event, and also adds a corresponding event to the coach's calendar.
- * This ensures data consistency and prevents scheduling conflicts.
  */
 export async function createLiveEvent(input: LiveEventInput): Promise<{ success: boolean; error?: string; }> {
   const validation = LiveEventInputSchema.safeParse(input);
@@ -63,17 +62,17 @@ export async function createLiveEvent(input: LiveEventInput): Promise<{ success:
       eventTimestamp: Timestamp.fromDate(utcEventDate),
       entryDate: Timestamp.fromDate(startOfDayUTC),
       durationMinutes,
-      signUpDeadline: Timestamp.fromDate(new Date(utcEventDate.getTime() - 24 * 60 * 60 * 1000)), // Set deadline 24 hours before event
+      signUpDeadline: Timestamp.fromDate(new Date(utcEventDate.getTime() - 24 * 60 * 60 * 1000)),
       attendees: [],
       createdAt: FieldValue.serverTimestamp(),
-      ...(videoConferenceLink !== null && { videoConferenceLink }), // Only add if not null
+      ...(videoConferenceLink !== null && { videoConferenceLink }),
     };
 
     batch.set(liveEventRef, liveEventData);
 
     const calendarEventData = {
         coachId,
-        liveEventId: liveEventRef.id, // This links the calendar event to the live event
+        liveEventId: liveEventRef.id,
         title: `[Live Event] ${title}`,
         start: Timestamp.fromDate(utcEventDate),
         entryDate: Timestamp.fromDate(startOfDayUTC),
@@ -123,7 +122,7 @@ export async function signUpForEvent(input: z.infer<typeof SignUpInputSchema>): 
       }
       
       if (liveEvent.attendees.includes(userId)) {
-          return; // Gracefully exit if already signed up
+          return;
       }
 
       transaction.update(liveEventRef, { attendees: FieldValue.arrayUnion(userId) });
@@ -150,7 +149,7 @@ export async function signUpForEvent(input: z.infer<typeof SignUpInputSchema>): 
           end: Timestamp.fromDate(new Date(eventDate.getTime() + Number(liveEvent.durationMinutes) * 60000)),
           description: `You are registered for the live event: "${liveEvent.title}".\n\n${liveEvent.description}`,
           type: 'live-event',
-          videoCallLink: liveEvent.videoConferenceLink, // Reverted: Will be null or string, never undefined now.
+          videoCallLink: liveEvent.videoConferenceLink,
           reminders: [ { method: 'popup', minutes: 30 } ]
       };
 
@@ -166,64 +165,62 @@ export async function signUpForEvent(input: z.infer<typeof SignUpInputSchema>): 
 }
 
 export async function getLiveEvents(): Promise<{ success: boolean; data?: any[]; error?: string; }> {
-    try {
-        const now = Timestamp.now();
-        const eventsQuery = adminDb.collection('liveEvents').where('eventTimestamp', '>=', now).orderBy('eventTimestamp', 'asc');
-        const eventsSnapshot = await eventsQuery.get();
+  try {
+      const now = Timestamp.now();
+      const eventsQuery = adminDb.collection('liveEvents').where('eventTimestamp', '>=', now).orderBy('eventTimestamp', 'asc');
+      const eventsSnapshot = await eventsQuery.get();
 
-        if (eventsSnapshot.empty) {
-            return { success: true, data: [] };
-        }
-        
-        const events = eventsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as LiveEvent[];
-        const allAttendeeIds = [...new Set(events.flatMap(event => event.attendees))];
+      if (eventsSnapshot.empty) {
+          return { success: true, data: [] };
+      }
+      
+      const events = eventsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as LiveEvent[];
+      const allAttendeeIds = [...new Set(events.flatMap(event => event.attendees || []))];
 
-        let attendeeProfiles: { [uid: string]: UserProfile } = {};
+      let attendeeProfiles: { [uid: string]: any } = {};
 
-        if (allAttendeeIds.length > 0) {
-            const MAX_IDS_PER_QUERY = 30; 
-            for (let i = 0; i < allAttendeeIds.length; i += MAX_IDS_PER_QUERY) {
-                const chunk = allAttendeeIds.slice(i, i + MAX_IDS_PER_QUERY);
-                if (chunk.length > 0) {
-                    const q = adminDb.collection('userProfiles').where(FieldPath.documentId(), 'in', chunk);
-                    const snapshot = await q.get();
-                    snapshot.forEach(doc => {
-                        attendeeProfiles[doc.id] = doc.data() as UserProfile;
-                    });
-                }
-            }
-        }
-        
-        const serializedEvents = events.map(event => {
-            const serializedAttendees = event.attendees.map(uid => {
-                const profile = attendeeProfiles[uid];
-                if (!profile) return null;
-                return {
-                    ...profile,
-                    createdAt: (profile.createdAt as any)?.toDate?.().toISOString() || null,
-                    lastBinge: (profile.lastBinge as any)?.toDate?.().toISOString() || null,
-                    bingeFreeSince: (profile.bingeFreeSince as any)?.toDate?.().toISOString() || null,
-                    lastInteraction: (profile.lastInteraction as any)?.toDate?.().toISOString() || null,
-                    lastStreakNotification: (profile.lastStreakNotification as any)?.toDate?.().toISOString() || null,
-                };
-            }).filter(Boolean);
+      if (allAttendeeIds.length > 0) {
+          const MAX_IDS_PER_QUERY = 30; 
+          for (let i = 0; i < allAttendeeIds.length; i += MAX_IDS_PER_QUERY) {
+              const chunk = allAttendeeIds.slice(i, i + MAX_IDS_PER_QUERY);
+              if (chunk.length > 0) {
+                  const q = adminDb.collection('clients').where(FieldPath.documentId(), 'in', chunk);
+                  const snapshot = await q.get();
+                  snapshot.forEach(doc => {
+                      attendeeProfiles[doc.id] = doc.data();
+                  });
+              }
+          }
+      }
+      
+      const serializedEvents = events.map(event => {
+          const serializedAttendees = (event.attendees || []).map(uid => {
+              const profile = attendeeProfiles[uid];
+              if (!profile) {
+                  return { fullName: `Client ${uid.slice(0, 8)}...` }; // Fallback for coach-added clients
+              }
+              return {
+                  fullName: profile.fullName || profile.displayName || profile.name || 'Unknown User',
+                  email: profile.email,
+              };
+          }).filter(Boolean);
 
-            return {
-                ...event,
-                eventTimestamp: (event.eventTimestamp as any).toDate().toISOString(),
-                signUpDeadline: (event.signUpDeadline as any).toDate().toISOString(),
-                createdAt: (event.createdAt as any)?.toDate?.().toISOString() || null,
-                entryDate: (event.entryDate as any)?.toDate?.().toISOString() || null,
-                attendeeDetails: serializedAttendees,
-            };
-        });
+          return {
+              ...event,
+              eventTimestamp: (event.eventTimestamp as any).toDate().toISOString(),
+              signUpDeadline: (event.signUpDeadline as any).toDate().toISOString(),
+              createdAt: (event.createdAt as any)?.toDate?.().toISOString() || null,
+              entryDate: (event.entryDate as any)?.toDate?.().toISOString() || null,
+              attendeeDetails: serializedAttendees,
+          };
+      });
 
-        return { success: true, data: serializedEvents };
+      return { success: true, data: serializedEvents };
 
-    } catch (error: any) {
-        console.error("Error fetching live events:", error);
-        return { success: false, error: error.message };
-    }
+  } catch (error: any) {
+      console.error("Error fetching live events:", error);
+      return { success: false, error: error.message };
+  }
 }
 
 export async function getUpcomingLiveEvent(): Promise<{ success: boolean; data?: any; error?: string }> {
@@ -320,17 +317,11 @@ export async function deleteLiveEvent(input: z.infer<typeof DeleteLiveEventInput
   }
 }
 
-/**
- * Deletes a calendar event. This is the function that was deleted.
- * It accepts an event ID and attempts to delete it from both the coach and client calendars.
- */
 export async function deleteCalendarEventAction(eventId: string): Promise<{ success: boolean; error?: string; }> {
   if (!eventId) {
     return { success: false, error: "Event ID is required." };
   }
   try {
-    // The event could be in either calendar, so we attempt to delete from both.
-    // Firestore's delete operation does not error if the document does not exist.
     const coachCalendarRef = adminDb.collection('coachCalendar').doc(eventId);
     const clientCalendarRef = adminDb.collection('clientCalendar').doc(eventId);
 
@@ -344,5 +335,95 @@ export async function deleteCalendarEventAction(eventId: string): Promise<{ succ
   } catch (error: any) {
     console.error(`Error deleting calendar event ${eventId}:`, error);
     return { success: false, error: 'Failed to delete calendar event.' };
+  }
+}
+
+export async function addClientToLiveEvent(
+  eventId: string, 
+  clientId: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!eventId || !clientId) {
+    return { success: false, error: "Event ID and Client ID are required" };
+  }
+
+  try {
+    const eventRef = adminDb.collection('liveEvents').doc(eventId);
+    const eventSnap = await eventRef.get();
+
+    if (!eventSnap.exists) {
+      return { success: false, error: "Live event not found" };
+    }
+
+    const eventData = eventSnap.data();
+
+    const currentAttendees: string[] = eventData?.attendees || [];
+    if (!currentAttendees.includes(clientId)) {
+      await eventRef.update({
+        attendees: FieldValue.arrayUnion(clientId),
+      });
+    }
+
+    const calendarEventRef = adminDb.collection('clientCalendar').doc();
+    await calendarEventRef.set({
+      userId: clientId,
+      eventId: eventId,
+      title: eventData?.title || eventData?.name || "Live Event",
+      description: eventData?.description || "",
+      start: eventData?.start || eventData?.eventTimestamp || null,
+      startTime: eventData?.start || eventData?.eventTimestamp || null,
+      end: eventData?.end || null,
+      type: "live-event",
+      pillar: "live-event",
+      createdAt: FieldValue.serverTimestamp(),
+      addedByCoach: true,
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error adding client to live event:", error);
+    return { success: false, error: error.message || "Failed to add client to event" };
+  }
+}
+export async function searchClients(query: string): Promise<{ success: boolean; data?: any[]; error?: string }> {
+  if (!query || query.length < 2) {
+    return { success: true, data: [] };
+  }
+
+  try {
+    const lowerQuery = query.toLowerCase();
+
+    // Search by name (prefix match)
+    const nameQuery = adminDb.collection('clients')
+      .where('fullName', '>=', query)
+      .where('fullName', '<=', query + '\uf8ff')
+      .limit(30);
+
+    const nameSnap = await nameQuery.get();
+
+    // Search by email (contains)
+    const emailQuery = adminDb.collection('clients')
+      .where('email', '>=', lowerQuery)
+      .where('email', '<=', lowerQuery + '\uf8ff')
+      .limit(30);
+
+    const emailSnap = await emailQuery.get();
+
+    const resultsMap = new Map();
+
+    [...nameSnap.docs, ...emailSnap.docs].forEach(doc => {
+      const data = doc.data();
+      if (!resultsMap.has(doc.id)) {
+        resultsMap.set(doc.id, {
+          uid: doc.id,
+          fullName: data.fullName || data.displayName || 'Unknown',
+          email: data.email || '',
+        });
+      }
+    });
+
+    return { success: true, data: Array.from(resultsMap.values()) };
+  } catch (error: any) {
+    console.error("Error searching clients:", error);
+    return { success: false, error: error.message };
   }
 }

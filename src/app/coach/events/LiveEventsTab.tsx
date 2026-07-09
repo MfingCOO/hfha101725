@@ -1,167 +1,153 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useToast } from '@/hooks/use-toast';
-import { getLiveEvents, deleteLiveEvent } from './actions';
-import type { LiveEvent, ClientProfile } from '@/types';
-import { Loader2, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { 
-    DropdownMenu, 
-    DropdownMenuContent, 
-    DropdownMenuItem, 
-    DropdownMenuTrigger 
-} from '@/components/ui/dropdown-menu';
-import { 
-    AlertDialog, 
-    AlertDialogAction, 
-    AlertDialogCancel, 
-    AlertDialogContent, 
-    AlertDialogDescription, 
-    AlertDialogFooter, 
-    AlertDialogHeader, 
-    AlertDialogTitle 
-} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Plus, Users, Edit, Trash2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { getLiveEvents, updateLiveEvent, deleteLiveEvent } from './actions';
+import { AddClientToEventModal } from '@/app/coach/events/AddClientToEventModal';
 import { UpsertEventDialog } from './UpsertEventDialog';
 
-interface LiveEventWithAttendees extends LiveEvent {
-    attendeeDetails: ClientProfile[];
+interface LiveEventWithAttendees {
+  id: string;
+  title: string;
+  description: string;
+  eventTimestamp: any;
+  attendees?: string[];
+  attendeeDetails?: Array<{ fullName: string; email?: string }>;
 }
 
 export function LiveEventsTab() {
   const [events, setEvents] = useState<LiveEventWithAttendees[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [dialogState, setDialogState] = useState<{ open: boolean, event: LiveEventWithAttendees | null }>({ open: false, event: null });
-  const [deleteAlertState, setDeleteAlertState] = useState<{ open: boolean, eventId: string | null }>({ open: false, eventId: null });
+  const [selectedEventForAdd, setSelectedEventForAdd] = useState<{ id: string; title: string } | null>(null);
+  const [selectedEventForEdit, setSelectedEventForEdit] = useState<any>(null);
   const { toast } = useToast();
 
   const fetchEvents = async () => {
     setIsLoading(true);
-    try {
-      // CORRECTED: getLiveEvents now expects no arguments.
-      const result = await getLiveEvents(); 
-      
-      if (result.success) {
-        setEvents((result.data as LiveEventWithAttendees[]) || []);
-      } else {
-        throw new Error(result.error || 'Failed to fetch events.');
-      }
-    } catch (e: any) {
+    const result = await getLiveEvents();
+    
+    if (result.success) {
+      setEvents(result.data || []);
+    } else {
       toast({
-        title: 'Error Fetching Events',
-        description: e.message,
         variant: 'destructive',
+        title: 'Error',
+        description: result.error || 'Failed to load events',
       });
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
-
-  const handleDeleteEvent = async () => {
-    if (!deleteAlertState.eventId) return;
-    try {
-        // CORRECTED: deleteLiveEvent expects an object with the eventId.
-        const result = await deleteLiveEvent({ eventId: deleteAlertState.eventId });
-        
-        if (result.success) {
-            toast({ title: 'Success', description: 'Event deleted successfully.' });
-            fetchEvents();
-        } else {
-            throw new Error(result.error || 'Failed to delete event.');
-        }
-    } catch (e: any) {
-        toast({ title: 'Error', description: e.message, variant: 'destructive' });
-    }
-    setDeleteAlertState({ open: false, eventId: null });
-  }
 
   useEffect(() => {
     fetchEvents();
   }, []);
 
+  const handleClientAdded = () => {
+    fetchEvents();
+  };
+
+  const handleEditEvent = (event: any) => {
+    setSelectedEventForEdit(event);
+  };
+
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!confirm('Are you sure you want to delete this event?')) return;
+
+    const result = await deleteLiveEvent({ eventId });
+    if (result.success) {
+      toast({ title: 'Event Deleted' });
+      fetchEvents();
+    } else {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: result.error || 'Failed to delete event',
+      });
+    }
+  };
+
   if (isLoading) {
-    return (
-        <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-    );
+    return <div className="flex justify-center py-8"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>;
   }
 
   return (
-    <>
-        <div className="space-y-3">
-            {events.length > 0 ? (
-                events.map(event => (
-                <div key={event.id} className="p-3 border rounded-lg bg-card">
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <h3 className="font-semibold text-sm">{event.title}</h3>
-                            <p className="text-xs text-muted-foreground">
-                                {new Date(event.eventTimestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
-                            </p>
-                        </div>
-                        <div className="flex items-center">
-                             <div className="text-right flex-shrink-0 ml-4">
-                                <p className="font-bold">{event.attendees?.length || 0}</p>
-                                <p className="text-xs text-muted-foreground">Signed Up</p>
-                            </div>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="ml-2 h-8 w-8 flex-shrink-0">
-                                        <MoreVertical className="h-4 w-4" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => setDialogState({ open: true, event })}>
-                                        <Edit className="mr-2 h-4 w-4" /> Edit
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => setDeleteAlertState({ open: true, eventId: event.id })} className="text-destructive">
-                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </div>
-                    </div>
-                    <div className="mt-2">
-                        <h4 className="text-xs font-semibold">Attendees:</h4>
-                        {event.attendeeDetails && event.attendeeDetails.length > 0 ? (
-                            <ul className="text-xs text-muted-foreground columns-2">
-                                {event.attendeeDetails.map(a => (
-                                    <li key={a.uid} className="truncate">{a.fullName}</li>
-                                ))}
-                            </ul>
-                        ) : ( <p className="text-xs text-muted-foreground italic">No one has signed up yet.</p> )}
-                    </div>
-                </div>
-            )))
-            : (
-                <div className="text-center text-muted-foreground p-8 text-sm">
-                    <p>No upcoming events.</p>
-                </div>
-            )}
-        </div>
+    <div className="space-y-4">
+      {events.length === 0 ? (
+        <p className="text-center text-muted-foreground py-12">No upcoming live events found.</p>
+      ) : (
+        events.map((event) => {
+          const attendeeCount = event.attendees?.length || 0;
+          const attendeeNames = event.attendeeDetails 
+            ? event.attendeeDetails.map(a => a.fullName).join(', ')
+            : '';
 
-        <UpsertEventDialog
-            open={dialogState.open}
-            onOpenChange={(open) => setDialogState({ open, event: open ? dialogState.event : null })}
-            onEventUpserted={fetchEvents}
-            initialData={dialogState.event}
+          return (
+            <Card key={event.id} className="hover:bg-muted/50 transition-colors">
+              <CardContent className="p-4">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-lg">{event.title}</h3>
+                    <p className="text-sm text-muted-foreground line-clamp-2">{event.description}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {new Date(event.eventTimestamp).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {attendeeCount > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Users className="h-4 w-4" />
+                        {attendeeCount}
+                      </div>
+                    )}
+
+                    <Button size="sm" variant="outline" onClick={() => setSelectedEventForAdd({ id: event.id, title: event.title })}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+
+                    <Button size="sm" variant="outline" onClick={() => handleEditEvent(event)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+
+                    <Button size="sm" variant="outline" onClick={() => handleDeleteEvent(event.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {attendeeNames && (
+                  <div className="mt-3 text-xs text-muted-foreground break-words">
+                    <span className="font-medium">Signed up:</span> {attendeeNames}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })
+      )}
+
+      {selectedEventForAdd && (
+        <AddClientToEventModal
+          isOpen={!!selectedEventForAdd}
+          onClose={() => setSelectedEventForAdd(null)}
+          eventId={selectedEventForAdd.id}
+          eventTitle={selectedEventForAdd.title}
+          onClientAdded={handleClientAdded}
         />
+      )}
 
-        <AlertDialog open={deleteAlertState.open} onOpenChange={() => setDeleteAlertState({ open: false, eventId: null })}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This will permanently delete the event. This action cannot be undone.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDeleteEvent} className="bg-destructive hover:bg-destructive/90">Delete</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
-    </>
+      {selectedEventForEdit && (
+        <UpsertEventDialog
+          open={!!selectedEventForEdit}
+          onOpenChange={() => setSelectedEventForEdit(null)}
+          initialData={selectedEventForEdit}
+          onEventUpserted={fetchEvents}
+        />
+      )}
+    </div>
   );
 }

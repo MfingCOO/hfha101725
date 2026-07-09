@@ -3,79 +3,25 @@
 import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { useAuth } from '@/components/auth/auth-provider';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import * as React from 'react';
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState } from 'react';
 import BottomNavBar from '@/components/layout/bottom-nav-bar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
+import { Toaster } from '@/components/ui/toaster';
+import { Loader2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { useDashboardActions } from '@/contexts/DashboardActionsContext';
+import { Challenge, ClientProfile } from '@/types';
+import { getAllChallengesForClient } from '@/app/challenges/actions';
+import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
 import { ChallengesDialog } from '@/components/challenges/challenges-dialog';
 import { ChatsDialog } from '@/components/chats/chats-dialog';
-import { useDashboardActions } from '@/contexts/DashboardActionsContext';
-import type { ClientProfile, Challenge } from '@/types';
-import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
-import { NotificationActionHandler } from '@/components/providers/NotificationActionHandler';
-import { useNotificationStore } from '@/store/notification-store';
-import { getAllChallengesForClient } from '@/app/challenges/actions';
-import { Toaster } from '@/components/ui/toaster';
+import { CalendarDialog } from '@/components/calendar/calendar-dialog';
+import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
-import { useInterstitialAdTriggers } from '@/hooks/useInterstitialAdTriggers';
-import dynamic from 'next/dynamic';
 
-// Lazy-load heavy dialogs
-const CalendarDialog = dynamic(() => import('@/components/calendar/calendar-dialog').then((mod) => mod.CalendarDialog), { ssr: false });
-const SettingsDialog = dynamic(() => import('@/components/settings/SettingsDialog').then((mod) => mod.SettingsDialog), { ssr: false });
-
-// Error Boundary (improved)
-interface ErrorBoundaryProps {
-  children: React.ReactNode;
-  router: { push: (path: string) => void };
-  toast: ({ ...args }: any) => void;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-}
-
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Global Error Boundary Caught:", error);
-    console.error("Error Info:", errorInfo);
-    console.error("Error Stack:", error.stack);
-
-    this.props.toast({
-      variant: 'default',
-      title: 'So Sorry!',
-      description: 'It looks like we hit a small snag. Your last action might not have been saved, but you\'re safely back on the dashboard.',
-      duration: 2000,
-    });
-    this.props.router.push('/client/dashboard');
-    setTimeout(() => this.setState({ hasError: false }), 50);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full text-center p-4">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          <p className="text-muted-foreground mt-2">Redirecting to dashboard...</p>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-// Dialog Manager (lazy)
+// Dialog Manager (local function)
 function DialogManager() {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -96,16 +42,8 @@ function DialogManager() {
       setIsLoading(true);
       getAllChallengesForClient().then(result => {
         if (result.success && result.data) {
-          const sortedData = [...result.data].sort((a, b) => {
-            const aJoined = a.participants.includes(profile.uid);
-            const bJoined = b.participants.includes(profile.uid);
-            if (aJoined && !bJoined) return -1;
-            if (!aJoined && bJoined) return 1;
-            return 0;
-          });
-          setChallenges(sortedData);
+          setChallenges(result.data as Challenge[]);
         } else {
-          toast({ variant: 'destructive', title: 'Error', description: 'Could not load challenges.' });
           setChallenges([]);
         }
         setIsLoading(false);
@@ -117,17 +55,15 @@ function DialogManager() {
     <>
       <NotificationActionHandler />
       <ChallengesDialog
-        key="challenges"
         isOpen={isChallengesOpen}
         onClose={onCloseChallenges}
         challenges={challenges}
         userProfile={profile as ClientProfile}
         isLoading={isLoading}
       />
-      <ChatsDialog key="chats" />
+      <ChatsDialog />
       {profile && isCalendarOpen && (
         <CalendarDialog
-          key="calendar"
           isOpen={isCalendarOpen}
           onClose={onCloseCalendar}
           client={profile as ClientProfile}
@@ -135,7 +71,6 @@ function DialogManager() {
       )}
       {isSettingsOpen && (
         <SettingsDialog
-          key="settings"
           open={isSettingsOpen}
           onOpenChange={onCloseSettings}
         />
@@ -145,37 +80,6 @@ function DialogManager() {
   );
 }
 
-// Search Param Handler
-function SearchParamHandler() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const { setNotificationChatId } = useNotificationStore();
-
-  useEffect(() => {
-    if (searchParams) {
-      const chatId = searchParams.get('chatId');
-      if (chatId) {
-        console.log(`[ClientLayout] Deep link: Found chatId=${chatId} in URL. Opening chat.`);
-        setNotificationChatId(chatId);
-        router.replace('/client/dashboard', { scroll: false });
-      }
-    }
-  }, [searchParams, setNotificationChatId, router]);
-
-  return null;
-}
-
-// Lazy Interstitial Manager - Only for free users
-function InterstitialManager() {
-  const isFreeUser = true; // TODO: Replace with real RevenueCat check
-
-  if (!isFreeUser) return null;
-
-  useInterstitialAdTriggers();
-
-  return null;
-}
-
 export default function ClientLayout({
   children,
 }: {
@@ -183,36 +87,38 @@ export default function ClientLayout({
 }) {
   const { user, loading, isCoach } = useAuth();
   const router = useRouter();
-  const { toast } = useToast();
 
   useEffect(() => {
-    if (!loading && user && isCoach) {
-      router.replace('/coach/dashboard');
+    if (!loading) {
+      if (!user) {
+        router.replace('/');
+      }
     }
-  }, [user, loading, isCoach, router]);
+  }, [user, loading, router]);
 
   return (
     <SidebarProvider>
-      <Suspense fallback={null}>
-        <SearchParamHandler />
-      </Suspense>
+      {loading || !user ? (
+        <div className="flex h-screen items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      ) : (
+        <>
+          <AppSidebar />
+          <SidebarInset className="h-dvh flex flex-col md:ml-64">
+            <AppHeader />
+            <main className="flex-1 overflow-y-auto">
+              <div className="p-4 sm:p-6 lg:p-8 pb-24">
+                {children}
+              </div>
+            </main>
+            <BottomNavBar />
+          </SidebarInset>
 
-      <AppSidebar />
-      <SidebarInset className="h-dvh flex flex-col md:ml-64">
-        <AppHeader />
-        <main className="flex-1 overflow-y-auto">
-          <ErrorBoundary router={router} toast={toast}>
-            <div className="p-4 sm:p-6 lg:p-8 pb-24">
-              {children}
-            </div>
-          </ErrorBoundary>
-        </main>
-        <BottomNavBar />
-      </SidebarInset>
-
-      <DialogManager />
-      <InterstitialManager />
-      <Toaster />
+          <DialogManager />
+          <Toaster />
+        </>
+      )}
     </SidebarProvider>
   );
 }

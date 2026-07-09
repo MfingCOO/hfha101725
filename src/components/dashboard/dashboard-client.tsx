@@ -139,7 +139,9 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
   // NEW: Challenge list modal state
   const [isChallengeListOpen, setIsChallengeListOpen] = useState(false);
-
+  const effectiveProfile = isCoach && clientProfile 
+  ? { ...clientProfile, tier: UserTier.Coaching } 
+  : clientProfile;
   // Process URL searchParams from notifications
   useEffect(() => {
     if (!searchParams || loading) return;
@@ -200,9 +202,15 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   }
 
   const handlePillarClick = (pillar: Pillar) => {
-    if (!clientProfile) return;
+    if (!clientProfile && !isCoach) return;
 
-    const currentTierIndex = tierRank.indexOf(clientProfile.tier || UserTier.Free);
+    // Coaches always get full access
+    if (isCoach) {
+      executePillarAction(pillar);
+      return;
+    }
+
+    const currentTierIndex = tierRank.indexOf(clientProfile ? clientProfile.tier : UserTier.Free);
     const requiredTierIndex = tierRank.indexOf(pillar.requiredTier);
 
     if (currentTierIndex < requiredTierIndex) {
@@ -227,7 +235,9 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       else if (result.error && result.error !== 'not-found') {
         toast({ variant: 'destructive', title: 'Error', description: `Could not load challenges: ${result.error}` });
       }
-      setIsLoadingChallenge(false);
+      setIsLoadingChallenge(false);   // ← Force clear loading even on error/empty
+    }).catch(() => {
+      setIsLoadingChallenge(false);   // ← Safety net
     });
 
     getUpcomingIndulgences(user.uid).then(result => {
@@ -243,7 +253,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       fetchDashboardData();
     }
 
-    if (user && typeof user.uid === 'string' && !isCoach) {
+    if (user && typeof user.uid === 'string') {
       const docRef = doc(db, 'clients', user.uid);
       const unsubscribe = onSnapshot(docRef, (docSnap) => {
         if (docSnap.exists()) {
@@ -363,7 +373,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     const Icon = pillar.icon;
     const currentTierIndex = clientProfile ? tierRank.indexOf(clientProfile.tier || UserTier.Free) : 0;
     const requiredTierIndex = tierRank.indexOf(pillar.requiredTier);
-    const isLocked = currentTierIndex < requiredTierIndex;
+    const isLocked = !isCoach && currentTierIndex < requiredTierIndex;
 
     return (
       <button
@@ -386,6 +396,15 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
   const renderChallengeSection = () => {
     if (isLoadingChallenge) {
       return <Skeleton className="h-40 w-full rounded-xl" />;
+    }
+
+    if (!clientProfile && !isCoach) {
+      return <Skeleton className="h-40 w-full rounded-xl" />;
+    }
+    
+    // Allow coaches to see the challenge section even if clientProfile is null
+    if (!clientProfile && isCoach) {
+      // Coaches get full access — continue rendering
     }
 
     const isParticipant = (c: Challenge) => c.participants?.includes(user?.uid || '');
@@ -431,8 +450,12 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
     const isUserParticipant = isParticipant(challengeToShow);
     const isChallengeUpcoming = isFuture(new Date(challengeToShow.dates.from));
-    const canJoin = !isUserParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) >= tierRank.indexOf(UserTier.Premium);
-    const needsUpgrade = !isUserParticipant && tierRank.indexOf(clientProfile?.tier || UserTier.Free) < tierRank.indexOf(UserTier.Premium);
+    const currentUserTier = clientProfile 
+    ? clientProfile.tier 
+    : (isCoach ? UserTier.Coaching : UserTier.Free);
+
+    const canJoin = !isUserParticipant && tierRank.indexOf(currentUserTier) >= tierRank.indexOf(UserTier.Premium);
+    const needsUpgrade = !isUserParticipant && tierRank.indexOf(currentUserTier) < tierRank.indexOf(UserTier.Premium);
 
     let badgeText = "";
     let badgeVariant: "secondary" | "default" | "destructive" | "outline" | null | undefined = "secondary";
@@ -499,13 +522,13 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       {renderChallengeSection()}
 
       <ProgramWidget
-        clientProfile={clientProfile}
+        clientProfile={effectiveProfile}
         onOpenProgramList={handleOpenProgramList}
         onOpenCurrentProgram={handleOpenCurrentProgram}
       />
 
       <UpcomingEventWidget
-        clientProfile={clientProfile}
+        clientProfile={effectiveProfile}
         onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
       />
 
@@ -559,7 +582,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       <ProgramListDialog
         isOpen={isProgramListOpen}
         onClose={() => setIsProgramListOpen(false)}
-        userProfile={clientProfile}
+        userProfile={effectiveProfile}
         onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
       />
 
@@ -573,7 +596,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
           open={dataEntryDialogOpen}
           onOpenChange={handleDataEntryDialogClose}
           pillar={activePillar}
-          clientProfile={clientProfile}
+          clientProfile={effectiveProfile}
           onSwitchPillar={handleSwitchPillar}
         />
       )}
@@ -607,7 +630,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
           <CalendarDialog
             isOpen={isCalendarOpen}
             onClose={() => setIsCalendarOpen(false)}
-            client={clientProfile as ClientProfile}
+            client={effectiveProfile as ClientProfile}
             initialDate={initialCalendarDate}
             highlightedEntryId={highlightedEntryId}
         />
@@ -639,7 +662,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
                   setNotificationAppointmentId(null);
               }}
               appointmentId={notificationAppointmentId}
-              client={clientProfile}
+              client={effectiveProfile!}
           />
       )}
 
@@ -651,7 +674,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
                   setNotificationWorkoutId(null);
               }}
               workoutId={notificationWorkoutId}
-              client={clientProfile}
+              client={effectiveProfile!}
               onWorkoutStarted={() => {
                   setIsWorkoutActionOpen(false);
                   setNotificationWorkoutId(null);
@@ -664,7 +687,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
               open={triggerHydrationModal}
               onOpenChange={handleDataEntryDialogClose}
               pillar={pillarsAndTools.find(p => p.id === 'hydration')!}
-              clientProfile={clientProfile}
+              clientProfile={effectiveProfile}
               onSwitchPillar={handleSwitchPillar}
           />
       )}
@@ -678,7 +701,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
             setOpenChallengeList(false);
           }}
           challenges={allChallenges}
-          userProfile={clientProfile}
+          userProfile={effectiveProfile!}
           isLoading={isLoadingChallenge}
         />
       )}

@@ -1,4 +1,5 @@
 'use client';
+
 import { UserNav } from '@/components/auth/user-nav';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -9,10 +10,13 @@ import { SidebarTrigger } from '../ui/sidebar';
 import { useEffect, useState } from 'react';
 import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
 
 export function AppHeader() {
   const isMobile = useIsMobile();
   const pathname = usePathname();
+  const router = useRouter();
   const { isCoach } = useAuth();
   const [siteUrl, setSiteUrl] = useState<string | null>(null);
 
@@ -62,6 +66,25 @@ export function AppHeader() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4">
+        {/* Coach Switch Button - Only visible to coaches */}
+        {isCoach && (
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              if (pathname.includes('/coach')) {
+                router.push('/client/dashboard');
+              } else {
+                router.push('/coach/dashboard');
+              }
+            }}
+          >
+            {pathname.includes('/coach') 
+              ? "Client" 
+              : "Coach"}
+          </Button>
+        )}
+
         <div className="flex items-center">
             {/* UserNav handles the Avatar/Profile Picture logic */}
             <UserNav />

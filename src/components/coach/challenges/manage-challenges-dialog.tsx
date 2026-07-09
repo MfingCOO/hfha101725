@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import type { Challenge } from "@/types";
-import { Loader2, Users, Trophy, Calendar, MessageSquare, PlusCircle, MoreVertical, Edit, Trash2 } from "lucide-react";
+import { Loader2, Users, Trophy, Calendar, MessageSquare, PlusCircle, MoreVertical, Edit, Trash2, Plus } from "lucide-react";
 import Image from "next/image";
 import { format, formatDistanceToNowStrict, isPast, isFuture } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -41,6 +41,7 @@ import { CoachPageModal } from '@/components/ui/coach-page-modal';
 import { LiveEventsTab } from '@/app/coach/events/LiveEventsTab';
 import { UpsertEventDialog } from '@/app/coach/events/UpsertEventDialog';
 import { ProgramBuilderTabs } from '@/components/coach/program-builder/program-builder-tabs';
+import { AddClientToChallengeModal } from './AddClientToChallengeModal';
 
 type SerializableChallenge = Omit<Challenge, 'dates' | 'createdAt'> & {
     dates: { from: string, to: string };
@@ -65,6 +66,7 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
     const [detailDialogState, setDetailDialogState] = useState<{ open: boolean, chatInfo: {id: string, name: string} | null }>({ open: false, chatInfo: null });
     const [deleteAlertState, setDeleteAlertState] = useState<{ open: boolean, challenge: SerializableChallenge | null }>({ open: false, challenge: null });
     const [isDeleting, setIsDeleting] = useState(false);
+    const [selectedChallengeForAdd, setSelectedChallengeForAdd] = useState<SerializableChallenge | null>(null);
 
     const fetchChallenges = useCallback(async () => {
         setIsLoading(true);
@@ -153,10 +155,24 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
                                 {format(new Date(challenge.dates.from), 'MMM d')} - {format(new Date(challenge.dates.to), 'MMM d, yyyy')}
                             </p>
                              <p className="text-[10px] text-muted-foreground flex items-center gap-1"><Users className="w-3 h-3" /> {challenge.participantCount} / {challenge.maxParticipants}</p>
+
+                            {/* FULL PARTICIPANT NAMES */}
+                            {challenge.participantDetails && challenge.participantDetails.length > 0 && (
+                              <p className="text-[10px] text-muted-foreground mt-1 break-words">
+                                {challenge.participantDetails.map((p: any) => p.fullName).join(', ')}
+                              </p>
+                            )}
                         </div>
                          <div className="flex items-center gap-0">
                              <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setDetailDialogState({open: true, chatInfo: { id: challenge.id, name: challenge.name } })}>
                                 <MessageSquare className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => setSelectedChallengeForAdd(challenge)}
+                            >
+                              <Plus className="h-4 w-4" />
                             </Button>
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -283,6 +299,17 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+
+        {/* New: Add Client to Challenge Modal */}
+        {selectedChallengeForAdd && (
+          <AddClientToChallengeModal
+            isOpen={!!selectedChallengeForAdd}
+            onClose={() => setSelectedChallengeForAdd(null)}
+            challengeId={selectedChallengeForAdd.id}
+            challengeName={selectedChallengeForAdd.name}
+            onClientAdded={fetchChallenges}
+          />
+        )}
         </>
     );
 }
