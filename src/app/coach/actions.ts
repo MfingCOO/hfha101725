@@ -134,40 +134,46 @@ export async function getChallengesForCoach(): Promise<{ success: boolean; data?
         const querySnapshot = await q.get();
         const challenges = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Challenge));
 
-        // Enrich with participant names (same as events)
-        const allParticipantIds = [...new Set(challenges.flatMap(c => c.participants || []))];
-        let participantProfiles: { [uid: string]: any } = {};
+        // Enrich with participant names (wrapped in try/catch for safety)
+        let enrichedChallenges = challenges;
+        try {
+            const allParticipantIds = [...new Set(challenges.flatMap(c => c.participants || []))];
+            let participantProfiles: { [uid: string]: any } = {};
 
-        if (allParticipantIds.length > 0) {
-            const MAX_IDS_PER_QUERY = 30;
-            for (let i = 0; i < allParticipantIds.length; i += MAX_IDS_PER_QUERY) {
-                const chunk = allParticipantIds.slice(i, i + MAX_IDS_PER_QUERY);
-                if (chunk.length > 0) {
-                    const q2 = adminDb.collection('clients').where(FieldPath.documentId(), 'in', chunk);
-                    const snapshot = await q2.get();
-                    snapshot.forEach(doc => {
-                        participantProfiles[doc.id] = doc.data();
-                    });
+            if (allParticipantIds.length > 0) {
+                const MAX_IDS_PER_QUERY = 30;
+                for (let i = 0; i < allParticipantIds.length; i += MAX_IDS_PER_QUERY) {
+                    const chunk = allParticipantIds.slice(i, i + MAX_IDS_PER_QUERY);
+                    if (chunk.length > 0) {
+                        const q2 = adminDb.collection('clients').where(FieldPath.documentId(), 'in', chunk);
+                        const snapshot = await q2.get();
+                        snapshot.forEach(doc => {
+                            participantProfiles[doc.id] = doc.data();
+                        });
+                    }
                 }
             }
-        }
 
-        const enrichedChallenges = challenges.map(challenge => {
-            const serializedParticipants = (challenge.participants || []).map(uid => {
-                const profile = participantProfiles[uid];
+            enrichedChallenges = challenges.map(challenge => {
+                const serializedParticipants = (challenge.participants || []).map(uid => {
+                    const profile = participantProfiles[uid];
+                    return {
+                        fullName: profile?.fullName || profile?.displayName || `Client ${uid.slice(0,8)}...`,
+                    };
+                });
                 return {
-                    fullName: profile?.fullName || profile?.displayName || `Client ${uid.slice(0,8)}...`,
+                    ...challenge,
+                    participantDetails: serializedParticipants,
                 };
             });
-            return {
-                ...challenge,
-                participantDetails: serializedParticipants,
-            };
-        });
+        } catch (enrichError) {
+            console.warn("Could not enrich participant names, returning challenges without details:", enrichError);
+            // Still return the challenges even if enrichment fails
+        }
 
         const serializedChallenges = serializeTimestamps(enrichedChallenges);
-
         return { success: true, data: serializedChallenges };
+
     } catch (error) {
         console.error("Error fetching challenges for coach:", error);
         return { success: false, error };

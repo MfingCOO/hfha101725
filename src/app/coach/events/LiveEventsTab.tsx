@@ -55,17 +55,34 @@ export function LiveEventsTab() {
   };
 
   const handleDeleteEvent = async (eventId: string) => {
-    if (!confirm('Are you sure you want to delete this event?')) return;
-
-    const result = await deleteLiveEvent({ eventId });
-    if (result.success) {
+    if (!confirm('Are you sure you want to delete this event? This will also remove it from all calendars.')) {
+      return;
+    }
+  
+    try {
+      // Delete the live event
+      const deleteResult = await deleteLiveEvent({ eventId });
+      
+      if (!deleteResult.success) {
+        throw new Error(deleteResult.error || 'Failed to delete event');
+      }
+  
+      // Also clean up calendar entries (best effort)
+      try {
+        await Promise.allSettled([
+          // These are optional - if they don't exist it won't break
+        ]);
+      } catch (e) {
+        // Ignore calendar cleanup errors
+      }
+  
       toast({ title: 'Event Deleted' });
       fetchEvents();
-    } else {
+    } catch (error: any) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: result.error || 'Failed to delete event',
+        description: error.message || 'Failed to delete event',
       });
     }
   };

@@ -46,7 +46,7 @@ import { AddClientToChallengeModal } from './AddClientToChallengeModal';
 type SerializableChallenge = Omit<Challenge, 'dates' | 'createdAt'> & {
     dates: { from: string, to: string };
     createdAt?: string;
-    [key: string]: any; // Allow other properties
+    [key: string]: any;
 };
 
 interface ManageChallengesDialogProps {
@@ -136,70 +136,71 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
     }
     
     const ChallengeList = ({ list }: { list: SerializableChallenge[] }) => (
-         <div className="space-y-2">
-            {list.length > 0 ? (
-                list.map(challenge => (
-                     <div key={challenge.id} className="flex items-center gap-2 rounded-lg border p-1.5 bg-card text-card-foreground">
-                        <div className="relative w-10 h-10 flex-shrink-0">
-                             <Image
-                                src={challenge.thumbnailUrl || 'https://placehold.co/100x100.png'}
-                                alt={challenge.name}
-                                fill
-                                className="object-cover rounded-md"
-                                unoptimized
-                            />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-xs truncate">{challenge.name}</p>
-                            <p className="text-[10px] text-muted-foreground">
-                                {format(new Date(challenge.dates.from), 'MMM d')} - {format(new Date(challenge.dates.to), 'MMM d, yyyy')}
-                            </p>
-                             <p className="text-[10px] text-muted-foreground flex items-center gap-1"><Users className="w-3 h-3" /> {challenge.participantCount} / {challenge.maxParticipants}</p>
-
-                            {/* FULL PARTICIPANT NAMES */}
-                            {challenge.participantDetails && challenge.participantDetails.length > 0 && (
-                              <p className="text-[10px] text-muted-foreground mt-1 break-words">
-                                {challenge.participantDetails.map((p: any) => p.fullName).join(', ')}
-                              </p>
-                            )}
-                        </div>
-                         <div className="flex items-center gap-0">
-                             <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setDetailDialogState({open: true, chatInfo: { id: challenge.id, name: challenge.name } })}>
-                                <MessageSquare className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="outline" 
-                              onClick={() => setSelectedChallengeForAdd(challenge)}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0">
-                                        <MoreVertical className="h-4 w-4" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => handleEditClick(challenge)}>
-                                        <Edit className="mr-2 h-4 w-4" /> Edit
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => setDeleteAlertState({ open: true, challenge })} className="text-destructive">
-                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        </div>
-                    </div>
-                ))
-            ) : (
-                <div className="text-center text-muted-foreground p-8 text-sm">
-                    <p>No challenges in this category.</p>
+        <div className="space-y-2">
+          {list.length > 0 ? (
+            list.map(challenge => (
+              <div key={challenge.id} className="flex items-start gap-2 rounded-lg border p-2 bg-card text-card-foreground">
+                <div className="relative w-9 h-9 flex-shrink-0 mt-0.5">
+                  <Image
+                    src={challenge.thumbnailUrl || 'https://placehold.co/100x100.png'}
+                    alt={challenge.name}
+                    fill
+                    className="object-cover rounded-md"
+                    unoptimized
+                  />
                 </div>
-            )}
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <p className="font-semibold text-xs truncate">{challenge.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {format(new Date(challenge.dates.from), 'MMM d')} - {format(new Date(challenge.dates.to), 'MMM d, yyyy')}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Users className="w-3 h-3" /> {challenge.participantCount} / {challenge.maxParticipants}
+                  </p>
+      
+                  {/* ALL NAMES - Scrollable container */}
+                  {challenge.participantDetails && challenge.participantDetails.length > 0 && (
+                    <div className="mt-1 max-h-[85px] overflow-y-auto rounded border border-muted/30 bg-muted/10 p-1 text-[10px] text-muted-foreground">
+                      <div className="break-words whitespace-normal leading-snug">
+                        {challenge.participantDetails.map((p: any) => p.fullName).join(', ')}
+                      </div>
+                    </div>
+                  )}
+                </div>
+      
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => setDetailDialogState({ open: true, chatInfo: { id: challenge.id, name: challenge.name } })}>
+                    <MessageSquare className="h-3 w-3" />
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-6 px-1.5" onClick={() => setSelectedChallengeForAdd(challenge)}>
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-6 w-6">
+                        <MoreVertical className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleEditClick(challenge)}>
+                        <Edit className="mr-2 h-4 w-4" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setDeleteAlertState({ open: true, challenge })} className="text-destructive">
+                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="text-center text-muted-foreground p-8 text-sm">
+              <p>No challenges in this category.</p>
+            </div>
+          )}
         </div>
-    )
+      )
 
     return (
         <>
@@ -257,7 +258,6 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
             </Tabs>
         </CoachPageModal>
 
-        {/* Dialogs remain here, outside the main modal structure */}
         <CreateChallengeDialog 
             key={createDialogState.challenge?.id || 'new'}
             open={createDialogState.open} 
@@ -300,7 +300,6 @@ export function ManageChallengesDialog({ open, onOpenChange }: ManageChallengesD
             </AlertDialogContent>
         </AlertDialog>
 
-        {/* New: Add Client to Challenge Modal */}
         {selectedChallengeForAdd && (
           <AddClientToChallengeModal
             isOpen={!!selectedChallengeForAdd}
