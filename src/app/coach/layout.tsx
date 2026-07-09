@@ -41,15 +41,11 @@ export default function CoachLayout({
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        router.replace('/');
-      } else if (!isCoach) {
-        // Only non-coaches get redirected away from coach routes
-        router.replace('/client/dashboard');
-      }
+    if (!loading && !user) {
+      router.replace('/');
     }
-  }, [isCoach, loading, user, router]);
+    // No isCoach check here anymore
+  }, [loading, user, router]);
 
   if (loading || !user) {
     return (
@@ -57,11 +53,6 @@ export default function CoachLayout({
         <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
-  }
-
-  // Don't render coach layout content for non-coaches
-  if (!isCoach) {
-    return null;
   }
 
   return (

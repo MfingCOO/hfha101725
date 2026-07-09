@@ -17,7 +17,7 @@ export function AppHeader() {
   const isMobile = useIsMobile();
   const pathname = usePathname();
   const router = useRouter();
-  const { isCoach } = useAuth();
+  const { isCoach, loading } = useAuth();
   const [siteUrl, setSiteUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,8 +66,8 @@ export function AppHeader() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4">
-        {/* Coach Switch Button - Only visible to coaches */}
-        {isCoach && (
+        {/* Coach/Client Switch Button - Only visible to coaches after loading */}
+        {!loading && isCoach && (
           <Button 
             variant="outline" 
             size="sm"
@@ -79,14 +79,11 @@ export function AppHeader() {
               }
             }}
           >
-            {pathname.includes('/coach') 
-              ? "Client" 
-              : "Coach"}
+            {pathname.includes('/coach') ? "Client" : "Coach"}
           </Button>
         )}
 
         <div className="flex items-center">
-            {/* UserNav handles the Avatar/Profile Picture logic */}
             <UserNav />
         </div>
       </div>
