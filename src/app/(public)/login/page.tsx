@@ -3,17 +3,23 @@ import { Logo } from "@/components/icons/logo";
 import Link from 'next/link';
 import { ForgotPasswordModal } from '@/components/auth/ForgotPasswordModal';
 
+// ✅ This fixes the build prerender error
+export const dynamic = 'force-dynamic';
+
 export default function LoginPage() {
     return (
         <div className="flex min-h-screen flex-col items-center justify-center p-8 bg-background">
-             <div className="flex items-center gap-2 mb-8">
+            <div className="flex items-center gap-2 mb-8">
                 <Logo className="w-8 h-8 text-primary" />
                 <h1 className="text-2xl font-semibold">Hunger-Free and Happy</h1>
             </div>
+
             <LoginForm />
+
             <div className="mt-4">
-              <ForgotPasswordModal />
+                <ForgotPasswordModal />
             </div>
+
             <div className="mt-4 text-center text-xs text-muted-foreground max-w-md">
                 View our{' '}
                 <Link href="/tos" className="underline hover:text-primary">
@@ -30,5 +36,5 @@ export default function LoginPage() {
                 .
             </div>
         </div>
-    )
+    );
 }

@@ -11,6 +11,9 @@ import Link from 'next/link';
 import { Capacitor } from '@capacitor/core';
 import { Loader2 } from 'lucide-react';
 
+// ✅ This fixes the build error
+export const dynamic = 'force-dynamic';
+
 export default function SignupPage() {
     const { toast } = useToast();
     const router = useRouter();
@@ -22,6 +25,7 @@ export default function SignupPage() {
     }, []);
 
     const handleSignup = async (data: OnboardingValues) => {
+        setLoading(true);
         try {
             const result = await unifiedSignupAction({
                 ...data,
@@ -31,7 +35,10 @@ export default function SignupPage() {
             });
 
             if (result.success) {
-                toast({ title: "Account Created!", description: "Welcome! Please log in." });
+                toast({ 
+                    title: "Account Created!", 
+                    description: "Welcome! Please log in." 
+                });
                 router.push('/login');
                 return { success: true };
             } else {
@@ -39,8 +46,14 @@ export default function SignupPage() {
             }
         } catch (error: any) {
             const errorMessage = error.message || "An unexpected error occurred.";
-            toast({ variant: 'destructive', title: 'Sign Up Failed', description: errorMessage });
+            toast({ 
+                variant: 'destructive', 
+                title: 'Sign Up Failed', 
+                description: errorMessage 
+            });
             return { success: false, error: { message: errorMessage } };
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -64,11 +77,21 @@ export default function SignupPage() {
             </div>
 
             <div className="mt-8 text-center text-xs text-muted-foreground max-w-lg space-y-2">
-                <p>Need help? Visit our <Link href="/support" className="underline hover:text-primary font-medium">Support Page</Link></p>
+                <p>
+                    Need help? Visit our{' '}
+                    <Link href="/support" className="underline hover:text-primary font-medium">
+                        Support Page
+                    </Link>
+                </p>
                 <div>
                     By creating an account, you agree to our{' '}
-                    <Link href="/tos" className="underline hover:text-primary">Terms of Service</Link> and{' '}
-                    <Link href="/privacy" className="underline hover:text-primary">Privacy Policy</Link>.
+                    <Link href="/tos" className="underline hover:text-primary">
+                        Terms of Service
+                    </Link>{' '}
+                    and{' '}
+                    <Link href="/privacy" className="underline hover:text-primary">
+                        Privacy Policy
+                    </Link>.
                 </div>
             </div>
         </main>

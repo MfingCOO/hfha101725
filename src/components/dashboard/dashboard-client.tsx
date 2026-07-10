@@ -90,11 +90,10 @@ interface DashboardClientProps {
 
 export function DashboardClient({ searchParams }: DashboardClientProps) {
   const { onOpenChallenges, onOpenCalendar, isSettingsOpen, onCloseSettings } = useDashboardActions();
-  const { user, isCoach, loading } = useAuth();
+  const { user, isCoach, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const { modalType, closeModal, openModal } = useDataEntryModal();
 
-  // Expanded notification store destructuring
   const {
     notificationChatId,
     notificationAppointmentId,
@@ -107,8 +106,6 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     setTriggerHydrationModal,
     setOpenChallengeList
   } = useNotificationStore();
-
-  // const { adBannerHeight } = useAdBanner();
 
   const [dataEntryDialogOpen, setDataEntryDialogOpen] = useState(false);
   const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
@@ -128,7 +125,7 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
   const [liveBingeFreeSince, setLiveBingeFreeSince] = useState<any>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile | null>(null);
-
+  
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [isProgramListOpen, setIsProgramListOpen] = useState(false);
   const [isProgramHubOpen, setIsProgramHubOpen] = useState(false);
@@ -136,15 +133,32 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
   const [isAppointmentDetailOpen, setIsAppointmentDetailOpen] = useState(false);
   const [isWorkoutActionOpen, setIsWorkoutActionOpen] = useState(false);
-
-  // NEW: Challenge list modal state
   const [isChallengeListOpen, setIsChallengeListOpen] = useState(false);
+
   const effectiveProfile = isCoach && clientProfile 
-  ? { ...clientProfile, tier: UserTier.Coaching } 
-  : clientProfile;
-  // Process URL searchParams from notifications
+    ? { ...clientProfile, tier: UserTier.Coaching } 
+    : clientProfile;
+
+// ==================== LOADING STATE ====================
+if (authLoading) {
+  return (
+    <div className="flex h-[70vh] items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading your dashboard...</p>
+      </div>
+    </div>
+  );
+}
+
+if (!user) {
+  return <div className="p-8 text-center">Please log in to view your dashboard.</div>;
+}
+
+  // ==================== EFFECTS ====================
+
   useEffect(() => {
-    if (!searchParams || loading) return;
+    if (!searchParams) return;
 
     const openChatId = String(searchParams.openChatId || '');
     const openWorkoutId = String(searchParams.openWorkoutId || '');
@@ -152,43 +166,25 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     const openHydration = String(searchParams.openHydration || 'false');
     const notificationType = String(searchParams.notificationType || '');
 
-    if (notificationType === 'chat' && openChatId) {
-        setNotificationChatId(openChatId);
-    }
-    else if (notificationType === 'workout_reminder' && openWorkoutId) {
-        setNotificationWorkoutId(openWorkoutId);
-    }
-    else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) {
-        if (!user) {
-            toast({ variant: 'destructive', title: 'Authentication Required', description: 'Please log in to view appointment details.' });
-            return;
-        }
-        setNotificationAppointmentId(openAppointmentId);
-    }
-    else if (notificationType === 'hydration' && openHydration === 'true') {
-        setTriggerHydrationModal(true);
-    }
-  }, [searchParams, loading, user, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, toast]);
+    if (notificationType === 'chat' && openChatId) setNotificationChatId(openChatId);
+    else if (notificationType === 'workout_reminder' && openWorkoutId) setNotificationWorkoutId(openWorkoutId);
+    else if (['appointment_reminder', 'appointment_booked'].includes(notificationType) && openAppointmentId) setNotificationAppointmentId(openAppointmentId);
+    else if (notificationType === 'hydration' && openHydration === 'true') setTriggerHydrationModal(true);
+  }, [searchParams, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal]);
 
-  // Handle non-chat notifications (appointment, workout, hydration, challenge)
   useEffect(() => {
     if (notificationAppointmentId && user) {
       setIsAppointmentDetailOpen(true);
-      setIsCalendarOpen(true)
+      setIsCalendarOpen(true);
     }
-    if (notificationWorkoutId) {
-      setIsWorkoutActionOpen(true);
-    }
-    if (triggerHydrationModal) {
-      openModal('hydration');
-    }
-  }, [notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, setTriggerHydrationModal, user]);
+    if (notificationWorkoutId) setIsWorkoutActionOpen(true);
+    if (triggerHydrationModal) openModal('hydration');
+  }, [notificationAppointmentId, notificationWorkoutId, triggerHydrationModal, openModal, user]);
 
-  // NEW: Handle challenge list modal from notifications
   useEffect(() => {
     if (openChallengeList) {
       setIsChallengeListOpen(true);
-      setOpenChallengeList(false); // reset store flag
+      setOpenChallengeList(false);
     }
   }, [openChallengeList, setOpenChallengeList]);
 
@@ -199,12 +195,11 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       setActivePillar(pillar);
       setDataEntryDialogOpen(true);
     }
-  }
+  };
 
   const handlePillarClick = (pillar: Pillar) => {
     if (!clientProfile && !isCoach) return;
 
-    // Coaches always get full access
     if (isCoach) {
       executePillarAction(pillar);
       return;
@@ -218,7 +213,6 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       setIsUpgradeModalOpen(true);
       return;
     }
-
     executePillarAction(pillar);
   };
 
@@ -229,64 +223,40 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     setIsLoadingIndulgences(true);
 
     getAllChallengesForClient().then(result => {
-      if (result.success && result.data) {
-        setAllChallenges(result.data as Challenge[]);
-      }
-      else if (result.error && result.error !== 'not-found') {
-        toast({ variant: 'destructive', title: 'Error', description: `Could not load challenges: ${result.error}` });
-      }
-      setIsLoadingChallenge(false);   // ← Force clear loading even on error/empty
-    }).catch(() => {
-      setIsLoadingChallenge(false);   // ← Safety net
-    });
+      if (result.success && result.data) setAllChallenges(result.data as Challenge[]);
+      setIsLoadingChallenge(false);
+    }).catch(() => setIsLoadingChallenge(false));
 
     getUpcomingIndulgences(user.uid).then(result => {
       if (result.success && result.data) setUpcomingIndulgences(result.data);
       setIsLoadingIndulgences(false);
     });
-  }, [user, toast]);
+  }, [user]);
 
-  useEffect(() => {
-    if (loading) return;
+  // Profile listener
+  // Profile listener (no more profileLoading state)
+useEffect(() => {
+  if (!user) return;
 
-    if (user) {
-      fetchDashboardData();
-    }
+  fetchDashboardData();
 
-    if (user && typeof user.uid === 'string') {
-      const docRef = doc(db, 'clients', user.uid);
-      const unsubscribe = onSnapshot(docRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data() as ClientProfile;
-          setClientProfile(data);
-          if (data.bingeFreeSince) {
-            setLiveBingeFreeSince(data.bingeFreeSince);
-          }
-        }
-      });
-      return () => unsubscribe();
-    }
-  }, [user, isCoach, loading, fetchDashboardData]);
-
-  useEffect(() => {
-    if (onOpenCalendar) {
-      (onOpenCalendar as any)._open = () => {
-        setInitialCalendarDate(new Date());
-        setHighlightedEntryId(undefined);
-        setIsCalendarOpen(true);
+  const docRef = doc(db, 'clients', user.uid);
+  const unsubscribe = onSnapshot(docRef, (docSnap) => {
+    if (docSnap.exists()) {
+      const data = docSnap.data() as ClientProfile;
+      setClientProfile(data);
+      if (data.bingeFreeSince) {
+        setLiveBingeFreeSince(data.bingeFreeSince);
       }
+    } else {
+      console.warn("Client profile document not found for user:", user.uid);
     }
-  }, [onOpenCalendar]);
+  }, (error) => {
+    console.error("Profile listener error:", error);
+  });
 
-  useEffect(() => {
-    if (modalType) {
-      const pillarToOpen = pillarsAndTools.find(p => p.id === modalType);
-      if (pillarToOpen) {
-        setActivePillar(pillarToOpen);
-        setDataEntryDialogOpen(true);
-      }
-    }
-  }, [modalType]);
+  return () => unsubscribe();
+}, [user, fetchDashboardData]);
 
   const handleDataEntryDialogClose = (wasSaved: boolean) => {
     setDataEntryDialogOpen(false);
@@ -296,10 +266,8 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
     setNotificationWorkoutId(null);
     setTriggerHydrationModal(false);
     setNotificationChatId(null);
-    if (wasSaved) {
-      fetchDashboardData();
-    }
-  }
+    if (wasSaved) fetchDashboardData();
+  };
 
   const handleSwitchPillar = (pillarId: string) => {
     const pillarToSwitch = pillarsAndTools.find(p => p.id === pillarId);
@@ -326,9 +294,6 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       setIsResetStreakAlertOpen(false);
     }
   };
-
-  const handleOpenProgramList = () => setIsProgramListOpen(true);
-  const handleOpenCurrentProgram = () => setIsProgramHubOpen(true);
 
   const bingeFreeSinceDate = useMemo(() => {
     const source = liveBingeFreeSince || clientProfile?.bingeFreeSince;
@@ -379,53 +344,37 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
       <button
         key={pillar.id}
         onClick={() => handlePillarClick(pillar)}
-        className={cn(
-          "group relative flex flex-col items-center justify-center w-14 h-14 sm:w-20 sm:h-20 rounded-full text-center transition-all shadow-sm btn-3d",
-          pillar.bgColor,
-          pillar.color,
-          pillar.borderColor
-        )}
+        className={cn("group relative flex flex-col items-center justify-center w-14 h-14 sm:w-20 sm:h-20 rounded-full text-center transition-all shadow-sm btn-3d", pillar.bgColor, pillar.color, pillar.borderColor)}
       >
         {isLocked && <div className="absolute inset-0 bg-black/50 rounded-full" />}
         <Icon className={cn("h-7 w-7 sm:h-10 transition-transform group-hover:scale-110", isLocked && "opacity-50")} />
         {isLocked && <Lock className="h-4 w-4 absolute top-1 right-1 sm:top-3 sm:right-3 text-white/70" />}
       </button>
-    )
-  }
+    );
+  };
 
   const renderChallengeSection = () => {
-    if (isLoadingChallenge) {
-      return <Skeleton className="h-40 w-full rounded-xl" />;
-    }
-
-    if (!clientProfile && !isCoach) {
-      return <Skeleton className="h-40 w-full rounded-xl" />;
-    }
-    
-    // Allow coaches to see the challenge section even if clientProfile is null
-    if (!clientProfile && isCoach) {
-      // Coaches get full access — continue rendering
-    }
+    if (isLoadingChallenge) return <Skeleton className="h-40 w-full rounded-xl" />;
+    if (!clientProfile && !isCoach) return <Skeleton className="h-40 w-full rounded-xl" />;
 
     const isParticipant = (c: Challenge) => c.participants?.includes(user?.uid || '');
     const isPastChallenge = (c: Challenge) => c.dates?.to && isPast(endOfDay(new Date(c.dates.to)));
     const isActiveChallenge = (c: Challenge) => c.dates?.from && !isFuture(new Date(c.dates.from));
 
     const relevantChallenges = allChallenges
-        .filter(c => !isPastChallenge(c))
-        .sort((a, b) => {
-            const aIsActive = isActiveChallenge(a);
-            const bIsActive = isActiveChallenge(b);
-            if (aIsActive && !bIsActive) return -1;
-            if (!aIsActive && bIsActive) return 1;
-            return new Date(a.dates.from).getTime() - new Date(b.dates.from).getTime();
-        });
+      .filter(c => !isPastChallenge(c))
+      .sort((a, b) => {
+        const aIsActive = isActiveChallenge(a);
+        const bIsActive = isActiveChallenge(b);
+        if (aIsActive && !bIsActive) return -1;
+        if (!aIsActive && bIsActive) return 1;
+        return new Date(a.dates.from).getTime() - new Date(b.dates.from).getTime();
+      });
 
-    const challengeToShow =
-        relevantChallenges.find(c => isParticipant(c) && isActiveChallenge(c)) ||
-        relevantChallenges.find(c => isParticipant(c)) ||
-        relevantChallenges.find(c => isActiveChallenge(c)) ||
-        relevantChallenges[0];
+    const challengeToShow = relevantChallenges.find(c => isParticipant(c) && isActiveChallenge(c)) ||
+                            relevantChallenges.find(c => isParticipant(c)) ||
+                            relevantChallenges.find(c => isActiveChallenge(c)) ||
+                            relevantChallenges[0];
 
     if (!challengeToShow) {
       return (
@@ -445,33 +394,26 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
             </div>
           </CardContent>
         </Card>
-      )
+      );
     }
 
     const isUserParticipant = isParticipant(challengeToShow);
     const isChallengeUpcoming = isFuture(new Date(challengeToShow.dates.from));
-    const currentUserTier = clientProfile 
-    ? clientProfile.tier 
-    : (isCoach ? UserTier.Coaching : UserTier.Free);
-
+    const currentUserTier = clientProfile ? clientProfile.tier : (isCoach ? UserTier.Coaching : UserTier.Free);
     const canJoin = !isUserParticipant && tierRank.indexOf(currentUserTier) >= tierRank.indexOf(UserTier.Premium);
     const needsUpgrade = !isUserParticipant && tierRank.indexOf(currentUserTier) < tierRank.indexOf(UserTier.Premium);
 
     let badgeText = "";
-    let badgeVariant: "secondary" | "default" | "destructive" | "outline" | null | undefined = "secondary";
-    if (isUserParticipant) {
-      badgeText = isChallengeUpcoming ? "Registered" : "Active Now";
-    } else if (isChallengeUpcoming) {
-      badgeText = "Starts Soon";
-    } else {
-      badgeText = "New Challenge!"
-    }
+    let badgeVariant: any = "secondary";
+    if (isUserParticipant) badgeText = isChallengeUpcoming ? "Registered" : "Active Now";
+    else if (isChallengeUpcoming) badgeText = "Starts Soon";
+    else badgeText = "New Challenge!";
 
     return (
       <Card className="bg-primary/10 border-primary/20 hover:border-primary/40 transition-all">
         <CardContent className="p-3 flex items-center gap-3">
           <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-            <Image src={challengeToShow.thumbnailUrl || "https://placehold.co/400x400.png"} alt={challengeToShow.name} fill className="object-cover" unoptimized/>
+            <Image src={challengeToShow.thumbnailUrl || "https://placehold.co/400x400.png"} alt={challengeToShow.name} fill className="object-cover" unoptimized />
           </div>
           <div className="flex-1 space-y-1">
             <div>
@@ -480,22 +422,15 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
               <p className="text-xs text-muted-foreground line-clamp-1">{challengeToShow.description}</p>
             </div>
             {isUserParticipant ? (
-              <Button size="xs" className="w-full sm:w-auto" onClick={onOpenChallenges}>
-                View Challenge <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              <Button size="xs" onClick={onOpenChallenges}>View Challenge <ArrowRight className="ml-2 h-4 w-4" /></Button>
             ) : canJoin ? (
-              <Button size="xs" className="w-full sm:w-auto" onClick={() => handleJoinChallenge(challengeToShow.id)} disabled={isJoiningChallenge}>
-                {isJoiningChallenge && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}
-                Join Challenge <ArrowRight className="ml-2 h-4 w-4" />
+              <Button size="xs" onClick={() => handleJoinChallenge(challengeToShow.id)} disabled={isJoiningChallenge}>
+                {isJoiningChallenge && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Join Challenge
               </Button>
             ) : needsUpgrade ? (
-              <Button size="xs" className="w-full sm:w-auto" onClick={() => setIsUpgradeModalOpen(true)}>
-                Upgrade to Join <Lock className="ml-2 h-4 w-4" />
-              </Button>
+              <Button size="xs" onClick={() => setIsUpgradeModalOpen(true)}>Upgrade to Join <Lock className="ml-2 h-4 w-4" /></Button>
             ) : (
-              <Button size="xs" className="w-full sm:w-auto" onClick={onOpenChallenges}>
-                View Details <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
+              <Button size="xs" onClick={onOpenChallenges}>View Details <ArrowRight className="ml-2 h-4 w-4" /></Button>
             )}
           </div>
         </CardContent>
@@ -505,91 +440,67 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
 
   return (
     <div className="space-y-6">
-
       <div>
-        <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Welcome, {clientProfile?.fullName?.split(' ')[0]}!</h2>
-        <p className="text-base sm:text-lg text-muted-foreground"> “{quoteOfTheDay}” </p>
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight">
+          Welcome, {clientProfile?.fullName?.split(' ')[0] || 'there'}!
+        </h2>
+        <p className="text-base sm:text-lg text-muted-foreground">“{quoteOfTheDay}”</p>
       </div>
 
-      <div className="flex justify-around">
-        {topRowButtons.map(renderPillarButton)}
-      </div>
-
-      <div className="flex justify-around mt-4">
-        {bottomRowButtons.map(renderPillarButton)}
-      </div>
+      <div className="flex justify-around">{topRowButtons.map(renderPillarButton)}</div>
+      <div className="flex justify-around mt-4">{bottomRowButtons.map(renderPillarButton)}</div>
 
       {renderChallengeSection()}
 
-      <ProgramWidget
-        clientProfile={effectiveProfile}
-        onOpenProgramList={handleOpenProgramList}
-        onOpenCurrentProgram={handleOpenCurrentProgram}
-      />
-
-      <UpcomingEventWidget
-        clientProfile={effectiveProfile}
-        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
-      />
+      <ProgramWidget clientProfile={effectiveProfile} onOpenProgramList={() => setIsProgramListOpen(true)} onOpenCurrentProgram={() => setIsProgramHubOpen(true)} />
+      <UpcomingEventWidget clientProfile={effectiveProfile} onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)} />
 
       {isLoadingIndulgences ? (
-          <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
       ) : upcomingIndulgences.length > 0 && (
-          <Card className="p-3">
-            <CardContent className="p-0">
-              <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
-                <Salad className="h-5 w-5 text-lime-400" />
-                Upcoming Planned Indulgences
-              </h3>
-              <div className="space-y-1">
-                {upcomingIndulgences.map(plan => {
-                  const indulgenceDate = safeNewDate(plan.indulgenceDate);
-                  if (!indulgenceDate) return null;
-                  return (
-                    <div key={plan.id} className="flex items-center justify-between p-1.5 rounded-md bg-muted/50 text-xs w-full">
-                      <p className="font-medium">{plan.plannedIndulgence}</p>
-                      <p className="text-muted-foreground">{format(indulgenceDate, 'MMM d')}</p>
-                    </div>
-                  )
-                })}
-              </div>
-            </CardContent>
-          </Card>
+        <Card className="p-3">
+          <CardContent className="p-0">
+            <h3 className="text-sm font-semibold flex items-center gap-2 mb-2">
+              <Salad className="h-5 w-5 text-lime-400" /> Upcoming Planned Indulgences
+            </h3>
+            <div className="space-y-1">
+              {upcomingIndulgences.map(plan => {
+                const indulgenceDate = safeNewDate(plan.indulgenceDate);
+                if (!indulgenceDate) return null;
+                return (
+                  <div key={plan.id} className="flex items-center justify-between p-1.5 rounded-md bg-muted/50 text-xs w-full">
+                    <p className="font-medium">{plan.plannedIndulgence}</p>
+                    <p className="text-muted-foreground">{format(indulgenceDate, 'MMM d')}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {clientProfile && bingeFreeSinceDate && (
         <Card className="p-3">
-            <CardContent className="p-0 flex items-center justify-between gap-4">
-                <div className="flex-1">
-                    <p className="text-sm font-semibold text-green-400">Binge-Free Streak</p>
-                    <p className="text-xs text-muted-foreground">
-                        {`Last binge: ${format(bingeFreeSinceDate, 'MMM d, yyyy')}`}
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="flex items-baseline gap-1 text-right">
-                        <p className="text-4xl font-bold text-white">{bingeFreeDays}</p>
-                        <p className="text-lg text-muted-foreground">Days</p>
-                    </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setIsResetStreakAlertOpen(true)}>
-                        <RefreshCw className="h-4 w-4" />
-                    </Button>
-                </div>
-            </CardContent>
+          <CardContent className="p-0 flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-green-400">Binge-Free Streak</p>
+              <p className="text-xs text-muted-foreground">{`Last binge: ${format(bingeFreeSinceDate, 'MMM d, yyyy')}`}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-baseline gap-1 text-right">
+                <p className="text-4xl font-bold text-white">{bingeFreeDays}</p>
+                <p className="text-lg text-muted-foreground">Days</p>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => setIsResetStreakAlertOpen(true)}>
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
         </Card>
       )}
 
-      <ProgramListDialog
-        isOpen={isProgramListOpen}
-        onClose={() => setIsProgramListOpen(false)}
-        userProfile={effectiveProfile}
-        onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
-      />
-
-      <ProgramHubDialog
-        isOpen={isProgramHubOpen}
-        onClose={() => setIsProgramHubOpen(false)}
-      />
+      <ProgramListDialog isOpen={isProgramListOpen} onClose={() => setIsProgramListOpen(false)} userProfile={effectiveProfile} onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)} />
+      <ProgramHubDialog isOpen={isProgramHubOpen} onClose={() => setIsProgramHubOpen(false)} />
 
       {activePillar && (
         <DataEntryDialog
@@ -601,109 +512,50 @@ export function DashboardClient({ searchParams }: DashboardClientProps) {
         />
       )}
 
-      {insightsDialogOpen && (
-        <InsightsDialog
-          isOpen={insightsDialogOpen}
-          onClose={() => setInsightsDialogOpen(false)}
-        />
-      )}
-
-      {isSettingsOpen && (
-        <SettingsDialog
-          open={isSettingsOpen}
-          onOpenChange={onCloseSettings}
-        />
-      )}
+      {insightsDialogOpen && <InsightsDialog isOpen={insightsDialogOpen} onClose={() => setInsightsDialogOpen(false)} />}
+      {isSettingsOpen && <SettingsDialog open={isSettingsOpen} onOpenChange={onCloseSettings} />}
 
       <UpgradeModal
         isOpen={isUpgradeModalOpen}
-        onClose={() => {
-            setIsUpgradeModalOpen(false);
-            setActivePillar(null);
-        }}
+        onClose={() => { setIsUpgradeModalOpen(false); setActivePillar(null); }}
         requiredTier={activePillar?.requiredTier || UserTier.Premium}
         featureName={activePillar?.label || 'Premium Features'}
         reason={activePillar ? `Access to the ${activePillar.label} pillar requires a subscription.` : 'Access to this feature requires an upgrade.'}
       />
 
       {clientProfile && isCalendarOpen && (
-          <CalendarDialog
-            isOpen={isCalendarOpen}
-            onClose={() => setIsCalendarOpen(false)}
-            client={effectiveProfile as ClientProfile}
-            initialDate={initialCalendarDate}
-            highlightedEntryId={highlightedEntryId}
-        />
+        <CalendarDialog isOpen={isCalendarOpen} onClose={() => setIsCalendarOpen(false)} client={effectiveProfile as ClientProfile} initialDate={initialCalendarDate} highlightedEntryId={highlightedEntryId} />
       )}
 
       <AlertDialog open={isResetStreakAlertOpen} onOpenChange={setIsResetStreakAlertOpen}>
-          <AlertDialogContent>
-              <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                      This will reset your binge-free streak to 0 days. This action cannot be undone.
-                  </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleResetStreak} disabled={isResettingStreak}>
-                      {isResettingStreak && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Reset Streak
-                  </AlertDialogAction>
-              </AlertDialogFooter>
-          </AlertDialogContent>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>This will reset your binge-free streak to 0 days. This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleResetStreak} disabled={isResettingStreak}>
+              {isResettingStreak && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Reset Streak
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
       </AlertDialog>
 
       {clientProfile && notificationAppointmentId && user && (
-          <AppointmentDetailDialog
-              isOpen={isAppointmentDetailOpen}
-              onClose={() => {
-                  setIsAppointmentDetailOpen(false);
-                  setNotificationAppointmentId(null);
-              }}
-              appointmentId={notificationAppointmentId}
-              client={effectiveProfile!}
-          />
+        <AppointmentDetailDialog isOpen={isAppointmentDetailOpen} onClose={() => { setIsAppointmentDetailOpen(false); setNotificationAppointmentId(null); }} appointmentId={notificationAppointmentId} client={effectiveProfile!} />
       )}
 
       {clientProfile && notificationWorkoutId && (
-          <WorkoutActionDialog
-              isOpen={isWorkoutActionOpen}
-              onClose={() => {
-                  setIsWorkoutActionOpen(false);
-                  setNotificationWorkoutId(null);
-              }}
-              workoutId={notificationWorkoutId}
-              client={effectiveProfile!}
-              onWorkoutStarted={() => {
-                  setIsWorkoutActionOpen(false);
-                  setNotificationWorkoutId(null);
-              }}
-          />
+        <WorkoutActionDialog isOpen={isWorkoutActionOpen} onClose={() => { setIsWorkoutActionOpen(false); setNotificationWorkoutId(null); }} workoutId={notificationWorkoutId} client={effectiveProfile!} onWorkoutStarted={() => { setIsWorkoutActionOpen(false); setNotificationWorkoutId(null); }} />
       )}
 
       {clientProfile && triggerHydrationModal && (
-          <DataEntryDialog
-              open={triggerHydrationModal}
-              onOpenChange={handleDataEntryDialogClose}
-              pillar={pillarsAndTools.find(p => p.id === 'hydration')!}
-              clientProfile={effectiveProfile}
-              onSwitchPillar={handleSwitchPillar}
-          />
+        <DataEntryDialog open={triggerHydrationModal} onOpenChange={handleDataEntryDialogClose} pillar={pillarsAndTools.find(p => p.id === 'hydration')!} clientProfile={effectiveProfile} onSwitchPillar={handleSwitchPillar} />
       )}
 
-      {/* NEW: Challenge List Modal - This makes challenge notifications work */}
       {clientProfile && isChallengeListOpen && (
-        <ChallengesDialog
-          isOpen={isChallengeListOpen}
-          onClose={() => {
-            setIsChallengeListOpen(false);
-            setOpenChallengeList(false);
-          }}
-          challenges={allChallenges}
-          userProfile={effectiveProfile!}
-          isLoading={isLoadingChallenge}
-        />
+        <ChallengesDialog isOpen={isChallengeListOpen} onClose={() => { setIsChallengeListOpen(false); setOpenChallengeList(false); }} challenges={allChallenges} userProfile={effectiveProfile!} isLoading={isLoadingChallenge} />
       )}
     </div>
   );

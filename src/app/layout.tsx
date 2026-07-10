@@ -6,6 +6,9 @@ import { Metadata } from 'next';
 export const metadata: Metadata = {
   title: "Hunger Free and Happy",
   description: "A wellness application.",
+  icons: {
+    icon: "/favicon.ico",           // ← This tells Next.js to use the favicon
+  },
 };
 
 export default function RootLayout({
@@ -16,7 +19,6 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className="dark h-full">
       <body className={`${inter.className} h-full`}>
-        {/* All client-side providers and Firebase logic move here */}
         <RootProviders>
           {children}
         </RootProviders>

@@ -22,9 +22,9 @@ export function AppHeader() {
 
   useEffect(() => {
     getSiteSettingsAction().then(result => {
-        if (result.success && result.data?.url) {
-            setSiteUrl(result.data.url);
-        }
+      if (result.success && result.data?.url) {
+        setSiteUrl(result.data.url);
+      }
     });
   }, []);
 
@@ -35,27 +35,33 @@ export function AppHeader() {
     const name = pathname.split('/').pop() ?? 'Dashboard';
     return name.charAt(0).toUpperCase() + name.slice(1);
   };
-  
+
   const TitleContent = () => {
     if (isMobile) {
       return (
-         <div className="flex items-center gap-2">
-            <Logo className="w-6 h-6 text-primary" />
-            <span className="font-semibold text-lg">Hunger-Free and Happy</span>
-          </div>
-      )
+        <div className="flex items-center gap-2">
+          <Logo className="w-6 h-6 text-primary" />
+          <span className="font-semibold text-lg">Hunger-Free and Happy</span>
+        </div>
+      );
     }
-    return <h1 className="text-xl font-semibold tracking-tight">{getTitle()}</h1>
+    return <h1 className="text-xl font-semibold tracking-tight">{getTitle()}</h1>;
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b bg-background/80 px-4 pt-[env(safe-area-inset-top)] backdrop-blur-sm sm:px-6 lg:px-8">
+    <header
+      className="sticky top-0 z-30 flex shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm sm:px-6 lg:px-8"
+      style={{
+        paddingTop: 'env(safe-area-inset-top)',
+        height: 'calc(4rem + env(safe-area-inset-top))', // More reliable on iOS
+      }}
+    >
       <div className="flex items-center gap-4">
         {/* Only show sidebar trigger for clients on mobile */}
         {!isCoach && (
           <SidebarTrigger className={cn("md:hidden", isMobile === undefined && "invisible")} />
         )}
-        
+
         {siteUrl ? (
           <Link href={siteUrl} target="_blank" rel="noopener noreferrer">
             <TitleContent />
@@ -68,8 +74,8 @@ export function AppHeader() {
       <div className="flex items-center gap-2 sm:gap-4">
         {/* Coach/Client Switch Button - Only visible to coaches after loading */}
         {!loading && isCoach && (
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             size="sm"
             onClick={() => {
               if (pathname.includes('/coach')) {
@@ -84,7 +90,7 @@ export function AppHeader() {
         )}
 
         <div className="flex items-center">
-            <UserNav />
+          <UserNav />
         </div>
       </div>
     </header>
