@@ -5,7 +5,6 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import type { ClientProfile, UserProfile } from '@/types';
 import { getUserProfileAndRole } from '@/app/auth/actions';
-import { usePathname, useRouter } from 'next/navigation';
 
 interface AuthContextType {
   user: User | null;
@@ -23,9 +22,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isCoach, setIsCoach] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
-
-  const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
     setIsClient(true);
@@ -65,21 +61,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => unsubscribe();
   }, [isClient]);
-
-  useEffect(() => {
-    if (!isClient || isLoading) return;
-
-    const isLoggedIn = user && profile;
-    const isPublicPage = ['/login', '/signup'].includes(pathname);
-    const isProtectedPage = ['/coach', '/client'].some(p => pathname.startsWith(p));
-
-    if (isLoggedIn && isPublicPage) {
-      const targetDashboard = isCoach ? '/coach/dashboard' : '/client/dashboard';
-      router.push(targetDashboard);
-    } else if (!isLoggedIn && isProtectedPage) {
-      router.push('/login');
-    }
-  }, [isClient, user, profile, isCoach, isLoading, pathname, router]);
 
   return (
     <AuthContext.Provider
