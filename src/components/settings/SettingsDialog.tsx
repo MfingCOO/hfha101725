@@ -38,6 +38,8 @@ import { AppNumberInput } from '../ui/number-input';
 import { Slider } from '../ui/slider';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
 import { BaseModal } from '../ui/base-modal';
+import { useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 
 // Capacitor Imports
 import { Capacitor } from '@capacitor/core';
@@ -133,6 +135,8 @@ const resizeImage = (dataUrl: string, fileName: string, fileType: string): Promi
 export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordion }: SettingsDialogProps) {
   const { toast } = useToast();
   const { user, isCoach } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -841,18 +845,41 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
   };
 
   return (
-      <BaseModal
-          isOpen={open}
-          onClose={() => onOpenChange(false)}
-          title="Settings"
-          description={isCoach ? "Manage account and site settings." : "Manage account and app preferences."}
-          profile={profileData}
-      >
-        {isLoading ? (
-              <div className="flex items-center justify-center h-64">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-          ) : isCoach ? renderCoachSettings() : renderClientSettings()}
-      </BaseModal>
+    <BaseModal
+      isOpen={open}
+      onClose={() => onOpenChange(false)}
+      title="Settings"
+      description={isCoach ? "Manage account and site settings." : "Manage account and app preferences."}
+      profile={profileData}
+    >
+      {/* === COACH SWITCH - Only visible to coaches === */}
+      {isCoach && (
+        <div className="mb-4 p-4 border rounded-lg bg-muted/30">
+          <h3 className="font-semibold mb-2">Coach Tools</h3>
+          <Button 
+            variant="outline" 
+            className="w-full"
+            onClick={() => {
+              if (pathname.includes('/coach')) {
+                router.push('/client/dashboard');
+              } else {
+                router.push('/coach/dashboard');
+              }
+              onOpenChange(false);
+            }}
+          >
+            {pathname.includes('/coach') 
+              ? "Switch back to Client Dashboard" 
+              : "Switch to Coach Dashboard"}
+          </Button>
+        </div>
+      )}
+  
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      ) : isCoach ? renderCoachSettings() : renderClientSettings()}
+    </BaseModal>
   );
 }
