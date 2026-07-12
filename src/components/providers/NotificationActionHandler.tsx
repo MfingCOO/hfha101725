@@ -21,7 +21,12 @@ export function NotificationActionHandler() {
     setOpenChallengeList,
   } = useNotificationStore();
 
+  // Safe service worker listener (only runs on web/PWA)
   useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
+      return; // Skip on native iOS/Android
+    }
+
     const handleMessage = (event: MessageEvent) => {
       if (event.data.type !== 'notification_clicked' || !event.data.data) {
         return;
@@ -32,27 +37,26 @@ export function NotificationActionHandler() {
       const data = event.data.data;
       const type = String(data.type || '').toLowerCase();
 
-      // CUSTOM POPUP - Works for everyone, including free tier
+      // CUSTOM POPUP
       if (type === 'custom-popup' && data.url) {
         console.log('📢 Opening custom popup');
         router.push(data.url);
         return;
       }
 
-      // CHAT - Works for everyone
+      // CHAT
       if (data.chatId) {
         const dashboardRoute = isCoach ? '/coach/dashboard' : '/client/dashboard';
         router.push(`${dashboardRoute}?openChat=${data.chatId}`);
         return;
       }
 
-      // Everything else (hydration, appointment, workout, etc.) - only for paid users
+      // Everything else (only for paid users)
       if (profile?.tier === 'free') {
         console.log('🔒 Free tier user - ignoring notification type:', type);
         return;
       }
 
-      // Hydration Reminder
       if (type === 'hydration') {
         console.log('💧 Opening hydration popup');
         setTriggerHydrationModal(true);
@@ -60,7 +64,6 @@ export function NotificationActionHandler() {
         return;
       }
 
-      // Appointment Reminder / Booked
       if (type === 'appointment_reminder' || type === 'appointment_booked') {
         console.log('📅 Opening calendar for appointment');
         const id = data.appointmentId || data.entityId;
@@ -69,7 +72,6 @@ export function NotificationActionHandler() {
         return;
       }
 
-      // Workout Reminder
       if (type === 'workout_reminder') {
         console.log('🏋️ Opening calendar for workout');
         const id = data.workoutId || data.entityId;
@@ -86,9 +88,9 @@ export function NotificationActionHandler() {
     return () => {
       navigator.serviceWorker.removeEventListener('message', handleMessage);
     };
-  }, [isCoach, profile, router, openChat, setNotificationChatId, setTriggerHydrationModal, setNotificationAppointmentId, setNotificationWorkoutId, setNotificationIndulgenceId, setOpenChallengeList]);
+  }, [isCoach, profile, router, setTriggerHydrationModal, setNotificationAppointmentId, setNotificationWorkoutId]);
 
-  // Handle deep links from URL params (existing logic)
+  // Handle deep links from URL params
   useEffect(() => {
     const chatId = searchParams.get('openChat');
     if (chatId) {
