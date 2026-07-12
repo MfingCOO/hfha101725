@@ -13,6 +13,14 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+webpack:(config, { dev }) => {
+  if (!dev) {
+    // Disable minification so we get readable error messages
+    config.optimization.minimize = false;
+  }
+  return config;
+ },
+ productionbrowserSourceMaps: true,
 };
 
 export default nextConfig;
