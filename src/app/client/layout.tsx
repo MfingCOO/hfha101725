@@ -3,7 +3,7 @@
 import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { useAuth } from '@/components/auth/auth-provider';
-import * as React from 'react';
+import { Suspense, type ReactNode } from 'react';
 import BottomNavBar from '@/components/layout/bottom-nav-bar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/toaster';
@@ -29,8 +29,10 @@ function DialogManager() {
 
   return (
     <>
-      <NotificationActionHandler />
-      
+      <Suspense fallback={null}>
+        <NotificationActionHandler />
+      </Suspense>
+
       {/* Only render ChallengesDialog when profile exists */}
       {profile && (
         <ChallengesDialog 
@@ -58,7 +60,7 @@ function DialogManager() {
   );
 }
 
-export default function ClientLayout({ children }: { children: React.ReactNode }) {
+export default function ClientLayout({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
 
   if (loading) {
