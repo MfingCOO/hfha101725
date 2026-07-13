@@ -54,8 +54,8 @@ export default function BottomNavBar() {
         <footer 
             className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background border-t"
             style={{ 
-                bottom: adBannerHeight > 0 ? `${adBannerHeight}px` : undefined,
-                paddingBottom: 'env(safe-area-inset-bottom)'
+                paddingBottom: 'env(safe-area-inset-bottom)',
+                bottom: adBannerHeight > 0 ? `${adBannerHeight}px` : undefined 
             }}
         >
             <nav className="flex justify-around items-center h-16">

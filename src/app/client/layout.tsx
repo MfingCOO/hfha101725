@@ -81,10 +81,10 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset className="h-dvh flex flex-col md:ml-64">
+      <SidebarInset className="h-dvh flex flex-col overflow-hidden md:ml-64">
         <AppHeader />
         
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto min-h-0">
           <div className="p-4 sm:p-6 lg:p-8 pb-20">
             {children}
           </div>
