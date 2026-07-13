@@ -2,11 +2,9 @@
 
 import { UserNav } from '@/components/auth/user-nav';
 import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Logo } from '../icons/logo';
 import { useAuth } from '../auth/auth-provider';
-import { SidebarTrigger } from '../ui/sidebar';
 import { useEffect, useState } from 'react';
 import { getSiteSettingsAction } from '@/app/coach/site-settings/actions';
 import Link from 'next/link';
@@ -54,9 +52,7 @@ export function AppHeader() {
       }}
     >
       <div className="flex items-center gap-4">
-        {!isCoach && (
-          <SidebarTrigger className={cn("md:hidden", isMobile === undefined && "invisible")} />
-        )}
+        {/* SidebarTrigger has been removed */}
 
         {siteUrl ? (
           <Link href={siteUrl} target="_blank" rel="noopener noreferrer">
@@ -68,6 +64,21 @@ export function AppHeader() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4">
+        {!loading && isCoach && (
+          <button
+            onClick={() => {
+              if (pathname.includes('/coach')) {
+                window.location.href = '/client/dashboard';
+              } else {
+                window.location.href = '/coach/dashboard';
+              }
+            }}
+            className="px-3 py-1 text-sm border rounded-md hover:bg-accent"
+          >
+            {pathname.includes('/coach') ? "Client View" : "Coach View"}
+          </button>
+        )}
+
         <div className="flex items-center">
           <UserNav />
         </div>

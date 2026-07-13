@@ -1,11 +1,9 @@
 'use client';
 
+import { AppHeader } from '@/components/layout/app-header';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { AppHeader } from '@/components/layout/app-header';
-import { AppSidebar } from '@/components/layout/app-sidebar';
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/toaster';
 import { Loader2 } from 'lucide-react';
 import { useDashboardActions } from '@/contexts/DashboardActionsContext';
@@ -55,18 +53,17 @@ export default function CoachLayout({
   }
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset className="h-dvh flex flex-col md:ml-64">
-        <AppHeader />
-        <main className="flex-1 overflow-y-auto">
-          <div className="p-4 sm:p-6 lg:p-8 pb-24">
-            {children}
-          </div>
-        </main>
-        <DialogManager />
-        <Toaster />
-      </SidebarInset>
-    </SidebarProvider>
+    <div className="h-dvh flex flex-col">
+      <AppHeader />
+      
+      <main className="flex-1 overflow-y-auto min-h-0">
+        <div className="p-4 sm:p-6 lg:p-8 pb-20">
+          {children}
+        </div>
+      </main>
+
+      <DialogManager />
+      <Toaster />
+    </div>
   );
 }
