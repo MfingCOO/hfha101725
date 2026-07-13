@@ -11,9 +11,6 @@ import Link from 'next/link';
 import { Capacitor } from '@capacitor/core';
 import { Loader2 } from 'lucide-react';
 
-// ✅ This fixes the build error
-export const dynamic = 'force-dynamic';
-
 export default function SignupPage() {
     const { toast } = useToast();
     const router = useRouter();
@@ -79,19 +76,34 @@ export default function SignupPage() {
             <div className="mt-8 text-center text-xs text-muted-foreground max-w-lg space-y-2">
                 <p>
                     Need help? Visit our{' '}
-                    <Link href="/support" className="underline hover:text-primary font-medium">
+                    <a 
+                        href="/support" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="underline hover:text-primary font-medium"
+                    >
                         Support Page
-                    </Link>
+                    </a>
                 </p>
                 <div>
                     By creating an account, you agree to our{' '}
-                    <Link href="/tos" className="underline hover:text-primary">
+                    <a 
+                        href="/tos" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="underline hover:text-primary"
+                    >
                         Terms of Service
-                    </Link>{' '}
+                    </a>{' '}
                     and{' '}
-                    <Link href="/privacy" className="underline hover:text-primary">
+                    <a 
+                        href="/privacy" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="underline hover:text-primary"
+                    >
                         Privacy Policy
-                    </Link>.
+                    </a>.
                 </div>
             </div>
         </main>

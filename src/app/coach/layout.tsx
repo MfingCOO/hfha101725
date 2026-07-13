@@ -1,6 +1,8 @@
 'use client';
 
 import { useAuth } from '@/components/auth/auth-provider';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import { AppHeader } from '@/components/layout/app-header';
 import { AppSidebar } from '@/components/layout/app-sidebar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
@@ -12,31 +14,42 @@ import { SettingsDialog } from '@/components/settings/SettingsDialog';
 
 function DialogManager() {
   const { profile } = useAuth();
-  const { isSettingsOpen, onCloseSettings } = useDashboardActions();
+  const {
+    isSettingsOpen,
+    onCloseSettings
+  } = useDashboardActions();
 
   return (
     <>
       <ChatsDialog />
-      {isSettingsOpen && <SettingsDialog open={isSettingsOpen} onOpenChange={onCloseSettings} />}
+      {isSettingsOpen && (
+        <SettingsDialog
+          open={isSettingsOpen}
+          onOpenChange={onCloseSettings}
+        />
+      )}
     </>
   );
 }
 
-export default function CoachLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+export default function CoachLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const { isCoach, loading, user } = useAuth();
+  const router = useRouter();
 
-  if (loading) {
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace('/');
+    }
+  }, [loading, user, router]);
+
+  if (loading || !user) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-dvh items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <p>Please log in to continue.</p>
       </div>
     );
   }
@@ -47,12 +60,13 @@ export default function CoachLayout({ children }: { children: React.ReactNode })
       <SidebarInset className="h-dvh flex flex-col md:ml-64">
         <AppHeader />
         <main className="flex-1 overflow-y-auto">
-          <div className="p-4 sm:p-6 lg:p-8 pb-24">{children}</div>
+          <div className="p-4 sm:p-6 lg:p-8 pb-24">
+            {children}
+          </div>
         </main>
+        <DialogManager />
+        <Toaster />
       </SidebarInset>
-
-      <DialogManager />
-      <Toaster />
     </SidebarProvider>
   );
 }

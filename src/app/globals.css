@@ -2,11 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: Arial, Helvetica, sans-serif;
-  padding-bottom: 106px !important;
-}
-
 @layer base {
   :root {
     --background: 30 10% 10%;
@@ -44,6 +39,19 @@ body {
   }
 }
 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body {
+    height: 100dvh;           /* Dynamic viewport height - fixes iOS height issues */
+    overflow: hidden;         /* Prevent root-level scrolling */
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
 @layer utilities {
   .bg-amber-500 { background-color: #f59e0b; }
   .bg-orange-500 { background-color: #f97316; }
@@ -70,42 +78,32 @@ body {
   .text-gray-500 { color: #6b7280; }
 }
 
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-}
-
 @layer components {
-    .btn-3d {
-        @apply transition-transform duration-100 ease-in-out;
-        border-bottom-width: 4px;
-    }
-    .btn-3d:active {
-        @apply transform translate-y-0.5;
-        border-bottom-width: 2px;
-    }
-    .text-pop {
-      color: hsl(var(--accent));
-      text-shadow:
-          -2px -2px 0 #000,
-           2px -2px 0 #000,
-          -2px  2px 0 #000,
-           2px  2px 0 #000,
-          -2px  0   0 #000,
-           2px  0   0 #000,
-           0   -2px 0 #000,
-           0    2px 0 #000;
-    }
-    .text-outline {
-      text-shadow:
-        -2px -2px 0 #000,
-         2px -2px 0 #000,
-        -2px  2px 0 #000,
-         2px  2px 0 #000;
-    }
+  .btn-3d {
+    @apply transition-transform duration-100 ease-in-out;
+    border-bottom-width: 4px;
+  }
+  .btn-3d:active {
+    @apply transform translate-y-0.5;
+    border-bottom-width: 2px;
+  }
+  .text-pop {
+    color: hsl(var(--accent));
+    text-shadow:
+      -2px -2px 0 #000,
+      2px -2px 0 #000,
+      -2px 2px 0 #000,
+      2px 2px 0 #000,
+      -2px 0 0 #000,
+      2px 0 0 #000,
+      0 -2px 0 #000,
+      0 2px 0 #000;
+  }
+  .text-outline {
+    text-shadow:
+      -2px -2px 0 #000,
+      2px -2px 0 #000,
+      -2px 2px 0 #000,
+      2px 2px 0 #000;
+  }
 }

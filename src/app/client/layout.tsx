@@ -33,7 +33,6 @@ function DialogManager() {
         <NotificationActionHandler />
       </Suspense>
 
-      {/* Only render ChallengesDialog when profile exists */}
       {profile && (
         <ChallengesDialog 
           isOpen={isChallengesOpen} 
@@ -65,7 +64,7 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-dvh items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     );
@@ -73,7 +72,7 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
 
   if (!user) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-dvh items-center justify-center">
         <p>Please log in to continue.</p>
       </div>
     );
@@ -84,9 +83,13 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
       <AppSidebar />
       <SidebarInset className="h-dvh flex flex-col md:ml-64">
         <AppHeader />
+        
         <main className="flex-1 overflow-y-auto">
-          <div className="p-4 sm:p-6 lg:p-8 pb-24">{children}</div>
+          <div className="p-4 sm:p-6 lg:p-8 pb-20">
+            {children}
+          </div>
         </main>
+
         <BottomNavBar />
       </SidebarInset>
 

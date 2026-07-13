@@ -21,51 +21,48 @@ export function NotificationActionHandler() {
     setOpenChallengeList,
   } = useNotificationStore();
 
-  // Safe service worker listener (only runs on web/PWA)
+  // Safe service worker listener (web only)
   useEffect(() => {
+    console.log('[NotificationActionHandler] Component mounted');
+
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
-      return; // Skip on native iOS/Android
+      console.log('[NotificationActionHandler] Skipping serviceWorker listener (native platform)');
+      return;
     }
 
     const handleMessage = (event: MessageEvent) => {
+      console.log('[NotificationActionHandler] Received service worker message:', event.data);
+
       if (event.data.type !== 'notification_clicked' || !event.data.data) {
         return;
       }
 
-      console.log('📬 Notification clicked:', event.data.data);
-
       const data = event.data.data;
       const type = String(data.type || '').toLowerCase();
 
-      // CUSTOM POPUP
       if (type === 'custom-popup' && data.url) {
-        console.log('📢 Opening custom popup');
         router.push(data.url);
         return;
       }
 
-      // CHAT
       if (data.chatId) {
         const dashboardRoute = isCoach ? '/coach/dashboard' : '/client/dashboard';
         router.push(`${dashboardRoute}?openChat=${data.chatId}`);
         return;
       }
 
-      // Everything else (only for paid users)
       if (profile?.tier === 'free') {
-        console.log('🔒 Free tier user - ignoring notification type:', type);
+        console.log('[NotificationActionHandler] Free tier user - ignoring notification');
         return;
       }
 
       if (type === 'hydration') {
-        console.log('💧 Opening hydration popup');
         setTriggerHydrationModal(true);
         router.push('/client/dashboard');
         return;
       }
 
       if (type === 'appointment_reminder' || type === 'appointment_booked') {
-        console.log('📅 Opening calendar for appointment');
         const id = data.appointmentId || data.entityId;
         if (id) setNotificationAppointmentId(id);
         router.push('/client/dashboard');
@@ -73,27 +70,26 @@ export function NotificationActionHandler() {
       }
 
       if (type === 'workout_reminder') {
-        console.log('🏋️ Opening calendar for workout');
         const id = data.workoutId || data.entityId;
         if (id) setNotificationWorkoutId(id);
         router.push('/client/dashboard');
         return;
       }
-
-      console.log('⚠️ Unhandled notification type:', type);
     };
 
     navigator.serviceWorker.addEventListener('message', handleMessage);
+    console.log('[NotificationActionHandler] Service worker message listener attached');
 
     return () => {
       navigator.serviceWorker.removeEventListener('message', handleMessage);
     };
   }, [isCoach, profile, router, setTriggerHydrationModal, setNotificationAppointmentId, setNotificationWorkoutId]);
 
-  // Handle deep links from URL params
+  // Handle deep links from URL
   useEffect(() => {
     const chatId = searchParams.get('openChat');
     if (chatId) {
+      console.log('[NotificationActionHandler] Opening chat from URL param:', chatId);
       openChat(chatId);
       const currentPath = window.location.pathname;
       router.replace(currentPath, { scroll: false });

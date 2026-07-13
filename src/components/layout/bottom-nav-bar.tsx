@@ -1,4 +1,5 @@
 'use client';
+
 import { Home, Calendar, MessageSquare, Trophy } from "lucide-react";
 import Link from "next/link";
 import { useDashboardActions, useDashboardState } from "@/contexts/DashboardActionsContext";
@@ -51,9 +52,11 @@ export default function BottomNavBar() {
 
     return (
         <footer 
-            // CORRECTED: Reduced z-index to 40, which is below the dialog's default of 50.
-            className="fixed left-0 right-0 bg-background border-t z-40 md:hidden"
-            style={{ bottom: `calc(${adBannerHeight}px + env(safe-area-inset-bottom))` }}
+            className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background border-t"
+            style={{ 
+                bottom: adBannerHeight > 0 ? `${adBannerHeight}px` : undefined,
+                paddingBottom: 'env(safe-area-inset-bottom)'
+            }}
         >
             <nav className="flex justify-around items-center h-16">
                 {navItems.map((item) => {
