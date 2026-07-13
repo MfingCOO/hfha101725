@@ -43,11 +43,14 @@
   * {
     @apply border-border;
   }
-  html, body {
-    height: 100dvh;           /* Dynamic viewport height - fixes iOS height issues */
-    overflow: hidden;         /* Prevent root-level scrolling */
+
+  html {
+    height: 100dvh;
   }
+
   body {
+    height: 100dvh;
+    overflow: hidden;
     @apply bg-background text-foreground;
   }
 }

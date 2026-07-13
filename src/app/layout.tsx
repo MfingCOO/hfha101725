@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   title: "Hunger Free and Happy",
   description: "A wellness application.",
   icons: {
-    icon: "/favicon.ico",           // ← This tells Next.js to use the favicon
+    icon: "/favicon.ico",
   },
 };
 
@@ -17,8 +17,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning className="dark h-full">
-      <body className={`${inter.className} h-full`}>
+    <html lang="en" suppressHydrationWarning className="dark">
+      <body className={`${inter.className} h-dvh overflow-hidden`}>
         <RootProviders>
           {children}
         </RootProviders>
