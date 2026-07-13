@@ -105,7 +105,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     }
 
     if (finalUrl && finalUrl !== '/') {
-      // Safer navigation - delay slightly to avoid hydration issues
       setTimeout(() => {
         router.push(finalUrl);
       }, 50);
@@ -114,7 +113,7 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
     setTimeout(() => { hasNavigatedRef.current = false; }, 2000);
   }, [router, setNotificationChatId, setNotificationAppointmentId, setNotificationWorkoutId, setTriggerHydrationModal, setNotificationIndulgenceId, setOpenChallengeList]);
 
-  // URL param handling (safer version)
+  // URL param handling
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const hasNotificationParams = urlParams.get('notificationType');
@@ -123,7 +122,6 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
       const dataFromUrl = Object.fromEntries(urlParams.entries());
       triggerNavigation('URL Load', dataFromUrl);
 
-      // Clean URL
       if (window.history.replaceState) {
         const newUrl = new URL(window.location.href);
         ['notificationType', 'openChatId', 'openWorkoutId', 'openAppointmentId', 'openHydration', 'indulgenceId', 'openChallengeList'].forEach(p => 
@@ -140,34 +138,49 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
 
     const setupNotifications = async () => {
       const isNative = Capacitor.isNativePlatform();
+      log(`Starting notification setup. Platform: ${isNative ? 'Native (iOS/Android)' : 'Web'}`);
 
       if (isNative) {
         try {
           await createNotificationChannels();
           const permissionStatus = await PushNotifications.requestPermissions();
+          log('Permission result:', permissionStatus);
 
           if (permissionStatus.receive === 'granted') {
+            log('Permission granted. Calling register()...');
             await PushNotifications.register();
 
-            // Registration token
+            // This is the important one for iOS
             PushNotifications.addListener('registration', async (token: Token) => {
+              log('✅ Push token received from device:', token.value);
               if (user?.uid) {
-                await addFcmTokenAction({ userId: user.uid, token: token.value });
+                try {
+                  await addFcmTokenAction({ userId: user.uid, token: token.value });
+                  log('✅ Token successfully sent to backend');
+                } catch (err) {
+                  logError('❌ Failed to send token to backend:', err);
+                }
               }
             });
 
-            // Foreground notification
+            PushNotifications.addListener('registrationError', (error) => {
+              logError('❌ Push registration error (this is important):', error);
+            });
+
             PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+              log('Foreground notification received');
               showInAppNotification(notification.title, notification.body, notification.data || {});
             });
 
-            // Background / killed state tap
             PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+              log('Notification tapped (background/killed)');
               triggerNavigation('Native Action', action.notification.data || {});
             });
+          } else {
+            log('Permission was not granted');
           }
         } catch (error) {
-          logError('Error setting up native push:', error);
+          logError('Error during native push setup:', error);
         }
       } else {
         // Web fallback
