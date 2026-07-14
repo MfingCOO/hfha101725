@@ -49,10 +49,10 @@ export function AppHeader() {
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         paddingBottom: '1rem',
-        minHeight: 'calc(4rem + env(safe-area-inset-top))'
+        height: 'auto'
       }}
     >
-      <div className="flex min-h-[4rem] items-center justify-between px-4 sm:px-6 lg:px-8">
+      <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-4">
           {siteUrl ? (
             <Link href={siteUrl} target="_blank" rel="noopener noreferrer">
