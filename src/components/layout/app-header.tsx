@@ -48,7 +48,8 @@ export function AppHeader() {
       className="sticky top-0 z-30 w-full border-b bg-background/80 backdrop-blur-sm"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
-        minHeight: 'calc(4rem + env(safe-area-inset-top))'
+        paddingBottom: '1rem',
+        minHeight: 'calc(5.5rem + env(safe-area-inset-top))'
       }}
     >
       <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">

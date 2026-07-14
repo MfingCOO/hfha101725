@@ -1,7 +1,7 @@
 import "./globals.css";
 import { inter } from './fonts';
 import { RootProviders } from "@/components/providers/root-providers";
-import { Metadata } from 'next';
+import { Metadata, Viewport } from 'next';
 
 export const metadata: Metadata = {
   title: "Hunger Free and Happy",
@@ -9,6 +9,12 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.ico",
   },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover', // Critical for iOS safe areas in Capacitor
 };
 
 export default function RootLayout({

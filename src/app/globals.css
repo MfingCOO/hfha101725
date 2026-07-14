@@ -36,6 +36,10 @@
     --sidebar-accent-foreground: 40 30% 95%;
     --sidebar-border: 30 10% 30%;
     --sidebar-ring: 45 80% 70%;
+
+    /* Safe area support for iOS */
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 
@@ -51,6 +55,8 @@
   body {
     height: 100dvh;
     overflow: hidden;
+    padding-top: var(--safe-area-top);
+    padding-bottom: var(--safe-area-bottom);
     @apply bg-background text-foreground;
   }
 }
