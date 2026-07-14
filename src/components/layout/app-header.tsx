@@ -12,7 +12,7 @@ import Link from 'next/link';
 export function AppHeader() {
   const isMobile = useIsMobile();
   const pathname = usePathname();
-  const { isCoach, loading } = useAuth();
+  const { loading } = useAuth();
   const [siteUrl, setSiteUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,39 +45,22 @@ export function AppHeader() {
 
   return (
     <header
-      className="sticky top-0 z-30 flex shrink-0 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm sm:px-6 lg:px-8"
+      className="sticky top-0 z-30 w-full border-b bg-background/80 backdrop-blur-sm"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
-        height: 'calc(4rem + env(safe-area-inset-top))',
+        minHeight: 'calc(4rem + env(safe-area-inset-top))'
       }}
     >
-      <div className="flex items-center gap-4">
-        {/* SidebarTrigger has been removed */}
-
-        {siteUrl ? (
-          <Link href={siteUrl} target="_blank" rel="noopener noreferrer">
+      <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-4">
+          {siteUrl ? (
+            <Link href={siteUrl} target="_blank" rel="noopener noreferrer">
+              <TitleContent />
+            </Link>
+          ) : (
             <TitleContent />
-          </Link>
-        ) : (
-          <TitleContent />
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 sm:gap-4">
-        {!loading && isCoach && (
-          <button
-            onClick={() => {
-              if (pathname.includes('/coach')) {
-                window.location.href = '/client/dashboard';
-              } else {
-                window.location.href = '/coach/dashboard';
-              }
-            }}
-            className="px-3 py-1 text-sm border rounded-md hover:bg-accent"
-          >
-            {pathname.includes('/coach') ? "Client View" : "Coach View"}
-          </button>
-        )}
+          )}
+        </div>
 
         <div className="flex items-center">
           <UserNav />

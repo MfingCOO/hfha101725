@@ -52,7 +52,7 @@ export default function BottomNavBar() {
 
     return (
         <footer 
-            className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background border-t"
+            className="fixed bottom-0 left-0 right-0 z-40 bg-background border-t"
             style={{ 
                 paddingBottom: 'env(safe-area-inset-bottom)',
                 bottom: adBannerHeight > 0 ? `${adBannerHeight}px` : undefined 

@@ -80,8 +80,8 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
     <div className="h-dvh flex flex-col">
       <AppHeader />
       
-      <main className="flex-1 overflow-y-auto min-h-0">
-        <div className="p-4 sm:p-6 lg:p-8 pb-20">
+      <main className="flex-1 overflow-y-auto min-h-0 pb-20">
+        <div className="p-4 sm:p-6 lg:p-8">
           {children}
         </div>
       </main>
