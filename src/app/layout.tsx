@@ -24,9 +24,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning className="dark">
-      <body className={`${inter.className} h-dvh overflow-hidden`}>
+      {/* 
+        Removed h-dvh from body to prevent layout conflicts with padding.
+        The wrapper div now handles the full height and safe area padding.
+      */}
+      <body className={`${inter.className} overflow-hidden bg-background text-foreground`}>
         <RootProviders>
-          {children}
+          <div className="flex flex-col h-dvh w-full pt-[--safe-area-top] pb-[--safe-area-bottom]">
+            {children}
+          </div>
         </RootProviders>
       </body>
     </html>
