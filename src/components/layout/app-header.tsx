@@ -48,11 +48,11 @@ export function AppHeader() {
       className="sticky top-0 z-30 w-full border-b bg-background/80 backdrop-blur-sm"
       style={{
         paddingTop: 'env(safe-area-inset-top)',
-        paddingBottom: '1rem',
+        paddingBottom: '0px',
         height: 'auto'
       }}
     >
-      <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+      <div className="flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-4">
           {siteUrl ? (
             <Link href={siteUrl} target="_blank" rel="noopener noreferrer">

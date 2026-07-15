@@ -147,8 +147,8 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
           log('Permission result:', permissionStatus);
 
           if (permissionStatus.receive === 'granted') {
-            log('Permission granted. Calling register()...');
-            await PushNotifications.register();
+            log('Permission granted. Setting up listeners...');
+            // Register call moved to the end of this block
 
             // This is the important one for iOS
             PushNotifications.addListener('registration', async (token: Token) => {
@@ -176,6 +176,9 @@ const PushNotificationProvider = ({ children }: { children: React.ReactNode }) =
               log('Notification tapped (background/killed)');
               triggerNavigation('Native Action', action.notification.data || {});
             });
+
+            log('Listeners active. Calling register()...');
+            await PushNotifications.register();
           } else {
             log('Permission was not granted');
           }
