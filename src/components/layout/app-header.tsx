@@ -44,14 +44,7 @@ export function AppHeader() {
   };
 
   return (
-    <header
-      className="sticky top-0 z-30 w-full border-b bg-background/80 backdrop-blur-sm"
-      style={{
-        paddingTop: 'env(safe-area-inset-top)',
-        paddingBottom: '0px',
-        height: 'auto'
-      }}
-    >
+    <header className="sticky top-0 z-30 w-full border-b bg-background/80 backdrop-blur-sm">
       <div className="flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-4">
           {siteUrl ? (
