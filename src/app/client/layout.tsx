@@ -77,7 +77,7 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="h-dvh flex flex-col pt-[--safe-area-top] pb-[--safe-area-bottom]">
+    <div className="h-dvh flex flex-col">
       <AppHeader />
       
       <main className="flex-1 overflow-y-auto min-h-0 pb-20">
@@ -86,7 +86,9 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
         </div>
       </main>
 
-      <BottomNavBar />
+      <div className="pb-[--safe-area-bottom]">
+        <BottomNavBar />
+      </div>
 
       <DialogManager />
       <Toaster />
