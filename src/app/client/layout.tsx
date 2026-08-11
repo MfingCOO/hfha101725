@@ -77,7 +77,7 @@ export default function ClientLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="h-dvh flex flex-col">
+    <div className="h-dvh flex flex-col pt-[--safe-area-top] pb-[--safe-area-bottom]">
       <AppHeader />
       
       <main className="flex-1 overflow-y-auto min-h-0 pb-20">
