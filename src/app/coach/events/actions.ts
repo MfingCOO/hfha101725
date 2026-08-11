@@ -14,6 +14,7 @@ const LiveEventInputSchema = z.object({
   durationMinutes: z.number().min(1, 'Duration must be at least 1 minute.'),
   coachId: z.string(),
   attachVideoLink: z.boolean().default(false),
+  imageUrl: z.string().optional(),
 });
 
 type LiveEventInput = z.infer<typeof LiveEventInputSchema>;
@@ -21,13 +22,13 @@ type LiveEventInput = z.infer<typeof LiveEventInputSchema>;
 /**
  * Creates a new live event, and also adds a corresponding event to the coach's calendar.
  */
-export async function createLiveEvent(input: LiveEventInput): Promise<{ success: boolean; error?: string; }> {
+export async function createLiveEvent(input: LiveEventInput): Promise<{ success: boolean; error?: string; eventId?: string }> {
   const validation = LiveEventInputSchema.safeParse(input);
   if (!validation.success) {
     return { success: false, error: validation.error.errors.map(e => e.message).join(', ') };
   }
 
-  const { title, description, eventTimestamp, durationMinutes, coachId, attachVideoLink } = validation.data;
+  const { title, description, eventTimestamp, durationMinutes, coachId, attachVideoLink, imageUrl } = validation.data;
 
   const batch = adminDb.batch();
   const liveEventRef = adminDb.collection('liveEvents').doc();
@@ -66,6 +67,7 @@ export async function createLiveEvent(input: LiveEventInput): Promise<{ success:
       attendees: [],
       createdAt: FieldValue.serverTimestamp(),
       ...(videoConferenceLink !== null && { videoConferenceLink }),
+      ...(imageUrl && { imageUrl }),
     };
 
     batch.set(liveEventRef, liveEventData);
@@ -85,7 +87,7 @@ export async function createLiveEvent(input: LiveEventInput): Promise<{ success:
     batch.set(calendarEventRef, calendarEventData);
     await batch.commit();
 
-    return { success: true };
+    return { success: true, eventId: liveEventRef.id };
 
   } catch (error: any) {
     console.error('Error creating live event:', error);
@@ -263,6 +265,7 @@ const UpdateLiveEventInputSchema = z.object({
   description: z.string().min(10).optional(),
   eventTimestamp: z.date().optional(),
   durationMinutes: z.number().min(1).optional(),
+  imageUrl: z.string().optional(),
 });
 
 export async function updateLiveEvent(input: z.infer<typeof UpdateLiveEventInputSchema>): Promise<{ success: boolean; error?: string; }> {
@@ -426,4 +429,20 @@ export async function searchClients(query: string): Promise<{ success: boolean; 
     console.error("Error searching clients:", error);
     return { success: false, error: error.message };
   }
+}
+
+export async function uploadEventImageAction(eventId: string, imageUrl: string): Promise<{ success: boolean; error?: string; }> {
+    if (!eventId || !imageUrl) {
+        return { success: false, error: 'Event ID and Image URL are required.' };
+    }
+
+    const eventRef = adminDb.collection('liveEvents').doc(eventId);
+
+    try {
+        await eventRef.update({ imageUrl });
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Error updating event image for ${eventId}:`, error);
+        return { success: false, error: 'Failed to update event image.' };
+    }
 }

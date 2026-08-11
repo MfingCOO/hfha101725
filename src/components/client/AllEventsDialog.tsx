@@ -1,17 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { getLiveEvents, signUpForEvent } from '@/app/coach/events/actions';
-import { Loader2, Zap } from 'lucide-react';
+import { Loader2, Zap, ImageIcon } from 'lucide-react';
 import type { LiveEvent, UserProfile, ClientProfile } from '@/types';
 
 interface AllEventsDialogProps {
   open: boolean;
   onClose: () => void;
-  userProfile: UserProfile | null; // This is retained for type consistency, but clientProfile will be used.
+  userProfile: UserProfile | null;
   clientProfile: ClientProfile | null;
   onOpenUpgradeModal: () => void;
 }
@@ -27,7 +28,6 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
       const fetchEvents = async () => {
         setIsLoading(true);
         try {
-          // This function fetches ALL upcoming events, as you correctly stated.
           const result = await getLiveEvents();
           if (result.success) {
             setEvents(result.data || []);
@@ -44,7 +44,6 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
   }, [open, toast]);
 
   const handleSignUp = async (eventId: string) => {
-    // This now correctly uses the clientProfile passed from the dashboard.
     if (!clientProfile?.uid) {
       toast({ title: 'Error', description: 'Could not identify user.', variant: 'destructive' });
       return;
@@ -88,30 +87,48 @@ export function AllEventsDialog({ open, onClose, userProfile, clientProfile, onO
             <p className="text-center text-muted-foreground py-10">No upcoming events scheduled. Check back soon!</p>
           ) : (
             events.map(event => {
-              // This now correctly uses the clientProfile to determine if the user is registered.
               const isRegistered = clientProfile && event.attendees.includes(clientProfile.uid);
+              const imageUrl = (event as any).imageUrl;
+
               return (
-                <div key={event.id} className="p-4 border rounded-lg">
-                  <h3 className="font-semibold text-md">{event.title}</h3>
-                  <p className="text-sm text-muted-foreground mb-1">
-                    {new Date(event.eventTimestamp).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}
-                  </p>
-                  <p className="text-sm mb-3">{event.description}</p>
-                  {canJoin ? (
-                    <Button 
-                        onClick={() => handleSignUp(event.id)}
-                        disabled={isRegistered || isSigningUp === event.id}
-                        className="w-full"
-                    >
-                      {isSigningUp === event.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      {isRegistered ? 'Registered' : 'Sign Up'}
-                    </Button>
-                  ) : (
-                    <Button onClick={() => { onClose(); onOpenUpgradeModal(); }} className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:opacity-90">
-                        <Zap className="mr-2 h-4 w-4" />
-                        Upgrade to Join
-                    </Button>
-                  )}
+                <div key={event.id} className="p-4 border rounded-lg flex flex-col gap-3">
+                  <div className="flex items-start gap-4">
+                    <div className="relative w-20 h-20 shrink-0 border rounded-md overflow-hidden bg-muted">
+                        {imageUrl ? (
+                            <Image src={imageUrl} alt={event.title} fill className="object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-muted/50">
+                                <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-md leading-tight">{event.title}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {new Date(event.eventTimestamp).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <p className="text-sm w-full">{event.description}</p>
+                  
+                  <div className="w-full">
+                    {canJoin ? (
+                      <Button 
+                          onClick={() => handleSignUp(event.id)}
+                          disabled={isRegistered || isSigningUp === event.id}
+                          className="w-full"
+                      >
+                        {isSigningUp === event.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {isRegistered ? 'Registered' : 'Sign Up'}
+                      </Button>
+                    ) : (
+                      <Button onClick={() => { onClose(); onOpenUpgradeModal(); }} className="w-full bg-gradient-to-r from-yellow-400 to-orange-500 text-white hover:opacity-90">
+                          <Zap className="mr-2 h-4 w-4" />
+                          Upgrade to Join
+                      </Button>
+                    )}
+                  </div>
                 </div>
               );
             })

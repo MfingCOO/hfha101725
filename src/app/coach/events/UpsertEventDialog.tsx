@@ -14,11 +14,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon, Loader2 } from 'lucide-react';
-import { format, addMinutes } from 'date-fns';
+import { CalendarIcon, Loader2, XCircle, ImageIcon } from 'lucide-react';
+import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { createLiveEvent, updateLiveEvent } from './actions';
+import { createLiveEvent, updateLiveEvent, uploadEventImageAction } from './actions';
 import type { LiveEvent } from '@/types';
+import Image from 'next/image';
 
 const formSchema = z.object({
   title: z.string().min(3, 'Title must be at least 3 characters'),
@@ -27,6 +28,7 @@ const formSchema = z.object({
   eventTime: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Invalid time format (HH:mm)'),
   durationMinutes: z.coerce.number().min(1, 'Duration must be at least 1 minute'),
   attachVideoLink: z.boolean(),
+  imageUrl: z.string().optional(),
 });
 
 interface UpsertEventDialogProps {
@@ -40,6 +42,7 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
   const { user } = useAuth();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
   const isEditMode = !!initialData;
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -50,6 +53,7 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
       eventTime: '17:00',
       durationMinutes: 60,
       attachVideoLink: true,
+      imageUrl: '',
     },
   });
 
@@ -66,7 +70,9 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
           eventTime: format(eventDate, 'HH:mm'),
           durationMinutes: initialData.durationMinutes,
           attachVideoLink: !!initialData.videoConferenceLink,
+          imageUrl: (initialData as any).imageUrl || ''
         });
+        setFilePreview((initialData as any).imageUrl || null);
       } else {
         form.reset({
           title: '',
@@ -75,10 +81,21 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
           eventTime: '17:00',
           durationMinutes: 60,
           attachVideoLink: true,
+          imageUrl: '',
         });
+        setFilePreview(null);
       }
     }
   }, [initialData, open, form]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => setFilePreview(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (!user) {
@@ -88,33 +105,34 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
 
     setIsSubmitting(true);
     try {
-      // 1. Calculate the eventTimestamp as a Date object directly
       const eventTimestamp = new Date(values.eventDate);
       const [hours, minutes] = values.eventTime.split(':').map(Number);
       eventTimestamp.setHours(hours, minutes, 0, 0);
       
-      // 2. Prepare the payload matching the server action's schema
       const commonPayload = {
         title: values.title,
         description: values.description,
-        eventTimestamp: eventTimestamp, // Use the Date object directly
+        eventTimestamp: eventTimestamp,
         durationMinutes: values.durationMinutes,
         coachId: user.uid,
-        attachVideoLink: values.attachVideoLink, // Pass the boolean directly
+        attachVideoLink: values.attachVideoLink,
+        imageUrl: filePreview || undefined,
       };
 
       let result;
       if (isEditMode && initialData) {
-        const updatePayload = { 
+        result = await updateLiveEvent({ 
             ...commonPayload, 
-            eventId: initialData.id, // The update function expects eventId
-        };
-        // Ensure updateLiveEvent is called with the correct type
-        result = await updateLiveEvent(updatePayload);
+            eventId: initialData.id,
+        });
       } else {
-        // Ensure createLiveEvent is called with the correct type
         result = await createLiveEvent(commonPayload);
       }
+      
+      if (result.success && filePreview && result.eventId) {
+        await uploadEventImageAction(result.eventId, filePreview);
+      }
+
 
       if (result.success) {
         toast({ title: 'Success', description: `Live event ${isEditMode ? 'updated' : 'created'} successfully.` });
@@ -132,7 +150,7 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEditMode ? 'Edit Live Event' : 'Create New Live Event'}</DialogTitle>
           <DialogDescription>
@@ -165,6 +183,33 @@ export function UpsertEventDialog({ open, onOpenChange, onEventUpserted, initial
                 </FormItem>
               )}
             />
+
+            <FormItem>
+              <FormLabel>Event Image (Square)</FormLabel>
+              <div className="flex items-center gap-4">
+                {filePreview ? (
+                  <div className="relative w-20 h-20 shrink-0 border rounded-md overflow-hidden bg-muted">
+                    <Image src={filePreview} alt="Preview" fill className="object-cover" />
+                    <button 
+                      type="button" 
+                      onClick={() => { setFilePreview(null); form.setValue('imageUrl', ''); }}
+                      className="absolute top-0 right-0 p-0.5 bg-background/80 rounded-bl-md z-10"
+                    >
+                      <XCircle className="h-4 w-4 text-destructive" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="w-20 h-20 shrink-0 border border-dashed rounded-md flex items-center justify-center bg-muted/50">
+                    <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                )}
+                <FormControl>
+                  <Input type="file" accept="image/*" onChange={handleFileChange} className="text-xs" />
+                </FormControl>
+              </div>
+              <FormMessage />
+            </FormItem>
+
             <div className="grid grid-cols-2 gap-4">
                 <FormField
                 control={form.control}

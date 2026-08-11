@@ -164,7 +164,8 @@ export function OnboardingForm() {
     };
 
     return (
-        <Card className="w-full max-w-lg mx-auto border-none shadow-none bg-transparent">
+        <div className="flex flex-col h-dvh w-full max-w-lg mx-auto bg-background pt-[--safe-area-top] pb-[--safe-area-bottom] overflow-hidden">
+            <Card className="flex flex-col h-full w-full max-w-lg mx-auto border-0 sm:border shadow-none sm:shadow-sm bg-card rounded-none sm:rounded-xl overflow-hidden">
             <CardHeader>
                 <CardTitle className="text-center text-2xl font-bold">
                     {step === 4 ? "Select Your Plan" : "Create Your Account"}
@@ -174,8 +175,8 @@ export function OnboardingForm() {
             </CardHeader>
 
             <Form {...form}>
-                <form className="space-y-6">
-                    <CardContent>
+            <form onSubmit={(e) => e.preventDefault()} className="flex flex-col h-full flex-1 min-h-0">
+            <CardContent className="flex-1 overflow-y-auto px-6 py-4 scroll-smooth">
                         {/* Steps 1-3 remain unchanged */}
                         {step === 1 && (
                             <div className="space-y-4 animate-in fade-in">
@@ -353,10 +354,35 @@ export function OnboardingForm() {
                                 </div>
                             </div>
                         )}
+                        {/* Footer Links moved inside scrollable area */}
+                        <div className="mt-8 pb-4 space-y-6">
+                            <div className="text-center text-sm text-muted-foreground">
+                                Already have an account?{' '}
+                                <button 
+                                    type="button"
+                                    onClick={() => router.push('/login')} 
+                                    className="underline hover:text-primary font-medium"
+                                >
+                                    Log in
+                                </button>
+                            </div>
+
+                            <div className="text-center text-[10px] text-muted-foreground space-y-2">
+                                <p>
+                                    Need help? Visit our{' '}
+                                    <a href="/support" target="_blank" className="underline">Support Page</a>
+                                </p>
+                                <p>
+                                    By creating an account, you agree to our{' '}
+                                    <a href="/tos" target="_blank" className="underline">Terms</a> and{' '}
+                                    <a href="/privacy" target="_blank" className="underline">Privacy Policy</a>.
+                                </p>
+                            </div>
+                        </div>
                     </CardContent>
 
-                    <CardFooter className="flex flex-col space-y-4">
-                        <div className="flex justify-between w-full">
+                    <CardFooter className="shrink-0 px-6 py-4 border-t bg-background pb-[calc(1rem+var(--safe-area-bottom))]">
+                        <div className="flex justify-between w-full gap-2">
                             {step > 1 && step < 4 && (
                                 <Button type="button" variant="ghost" onClick={() => setStep(step - 1)} disabled={isLoading}>
                                     <ArrowLeft className="mr-2 h-4 w-4" /> Back
@@ -370,7 +396,8 @@ export function OnboardingForm() {
                         </div>
                     </CardFooter>
                 </form>
-            </Form>
-        </Card>
+                </Form>
+            </Card>
+        </div>
     );
 }

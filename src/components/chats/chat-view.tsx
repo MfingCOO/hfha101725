@@ -27,7 +27,6 @@ import { onSnapshot, collection, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MentionsInput, Mention } from 'react-mentions';
-// import './mention-styles.css';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 // Capacitor Imports
@@ -65,7 +64,6 @@ function FormattedMessage({ text }: { text: string }) {
 
     return processedText;
 }
-
 
 function LinkifiedText({ text }: { text: string }) {
     if (!text) return null;
@@ -603,20 +601,25 @@ export function ChatView({ chatId }: ChatViewProps) {
                     )})}
                 </div>
             </ScrollArea>
-             <div className="flex-shrink-0 bg-background border-t p-2">
+
+            {/* ========== FIXED INPUT SECTION ========== */}
+            <div className="flex-shrink-0 bg-background border-t p-2">
                 {selectedFile && (
                     <div className="flex items-center gap-2 p-1.5 mb-1 rounded-md bg-muted border animate-in fade-in-50">
                         {filePreview && <Image src={filePreview} alt="preview" width={24} height={24} className="rounded-md object-cover" />}
                         {!filePreview && <FileText className="h-6 w-6 text-muted-foreground" />}
                         <p className="text-xs text-muted-foreground flex-1 truncate">{selectedFile.name}</p>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={clearFileSelection}><XCircle className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={clearFileSelection}>
+                            <XCircle className="h-4 w-4" />
+                        </Button>
                     </div>
                 )}
-                <form onSubmit={handleSendMessage} className="flex w-full items-center space-x-1 relative">
-                     <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" />
+
+                <form onSubmit={handleSendMessage} className="flex w-full items-end gap-1 relative">
+                    <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" />
                     
                     {Capacitor.isNativePlatform() && showAttachmentOptions && (
-                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-popover border rounded-md shadow-lg p-1 animate-in fade-in-5 slide-in-from-bottom-1">
+                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-popover border rounded-md shadow-lg p-1 z-50">
                             <Button variant="ghost" className="w-full justify-start" onClick={handleCameraAction} disabled={isSending}>
                                 <Camera className="mr-2 h-4 w-4" /> Take Photo
                             </Button>
@@ -630,74 +633,121 @@ export function ChatView({ chatId }: ChatViewProps) {
                         type="button" 
                         variant="ghost" 
                         size="icon" 
+                        className="h-9 w-9 flex-shrink-0"
                         onClick={() => Capacitor.isNativePlatform() ? setShowAttachmentOptions(!showAttachmentOptions) : fileInputRef.current?.click()} 
-                        disabled={isSending}>
+                        disabled={isSending}
+                    >
                         <Paperclip className="h-4 w-4" />
                     </Button>
                     
-                    <div className="flex-1">
-                    {isMentionsReady && mentionableUsers.length > 1 ? (
-                                                                                    <MentionsInput 
-                                                                                    value={newMessage || ''}
-                                                                                    onChange={(event, newValue) => setNewMessage(newValue)}
-                                                                                    placeholder="Type a message..." 
-                                                                                    disabled={isSending} 
-                                                                                    forceSuggestionsAboveCursor={true}
-                                                                                    style={{
-                                                                                        suggestions: {
-                                                                                            backgroundColor: '#1e2937',
-                                                                                            border: '2px solid #64748b',
-                                                                                            borderRadius: '8px',
-                                                                                            boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.4)',
-                                                                                            zIndex: 99999,
-                                                                                            minWidth: '260px',      // narrowed for mobile
-                                                                                            maxWidth: '380px',      // fits on every phone
-                                                                                            color: '#f8fafc',
-                                                                                            fontSize: '15px',
-                                                                                            marginTop: '4px',
-                                                                                            overflow: 'hidden'
-                                                                                        }
-                                                                                    }}
-                                                                                    classNames={{
-                                                                                        control: "mentions__control",
-                                                                                        input: "mentions__input bg-transparent border border-input rounded-lg px-3 py-2.5 text-base",
-                                                                                        suggestionsList: "p-1 max-h-[320px] overflow-auto",
-                                                                                        suggestionsItem: "px-4 py-3 text-[#f8fafc] hover:bg-blue-600 rounded-lg cursor-pointer text-[15px]",
-                                                                                        suggestionsItemFocused: "bg-blue-600 text-white",
-                                                                                        mention: "bg-amber-400 text-slate-900 px-2.5 py-0.5 rounded font-semibold inline-block mx-px"
-                                                                                    }}
-                                                                                >
-                                                                                    <Mention
-                                                                                        trigger="@"
-                                                                                        data={mentionableUsers}
-                                                                                        markup="@[__display__](__id__)"
-                                                                                        displayTransform={(id, display) => `@${display}`}
-                                                                                    />
-                                                                                </MentionsInput>
-                    ) : (
-                        <Input value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Type a message..." disabled={isSending} className="h-8 text-xs" />
-                    )}
+                    <div className="flex-1 min-w-0">
+                        {isMentionsReady && mentionableUsers.length > 1 ? (
+                            <MentionsInput 
+                                value={newMessage || ''}
+                                onChange={(event, newValue) => setNewMessage(newValue)}
+                                placeholder="Type a message..." 
+                                disabled={isSending} 
+                                forceSuggestionsAboveCursor={true}
+                                style={{
+                                    control: {
+                                        fontSize: 16,
+                                        minHeight: 36,
+                                        maxHeight: 100,
+                                        overflowY: 'auto',
+                                    },
+                                    input: {
+                                        margin: 0,
+                                        padding: '8px 12px',
+                                        border: '1px solid hsl(var(--input))',
+                                        borderRadius: '0.5rem',
+                                        outline: 'none',
+                                        minHeight: 36,
+                                        maxHeight: 100,
+                                        overflowY: 'auto',
+                                        wordBreak: 'break-all',
+                                    },
+                                    highlighter: {
+                                        padding: '8px 12px',
+                                        border: '1px solid transparent',
+                                        borderRadius: '0.5rem',
+                                        minHeight: 36,
+                                        maxHeight: 100,
+                                        overflowY: 'auto',
+                                    },
+                                    suggestions: {
+                                        backgroundColor: '#1e2937',
+                                        border: '2px solid #64748b',
+                                        borderRadius: '8px',
+                                        boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.4)',
+                                        zIndex: 99999,
+                                        minWidth: '260px',
+                                        maxWidth: '380px',
+                                        color: '#f8fafc',
+                                        fontSize: '15px',
+                                        marginTop: '4px',
+                                        overflow: 'hidden'
+                                    }
+                                }}
+                                classNames={{
+                                    control: "mentions__control",
+                                    input: "mentions__input",
+                                    suggestionsList: "p-1 max-h-[320px] overflow-auto",
+                                    suggestionsItem: "px-4 py-3 text-[#f8fafc] hover:bg-blue-600 rounded-lg cursor-pointer text-[15px]",
+                                    suggestionsItemFocused: "bg-blue-600 text-white",
+                                    mention: "bg-amber-400 text-slate-900 px-2.5 py-0.5 rounded font-semibold inline-block mx-px"
+                                }}
+                            >
+                                <Mention
+                                    trigger="@"
+                                    data={mentionableUsers}
+                                    markup="@[__display__](__id__)"
+                                    displayTransform={(id, display) => `@${display}`}
+                                />
+                            </MentionsInput>
+                        ) : (
+                            <Input 
+                                value={newMessage} 
+                                onChange={(e) => setNewMessage(e.target.value)} 
+                                placeholder="Type a message..." 
+                                disabled={isSending} 
+                                className="h-9 text-sm" 
+                            />
+                        )}
                     </div>
 
-                    <Button type="submit" size="icon" className="h-8 w-8" disabled={isSending || (!newMessage.trim() && !selectedFile)}>
-                    {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    <Button 
+                        type="submit" 
+                        size="icon" 
+                        className="h-9 w-9 flex-shrink-0" 
+                        disabled={isSending || (!newMessage.trim() && !selectedFile)}
+                    >
+                        {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </Button>
                 </form>
             </div>
+            {/* ========== END FIXED INPUT SECTION ========== */}
+
             <AlertDialog open={deleteAlertState.open} onOpenChange={(open) => !open && setDeleteAlertState({ open: false, message: null })}>
                 <AlertDialogContent>
-                    <AlertDialogHeader><AlertDialogTitle>Delete this message?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this message?</AlertDialogTitle>
+                        <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+                    </AlertDialogHeader>
                     <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDeleteMessage} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90">
-                        {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Delete
-                    </AlertDialogAction>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteMessage} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90">
+                            {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Delete
+                        </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
             <AlertDialog open={reportAlertState.open} onOpenChange={(open) => !open && setReportAlertState({ open: false, message: null })}>
                 <AlertDialogContent>
-                    <AlertDialogHeader><AlertDialogTitle>Report this message?</AlertDialogTitle><AlertDialogDescription>This message will be flagged for review by a coach. Are you sure you want to report it?</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Report this message?</AlertDialogTitle>
+                        <AlertDialogDescription>This message will be flagged for review by a coach. Are you sure you want to report it?</AlertDialogDescription>
+                    </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction onClick={handleReportMessage} disabled={isReporting}>
