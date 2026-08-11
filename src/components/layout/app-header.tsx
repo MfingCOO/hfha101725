@@ -44,8 +44,8 @@ export function AppHeader() {
   };
 
   return (
-    <header className="sticky top-0 z-30 w-full border-b bg-background/80 backdrop-blur-sm">
-      <div className="flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8 pt-[env(safe-area-inset-top)]">
+    <header className="sticky top-0 z-30 w-full border-b bg-background/80 backdrop-blur-sm pt-[env(safe-area-inset-top)]">
+      <div className="flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-4">
           {siteUrl ? (
             <Link href={siteUrl} target="_blank" rel="noopener noreferrer">
