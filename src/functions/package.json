@@ -3,12 +3,12 @@
   "description": "Cloud Functions for Firebase",
   "scripts": {
     "clean": "rm -rf ../../lib/functions",
-    "build": "npm run clean && npx tsc -p . && mv ../../lib/functions/functions/* ../../lib/functions/ 2>/dev/null || true && mv ../../lib/functions/lib/* ../../lib/functions/ 2>/dev/null || true && rm -rf ../../lib/functions/functions ../../lib/functions/lib 2>/dev/null || true && find ../../lib/functions -type f -name '*.js' -exec sed -i 's|@/lib/|./|g' {} + && cp package.json ../../lib/functions/",
+    "build": "npm run clean && npx tsc -p tsconfig.json",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase deploy --only functions"
+    "logs": "firebase logs --functions"
   },
   "engines": {
     "node": "20"
@@ -18,11 +18,12 @@
     "@types/cors": "^2.8.19",
     "cors": "^2.8.6",
     "firebase-admin": "^13.6.1",
-    "firebase-functions": "^7.1.0",
+    "firebase-functions": "latest",
     "typescript": "^5.4.5"
   },
   "devDependencies": {
-    "tsc-alias": "^1.8.10"
+    "tsc-alias": "^1.8.10",
+    "typescript": "^5.45"
   },
   "private": true
 }

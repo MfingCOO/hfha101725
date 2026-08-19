@@ -73,14 +73,33 @@ if (!firebase.apps.length) {
 
 const messaging = firebase.messaging();
 
-// The onBackgroundMessage handler has been removed to prevent OS-level notifications on the PWA.
+// --- START OF CHANGES ---
+// Re-add the onBackgroundMessage handler for native iOS notifications.
+messaging.onBackgroundMessage(async (payload) => {
+  console.log('[Worker] Received background message:', payload);
 
+  const notificationTitle = payload.notification?.title || 'New Message';
+  const notificationBody = payload.notification?.body || '';
+  // Ensure '/public/icon.png' is a valid path accessible by the service worker in production
+  const iconPath = payload.notification?.icon || '/public/icon.png';
+
+  await self.registration.showNotification(notificationTitle, {
+    body: notificationBody,
+    icon: iconPath,
+    data: payload.data || {},
+  });
+});
+
+// Ensure a notificationclick listener is present to handle user interaction with background notifications.
 self.addEventListener('notificationclick', (event) => {
   console.log('[Worker] Notification clicked:', event.notification);
-  event.notification.close();
+  event.notification.close(); // Close the notification
 
   const data = event.notification.data || {};
-  
+  // Adapt this to your app's navigation logic for native apps.
+  // For example, if data contains chatId, you'd trigger navigation to that chat.
+  // if (data.chatId) { triggerNavigation('Chat', { chatId: data.chatId }); }
+
   // Use the pre-constructed URL from the backend if it exists.
   const targetUrl = data.url || data.ctaUrl;
 
@@ -111,7 +130,7 @@ self.addEventListener('notificationclick', (event) => {
           console.log('[Worker] Found an open client. Focusing and posting message.');
           client.focus();
           client.postMessage({ type: 'notification_clicked', data: data });
-          return; 
+          return;
         }
       }
       console.log(`[Worker] No open client found. Opening new window to: ${finalUrl}`);
@@ -121,3 +140,4 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+// --- END OF CHANGES ---

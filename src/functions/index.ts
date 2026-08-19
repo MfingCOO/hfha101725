@@ -109,37 +109,71 @@ export async function sendPushNotification(
         return acc;
     }, {});
 
+    // --- START OF MODIFICATION ---
     const payload: MulticastMessage = {
         tokens,
-        notification: { title: truncatedTitle, body: truncatedMessage },
+        // Displayed in the notification tray/banner
+        notification: {
+            title: truncatedTitle,
+            body: truncatedMessage,
+        },
+        // Custom data for your app to process when a notification is received or tapped
         data: dataPayload,
         apns: {
+            headers: {
+                // Ensure APNS priority is set correctly (e.g., '10' for immediate delivery)
+                'apns-priority': '10',
+            },
             payload: {
                 aps: {
-                    alert: { title: truncatedTitle, body: truncatedMessage },
-                    badge: 1,
-                    sound: 'default',
-                    'content-available': 1,
-                    'mutable-content': 1,
+                    alert: {
+                        title: truncatedTitle, // Title for the alert
+                        body: truncatedMessage, // Body for the alert
+                    },
+                    sound: 'default', // Use the default notification sound
+                    badge: 1, // Increment badge count. Consider managing this dynamically.
+                    // 'content-available': 1, // Useful for silent pushes or background data processing
+                    // 'mutable-content': 1, // Allows modifying the notification content in the background
                 },
+                // Custom data can also be placed here, mirroring the 'data' field if needed for APNS specific handling.
+                // Example: customData: dataPayload
             },
-            ...(finalImageUrl && { fcmOptions: { imageUrl: finalImageUrl } }),
+            // If you have an image URL, you can include it here for rich notifications on iOS.
+            ...(finalImageUrl && {
+                fcmOptions: {
+                    imageUrl: finalImageUrl,
+                },
+            }),
         },
+        // Android specific configuration (optional but recommended for consistency)
         android: {
             priority: 'high' as const,
             notification: {
                 title: truncatedTitle,
                 body: truncatedMessage,
-                channelId: String(channelId),
+                channelId: String(channelId), // REQUIRED for Android 8+
                 sound: 'default',
                 ...(finalImageUrl && { imageUrl: finalImageUrl }),
             },
         },
     };
+    // --- END OF MODIFICATION ---
 
     try {
         const response = await messaging.sendEachForMulticast(payload);
         debugLog(`FCM SUCCESS - ${notificationType} | Success: ${response.successCount}`);
+        // Optionally handle response.responses for individual token success/failure
+        if (response.failureCount > 0) {
+            const failedTokens = response.responses.reduce((acc, res, idx) => {
+                if (!res.success) {
+                    acc.push(tokens[idx]);
+                }
+                return acc;
+            }, [] as string[]);
+            debugLog(`Failed tokens: ${failedTokens.join(', ')}`);
+            // Implement logic to remove invalid tokens from Firestore if needed
+            // e.g., removeInvalidFcmTokens(userId, failedTokens);
+        }
     } catch (error) {
         console.error(`[sendPushNotification] Error for ${userId}:`, error);
     }
