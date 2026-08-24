@@ -81,13 +81,26 @@ export const BarcodeScannerView = ({ onFoodScanned, onClose, onManualEntryClick 
     setError(null);
     setResultText('');
     try {
+      const permissionTarget = source === CameraSource.Camera ? 'camera' : 'photos';
+      const permissions = await Camera.requestPermissions({ permissions: [permissionTarget] });
+  
+      if (permissionTarget === 'camera' && permissions.camera !== 'granted') {
+        setError('Camera access is required. Enable it in iOS Settings and try again.');
+        return;
+      }
+  
+      if (permissionTarget === 'photos' && permissions.photos !== 'granted' && permissions.photos !== 'limited') {
+        setError('Photo library access is required. Enable it in iOS Settings and try again.');
+        return;
+      }
+  
       const photo = await Camera.getPhoto({
         quality: 80,
         allowEditing: false,
         resultType: CameraResultType.DataUrl,
         source: source,
       });
-
+  
       if (photo.dataUrl) {
         setResultText("Scanning image for barcode...");
         const barcode = await scanImageForBarcode(photo.dataUrl);

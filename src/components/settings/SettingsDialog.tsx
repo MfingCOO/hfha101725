@@ -334,6 +334,12 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
     if (!user) return;
     setIsSaving(true);
     try {
+      const permissions = await CapacitorCamera.requestPermissions({ permissions: ['camera'] });
+      if (permissions.camera !== 'granted') {
+      toast({ variant: 'destructive', title: 'Camera Access Needed', description: 'Enable camera access in iOS Settings to take a photo.' });
+      return;
+      }
+      
       const photo = await CapacitorCamera.getPhoto({
         quality: 90,
         allowEditing: false,
@@ -367,7 +373,13 @@ export function SettingsDialog({ open, onOpenChange, defaultTab, defaultAccordio
     if (!user) return;
     setIsSaving(true);
     try {
-      const photo = await CapacitorCamera.getPhoto({
+    const permissions = await CapacitorCamera.requestPermissions({ permissions: ['photos'] });
+    if (permissions.photos !== 'granted' && permissions.photos !== 'limited') {
+    toast({ variant: 'destructive', title: 'Photo Access Needed', description: 'Enable photo library access in iOS Settings to choose an image.' });
+    return;
+    }
+
+  const photo = await CapacitorCamera.getPhoto({
         quality: 90,
         allowEditing: false,
         resultType: CameraResultType.DataUrl, // Get as base64 string
