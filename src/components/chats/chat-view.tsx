@@ -130,6 +130,19 @@ const uriToFile = async (uri: string, fileName: string, fileType: string): Promi
     return new File([blob], fileName, { type: fileType, lastModified: Date.now() });
 };
 
+const dataUrlToFile = (dataUrl: string, fileName: string): File => {
+    const arr = dataUrl.split(',');
+    const mimeMatch = arr[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const bstr = atob(arr[1] || '');
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], fileName, { type: mime, lastModified: Date.now() });
+    };
+
 interface ChatViewProps {
     chatId: string | null;
 }
@@ -157,7 +170,8 @@ export function ChatView({ chatId }: ChatViewProps) {
     const [showAttachmentOptions, setShowAttachmentOptions] = useState(false);
     const [mentionableUsers, setMentionableUsers] = useState<{ id: string; display: string; }[]>([]);
     const [isMentionsReady, setIsMentionsReady] = useState(false);
-
+    const isIOSNative = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
+    
     useEffect(() => {
         setIsMentionsReady(false);
         if (!chatId || !user) {
@@ -270,43 +284,60 @@ export function ChatView({ chatId }: ChatViewProps) {
             toast({ variant: "destructive", title: "Camera Access Needed", description: "Enable camera access in iOS Settings to take a photo." });
             return;
             }
-            
+
             const photo = await CapacitorCamera.getPhoto({
                 quality: 90,
                 allowEditing: false,
-                resultType: CameraResultType.Uri,
+                resultType: isIOSNative ? CameraResultType.DataUrl : CameraResultType.Uri,
                 source: CameraSource.Camera,
             });
 
-            if (photo.webPath) {
-                const fileType = photo.format ? `image/${photo.format}` : 'image/jpeg';
-                const fileName = `chat_camera_${Date.now()}.${photo.format || 'jpeg'}`;
-                const originalFile = await uriToFile(photo.webPath, fileName, fileType);
-                
+            if (isIOSNative && photo.dataUrl) {
+                const fileName = `chat_camera_${Date.now()}.jpeg`;
+                const originalFile = dataUrlToFile(photo.dataUrl, fileName);
+              
                 let fileToUpload = originalFile;
                 if (originalFile.type.startsWith('image/')) {
-                    fileToUpload = await resizeImage(originalFile);
-                    if (fileToUpload.size > 5 * 1024 * 1024) {
-                        toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
-                        setIsSending(false);
-                        return;
-                    }
+                  fileToUpload = await resizeImage(originalFile);
+                  if (fileToUpload.size > 5 * 1024 * 1024) {
+                    toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
+                    setIsSending(false);
+                    return;
+                  }
                 }
-
+              
                 setSelectedFile(fileToUpload);
                 const reader = new FileReader();
                 reader.onloadend = () => setFilePreview(reader.result as string);
                 reader.readAsDataURL(fileToUpload);
-
+              } else if (!isIOSNative && photo.webPath) {
+                const fileType = photo.format ? `image/${photo.format}` : 'image/jpeg';
+                const fileName = `chat_camera_${Date.now()}.${photo.format || 'jpeg'}`;
+                const originalFile = await uriToFile(photo.webPath, fileName, fileType);
+              
+                let fileToUpload = originalFile;
+                if (originalFile.type.startsWith('image/')) {
+                  fileToUpload = await resizeImage(originalFile);
+                  if (fileToUpload.size > 5 * 1024 * 1024) {
+                    toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
+                    setIsSending(false);
+                    return;
+                  }
+                }
+              
+                setSelectedFile(fileToUpload);
+                const reader = new FileReader();
+                reader.onloadend = () => setFilePreview(reader.result as string);
+                reader.readAsDataURL(fileToUpload);
             } else {
                 toast({ variant: "destructive", title: "Error", description: "Could not capture photo." });
-            }
-        } catch (error: any) {
-            console.error("Error capturing photo:", error);
-            toast({ variant: "destructive", title: "Error", description: error.message || "Failed to capture photo." });
-        } finally {
-            setIsSending(false);
-        }
+              }
+              } catch (error: any) {
+                console.error("Error capturing photo:", error);
+                toast({ variant: "destructive", title: "Error", description: error.message || "Failed to capture photo." });
+              } finally {
+                setIsSending(false);
+              }
     };
 
     const handleGalleryAction = async () => {
@@ -323,39 +354,56 @@ export function ChatView({ chatId }: ChatViewProps) {
             const photo = await CapacitorCamera.getPhoto({
                 quality: 90,
                 allowEditing: false,
-                resultType: CameraResultType.Uri,
+                resultType: isIOSNative ? CameraResultType.DataUrl : CameraResultType.Uri,
                 source: CameraSource.Photos,
             });
 
-            if (photo.webPath) {
-                const fileType = photo.format ? `image/${photo.format}` : 'image/jpeg';
-                const fileName = `chat_gallery_${Date.now()}.${photo.format || 'jpeg'}`;
-                const originalFile = await uriToFile(photo.webPath, fileName, fileType);
-
+            if (isIOSNative && photo.dataUrl) {
+                const fileName = `chat_gallery_${Date.now()}.jpeg`;
+                const originalFile = dataUrlToFile(photo.dataUrl, fileName);
+              
                 let fileToUpload = originalFile;
                 if (originalFile.type.startsWith('image/')) {
-                    fileToUpload = await resizeImage(originalFile);
-                    if (fileToUpload.size > 5 * 1024 * 1024) {
-                        toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
-                        setIsSending(false);
-                        return;
-                    }
+                  fileToUpload = await resizeImage(originalFile);
+                  if (fileToUpload.size > 5 * 1024 * 1024) {
+                    toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
+                    setIsSending(false);
+                    return;
+                  }
                 }
-
+              
                 setSelectedFile(fileToUpload);
                 const reader = new FileReader();
                 reader.onloadend = () => setFilePreview(reader.result as string);
                 reader.readAsDataURL(fileToUpload);
-
+              } else if (!isIOSNative && photo.webPath) {
+                const fileType = photo.format ? `image/${photo.format}` : 'image/jpeg';
+                const fileName = `chat_gallery_${Date.now()}.${photo.format || 'jpeg'}`;
+                const originalFile = await uriToFile(photo.webPath, fileName, fileType);
+              
+                let fileToUpload = originalFile;
+                if (originalFile.type.startsWith('image/')) {
+                  fileToUpload = await resizeImage(originalFile);
+                  if (fileToUpload.size > 5 * 1024 * 1024) {
+                    toast({ variant: "destructive", title: "File Too Large", description: "Even after compression, the image is too large (max 5MB)." });
+                    setIsSending(false);
+                    return;
+                  }
+                }
+              
+                setSelectedFile(fileToUpload);
+                const reader = new FileReader();
+                reader.onloadend = () => setFilePreview(reader.result as string);
+                reader.readAsDataURL(fileToUpload);
             } else {
                 toast({ variant: "destructive", title: "Error", description: "No photo selected." });
-            }
-        } catch (error: any) {
-            console.error("Error selecting photo from gallery:", error);
-            toast({ variant: "destructive", title: "Error", description: error.message || "Failed to select photo from gallery." });
-        } finally {
-            setIsSending(false);
-        }
+              }
+              } catch (error: any) {
+                console.error("Error selecting photo from gallery:", error);
+                toast({ variant: "destructive", title: "Error", description: error.message || "Failed to select photo from gallery." });
+              } finally {
+                setIsSending(false);
+              }
     };
 
     const clearFileSelection = () => {
