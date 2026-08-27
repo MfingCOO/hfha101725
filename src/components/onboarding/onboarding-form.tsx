@@ -29,7 +29,6 @@ import { Capacitor } from '@capacitor/core';
 import { Purchases } from '@revenuecat/purchases-capacitor';
 import { unifiedSignupAction, signupOrUpgradeClientAction } from '@/app/coach/clients/actions';
 import { CreateClientInput } from '@/types';
-import { useNotificationStore } from '@/store/notification-store';
 
 const step1Schema = z.object({
     email: z.string().email("Please enter a valid email."),
@@ -71,8 +70,7 @@ export function OnboardingForm() {
     const [isLoading, setIsLoading] = useState(false);
     const [step, setStep] = useState(1);
     const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
-    const { isRevenueCatReady, setIsRevenueCatReady } = useNotificationStore();
-
+    
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),
         defaultValues: {
@@ -97,98 +95,65 @@ export function OnboardingForm() {
     const handlePurchase = async (tierKey: TierKey, pkgKey?: 'monthly' | 'annual') => {
         setIsLoading(true);
         try {
-            // SELF-HEALING INIT: If the background init hasn't finished, do it now.
-            if (tierKey !== 'free' && !isRevenueCatReady && Capacitor.isNativePlatform()) {
-                const platform = Capacitor.getPlatform();
-                const apiKey = platform === 'ios' 
-                    ? process.env.NEXT_PUBLIC_REVENUECAT_IOS_KEY 
-                    : process.env.NEXT_PUBLIC_REVENUECAT_ANDROID_KEY;
-                
-                if (apiKey) {
-                    await Purchases.configure({ apiKey });
-                    setIsRevenueCatReady(true);
-                }
-            }
-
             const values = form.getValues();
             const intendedTier = tierNameMapping[tierKey];
     
-            // FREE tier
             if (intendedTier === 'free') {
-                const signupResult = await unifiedSignupAction({
-                    ...values,
-                    tier: 'free',
-                    units: 'imperial',
-                    coachId: 'default',
-                }) as any;
-    
-                if (!signupResult.success) {
-                    throw new Error(signupResult.error || "Could not create account.");
-                }
-    
-                toast({ title: "Account Created!", description: "Redirecting you to login." });
+                const signupResult = await unifiedSignupAction({ ...values, tier: 'free', units: 'imperial', coachId: 'default' }) as any;
+                if (!signupResult.success) throw new Error(signupResult.error || "Signup failed.");
+                toast({ title: "Welcome!", description: "Redirecting to login." });
                 router.push('/login');
                 return;
             }
     
-            // PAID tier - Create user in Firebase first
-            const signupResult = await signupOrUpgradeClientAction({
-                ...values,
-                tier: 'free',
-                units: 'imperial',
-                coachId: 'default',
-            });
-    
-            if (!signupResult.success || !signupResult.uid) {
-                throw new Error(signupResult.error || "Could not create/upgrade account.");
-            }
-    
+            // PAID TIER
+            const signupResult = await signupOrUpgradeClientAction({ ...values, tier: 'free', units: 'imperial', coachId: 'default' });
+            if (!signupResult.success || !signupResult.uid) throw new Error(signupResult.error || "Signup failed.");
+            
             if (!Capacitor.isNativePlatform()) {
                 toast({ variant: "destructive", title: "Error", description: "Payment only works on mobile." });
                 setIsLoading(false);
                 return;
             }
-    
-            // Sync identity immediately
+
+            // --- RELIABLE, SEQUENTIAL PURCHASE LOGIC ---
+            const platform = Capacitor.getPlatform();
+            const apiKey = platform === 'ios' 
+                ? process.env.NEXT_PUBLIC_REVENUECAT_IOS_KEY 
+                : process.env.NEXT_PUBLIC_REVENUECAT_ANDROID_KEY;
+            
+            if (!apiKey) throw new Error(`API Key for ${platform} is missing. Check Vercel settings.`);
+            
+            await Purchases.configure({ apiKey });
             await Purchases.logIn({ appUserID: signupResult.uid });
     
             let packageId = '';
-            if (tierKey === 'premium') {
-                packageId = pkgKey === 'monthly' ? 'premium_monthly' : 'premium_yearly';
-            } else if (tierKey === 'basic_tier') {
-                packageId = pkgKey === 'monthly' ? 'basic_monthly' : 'basic_yearly';
-            } else if (tierKey === 'ad_free_tier') {
-                packageId = pkgKey === 'monthly' ? 'ad_free_monthly' : 'ad_free_yearly';
-            }
+            if (tierKey === 'premium') packageId = pkgKey === 'monthly' ? 'premium_monthly' : 'premium_yearly';
+            else if (tierKey === 'basic_tier') packageId = pkgKey === 'monthly' ? 'basic_monthly' : 'basic_yearly';
+            else if (tierKey === 'ad_free_tier') packageId = pkgKey === 'monthly' ? 'ad_free_monthly' : 'ad_free_yearly';
     
             const offerings = await Purchases.getOfferings();
-            
-            // Robust Search Fallback
             let pkg = offerings.current?.availablePackages.find(p => p.identifier === packageId);
             if (!pkg) {
                 const allPkgs = Object.values(offerings.all).flatMap(o => o.availablePackages);
                 pkg = allPkgs.find(p => p.identifier === packageId);
             }
     
-            if (!pkg) {
-                const availableIds = Object.values(offerings.all)
-                    .flatMap(o => o.availablePackages.map(p => p.identifier))
-                    .join(', ');
-                throw new Error(`Plan "${packageId}" not found. Available: ${availableIds || 'None'}`);
-            }
+            if (!pkg) throw new Error(`Plan "${packageId}" not found in RevenueCat catalog.`);
     
             await Purchases.purchasePackage({ aPackage: pkg });
-    
-            toast({ title: "Purchase Successful!", description: "Your account is being upgraded. Redirecting to login." });
+            
+            toast({ title: "Success!", description: "Account upgraded. Redirecting to login." });
             router.push('/login');
     
         } catch (e: any) {
             if (!e.userCancelled) {
-                toast({ variant: "destructive", title: "Error", description: e.message || "Something went wrong." });
+                toast({ variant: "destructive", title: "Error", description: e.message || "Purchase failed." });
             }
             setIsLoading(false);
         }
     };
+
 
     return (
         <div className="flex flex-col h-dvh w-full max-w-lg mx-auto bg-background pt-[--safe-area-top] pb-[--safe-area-bottom] overflow-hidden">
