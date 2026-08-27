@@ -1,8 +1,8 @@
 'use client';
 
-import { Suspense, useEffect } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { AuthProvider } from "@/components/auth/auth-provider";
+import { AuthProvider, useAuth } from "@/components/auth/auth-provider";
 import { AppCheckProvider } from "@/components/auth/app-check-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from 'sonner';
@@ -13,14 +13,56 @@ import { DashboardProvider } from '@/contexts/DashboardActionsContext';
 import { NotificationsDialog } from '@/components/dialogs/NotificationsDialog';
 import { ChatProvider } from '@/components/chats/chat-provider';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
+import { Capacitor } from '@capacitor/core';
+import { useNotificationStore } from '@/store/notification-store';
+import { Purchases } from '@revenuecat/purchases-capacitor';
 
 const AdBannerProvider = dynamic(() => import('@/components/providers/AdBannerProvider'), {
   ssr: false,
   loading: () => null,
 });
 
-// The background initializer and its related imports have been removed.
-// The logic is now 100% contained in the purchase button itself.
+// HARDCODED KEYS - This is the fix.
+const REVENUECAT_IOS_KEY = "appl_WIImyDdSpgaTOCuVFZLidwLlcih";
+const REVENUECAT_ANDROID_KEY = "goog_NklNVostxEsZmVEiHkgORKJMJgp";
+
+function RevenueCatInitializer() {
+  const { setIsRevenueCatReady, isRevenueCatReady } = useNotificationStore();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || isRevenueCatReady) return;
+
+    const init = async () => {
+      try {
+        const platform = Capacitor.getPlatform();
+        const apiKey = platform === 'ios' 
+          ? REVENUECAT_IOS_KEY
+          : REVENUECAT_ANDROID_KEY;
+        
+        await Purchases.configure({ apiKey });
+        console.log('🚀 RevenueCat configured successfully');
+        setIsRevenueCatReady(true);
+        
+      } catch (error) {
+        console.error("❌ RevenueCat initialization failed:", error);
+      }
+    };
+
+    init();
+  }, [isRevenueCatReady, setIsRevenueCatReady]);
+
+  useEffect(() => {
+    if (isRevenueCatReady && user?.uid && Capacitor.isNativePlatform()) {
+      Purchases.logIn({ appUserID: user.uid }).catch(err => 
+        console.error("❌ RC Identity Sync Error:", err)
+      );
+    }
+  }, [isRevenueCatReady, user?.uid]);
+
+  return null;
+}
+
 
 export function RootProviders({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -39,6 +81,7 @@ export function RootProviders({ children }: { children: React.ReactNode }) {
   return (
     <QueryProvider>
       <AuthProvider>
+        <RevenueCatInitializer />
         <AppCheckProvider>
           <DataEntryModalProvider>
             <DashboardProvider>

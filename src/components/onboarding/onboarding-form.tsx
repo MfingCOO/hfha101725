@@ -70,7 +70,7 @@ export function OnboardingForm() {
     const [isLoading, setIsLoading] = useState(false);
     const [step, setStep] = useState(1);
     const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
-    
+
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),
         defaultValues: {
@@ -118,11 +118,9 @@ export function OnboardingForm() {
 
             // --- RELIABLE, SEQUENTIAL PURCHASE LOGIC ---
             const platform = Capacitor.getPlatform();
-            const apiKey = platform === 'ios' 
-                ? process.env.NEXT_PUBLIC_REVENUECAT_IOS_KEY 
-                : process.env.NEXT_PUBLIC_REVENUECAT_ANDROID_KEY;
-            
-            if (!apiKey) throw new Error(`API Key for ${platform} is missing. Check Vercel settings.`);
+            const apiKey = platform === 'ios'
+                ? "appl_WIImyDdSpgaTOCuVFZLidwLlcih"
+                : "goog_NklNVostxEsZmVEiHkgORKJMJgp";
             
             await Purchases.configure({ apiKey });
             await Purchases.logIn({ appUserID: signupResult.uid });
@@ -154,238 +152,149 @@ export function OnboardingForm() {
         }
     };
 
-
     return (
         <div className="flex flex-col h-dvh w-full max-w-lg mx-auto bg-background pt-[--safe-area-top] pb-[--safe-area-bottom] overflow-hidden">
             <Card className="flex flex-col h-full w-full max-w-lg mx-auto border-0 sm:border shadow-none sm:shadow-sm bg-card rounded-none sm:rounded-xl overflow-hidden">
-            <CardHeader>
-                <CardTitle className="text-center text-2xl font-bold">
-                    {step === 4 ? "Select Your Plan" : "Create Your Account"}
-                </CardTitle>
-                <Progress value={(step / 4) * 100} className="h-2 mt-2" />
-                <CardDescription className="text-center pt-2">Step {step} of 4</CardDescription>
-            </CardHeader>
-
-            <Form {...form}>
-            <form onSubmit={(e) => e.preventDefault()} className="flex flex-col h-full flex-1 min-h-0">
-            <CardContent className="flex-1 overflow-y-auto px-6 py-4 scroll-smooth">
-                        {step === 1 && (
-                            <div className="space-y-4 animate-in fade-in">
-                                <FormField control={form.control} name="fullName" render={({ field }) => (
-                                    <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input placeholder="Your Name" {...field} /></FormControl><FormMessage /></FormItem>
-                                )} />
-                                <FormField control={form.control} name="email" render={({ field }) => (
-                                    <FormItem><FormLabel>Email Address</FormLabel><FormControl><Input type="email" placeholder="email@example.com" {...field} /></FormControl><FormMessage /></FormItem>
-                                )} />
-                                <FormField control={form.control} name="password" render={({ field }) => (
-                                    <FormItem><FormLabel>Password</FormLabel><FormControl><Input type="password" placeholder="Min. 8 characters" {...field} /></FormControl><FormMessage /></FormItem>
-                                )} />
-                            </div>
-                        )}
-
-                        {step === 2 && (
-                            <div className="space-y-4 animate-in fade-in">
-                                <FormDescription className="text-center">
-                                    Your privacy is important. This data helps us personalize your goals and is never shared.
-                                </FormDescription>
-                                <FormField control={form.control} name="birthdate" render={({ field }) => (
-                                    <FormItem><FormLabel>Date of Birth</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
-                                )} />
-                                <FormField control={form.control} name="sex" render={({ field }) => (
-                                    <FormItem className="space-y-3">
-                                        <FormLabel>Biological Sex</FormLabel>
-                                        <FormControl>
-                                            <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-col space-y-1">
-                                                <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="male" /></FormControl><FormLabel className="font-normal text-sm">Male</FormLabel></FormItem>
-                                                <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="female" /></FormControl><FormLabel className="font-normal text-sm">Female</FormLabel></FormItem>
-                                                <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="unspecified" /></FormControl><FormLabel className="font-normal text-sm">Prefer not to say</FormLabel></FormItem>
-                                            </RadioGroup>
-                                        </FormControl>
-                                    </FormItem>
-                                )} />
-                                 <div className="grid grid-cols-1 gap-4">
-                                    <FormField control={form.control} name="height" render={({ field }) => (
-                                        <FormItem><FormLabel>Height (in)</FormLabel><AppNumberInput {...field} /><FormDescription className="text-xs">If you don&apos;t know, your best guess is fine!</FormDescription></FormItem>
-                                    )} />
-                                    <FormField control={form.control} name="weight" render={({ field }) => (
-                                        <FormItem><FormLabel>Weight (lbs)</FormLabel><AppNumberInput {...field} /><FormDescription className="text-xs">If you don&apos;t know, your best guess is fine!</FormDescription></FormItem>
-                                    )} />
-                                    <FormField control={form.control} name="waist" render={({ field }) => (
-                                        <FormItem><FormLabel>Waist (in)</FormLabel><AppNumberInput {...field} /><FormDescription className="text-xs">Measure at the belly button. Best guess is okay!</FormDescription></FormItem>
-                                    )} />
+                <CardHeader>
+                    <CardTitle className="text-center text-2xl font-bold">{step === 4 ? "Select Your Plan" : "Create Your Account"}</CardTitle>
+                    <Progress value={(step / 4) * 100} className="h-2 mt-2" />
+                    <CardDescription className="text-center pt-2">Step {step} of 4</CardDescription>
+                </CardHeader>
+                <Form {...form}>
+                    <form onSubmit={(e) => e.preventDefault()} className="flex flex-col h-full flex-1 min-h-0">
+                        <CardContent className="flex-1 overflow-y-auto px-6 py-4 scroll-smooth">
+                            {step === 1 && (
+                                <div className="space-y-4 animate-in fade-in">
+                                    <FormField control={form.control} name="fullName" render={({ field }) => (<FormItem><FormLabel>Full Name</FormLabel><FormControl><Input placeholder="Your Name" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                    <FormField control={form.control} name="email" render={({ field }) => (<FormItem><FormLabel>Email Address</FormLabel><FormControl><Input type="email" placeholder="email@example.com" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                    <FormField control={form.control} name="password" render={({ field }) => (<FormItem><FormLabel>Password</FormLabel><FormControl><Input type="password" placeholder="Min. 8 characters" {...field} /></FormControl><FormMessage /></FormItem>)} />
                                 </div>
-                                <FormField control={form.control} name="zipCode" render={({ field }) => (
-                                    <FormItem><FormLabel>Zip Code</FormLabel><Input placeholder="12345" {...field} /></FormItem>
-                                )} />
-                            </div>
-                        )}
-
-                        {step === 3 && (
-                            <div className="space-y-4 animate-in fade-in">
-                                <FormField control={form.control} name="activityLevel" render={({ field }) => (
-                                    <FormItem className="space-y-3">
-                                        <FormLabel>Approximate Activity Level</FormLabel>
-                                        <FormControl>
-                                            <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-col space-y-1">
-                                                <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="sedentary" /></FormControl><FormLabel className="font-normal text-sm">Sedentary</FormLabel></FormItem>
-                                                <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="light" /></FormControl><FormLabel className="font-normal text-sm">Lightly active</FormLabel></FormItem>
-                                                <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="moderate" /></FormControl><FormLabel className="font-normal text-sm">Moderately active</FormLabel></FormItem>
-                                                <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="active" /></FormControl><FormLabel className="font-normal text-sm">Very active</FormLabel></FormItem>
-                                                <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="very_active" /></FormControl><FormLabel className="font-normal text-sm">Extra active</FormLabel></FormItem>
-                                            </RadioGroup>
-                                        </FormControl>
-                                    </FormItem>
-                                )} />
-                                <div className="grid grid-cols-2 gap-4">
-                                    <FormField control={form.control} name="wakeTime" render={({ field }) => (
-                                        <FormItem><FormLabel>Typical Wake Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl></FormItem>
+                            )}
+                            {step === 2 && (
+                                <div className="space-y-4 animate-in fade-in">
+                                    <FormDescription className="text-center">Your privacy is important. This data helps us personalize your goals and is never shared.</FormDescription>
+                                    <FormField control={form.control} name="birthdate" render={({ field }) => (<FormItem><FormLabel>Date of Birth</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>)} />
+                                    <FormField control={form.control} name="sex" render={({ field }) => (
+                                        <FormItem className="space-y-3">
+                                            <FormLabel>Biological Sex</FormLabel>
+                                            <FormControl>
+                                                <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-col space-y-1">
+                                                    <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="male" /></FormControl><FormLabel className="font-normal text-sm">Male</FormLabel></FormItem>
+                                                    <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="female" /></FormControl><FormLabel className="font-normal text-sm">Female</FormLabel></FormItem>
+                                                    <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="unspecified" /></FormControl><FormLabel className="font-normal text-sm">Prefer not to say</FormLabel></FormItem>
+                                                </RadioGroup>
+                                            </FormControl>
+                                        </FormItem>
                                     )} />
-                                    <FormField control={form.control} name="sleepTime" render={({ field }) => (
-                                        <FormItem><FormLabel>Typical Sleep Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl></FormItem>
+                                     <div className="grid grid-cols-1 gap-4">
+                                        <FormField control={form.control} name="height" render={({ field }) => (<FormItem><FormLabel>Height (in)</FormLabel><AppNumberInput {...field} /><FormDescription className="text-xs">If you don&apos;t know, your best guess is fine!</FormDescription></FormItem>)} />
+                                        <FormField control={form.control} name="weight" render={({ field }) => (<FormItem><FormLabel>Weight (lbs)</FormLabel><AppNumberInput {...field} /><FormDescription className="text-xs">If you don&apos;t know, your best guess is fine!</FormDescription></FormItem>)} />
+                                        <FormField control={form.control} name="waist" render={({ field }) => (<FormItem><FormLabel>Waist (in)</FormLabel><AppNumberInput {...field} /><FormDescription className="text-xs">Measure at the belly button. Best guess is okay!</FormDescription></FormItem>)} />
+                                    </div>
+                                    <FormField control={form.control} name="zipCode" render={({ field }) => (<FormItem><FormLabel>Zip Code</FormLabel><Input placeholder="12345" {...field} /></FormItem>)} />
+                                </div>
+                            )}
+                            {step === 3 && (
+                                <div className="space-y-4 animate-in fade-in">
+                                    <FormField control={form.control} name="activityLevel" render={({ field }) => (
+                                        <FormItem className="space-y-3">
+                                            <FormLabel>Approximate Activity Level</FormLabel>
+                                            <FormControl>
+                                                <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex flex-col space-y-1">
+                                                    <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="sedentary" /></FormControl><FormLabel className="font-normal text-sm">Sedentary</FormLabel></FormItem>
+                                                    <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="light" /></FormControl><FormLabel className="font-normal text-sm">Lightly active</FormLabel></FormItem>
+                                                    <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="moderate" /></FormControl><FormLabel className="font-normal text-sm">Moderately active</FormLabel></FormItem>
+                                                    <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="active" /></FormControl><FormLabel className="font-normal text-sm">Very active</FormLabel></FormItem>
+                                                    <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="very_active" /></FormControl><FormLabel className="font-normal text-sm">Extra active</FormLabel></FormItem>
+                                                </RadioGroup>
+                                            </FormControl>
+                                        </FormItem>
                                     )} />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <FormField control={form.control} name="wakeTime" render={({ field }) => (<FormItem><FormLabel>Typical Wake Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl></FormItem>)} />
+                                        <FormField control={form.control} name="sleepTime" render={({ field }) => (<FormItem><FormLabel>Typical Sleep Time</FormLabel><FormControl><Input type="time" {...field} /></FormControl></FormItem>)} />
+                                    </div>
+                                    <div className="p-4 border rounded-md max-h-48 overflow-y-auto bg-muted/50 text-[11px] leading-relaxed">
+                                        <p className="mb-2">This application is intended as a tool to help you track your habits and choices...</p>
+                                        <p className="mb-2">The App is not a medical device...</p>
+                                        <p>By checking this box, you acknowledge that you have read, understood, and agree to this disclaimer...</p>
+                                    </div>
+                                    <FormField control={form.control} name="disclaimer" render={({ field }) => (<FormItem className="flex items-start space-x-3 space-y-0 rounded-md border p-4"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl><div className="space-y-1"><FormLabel className="text-xs font-medium">I have read, understood, and agree to the disclaimer.</FormLabel><FormMessage /></div></FormItem>)} />
                                 </div>
-                                
-                                <div className="p-4 border rounded-md max-h-48 overflow-y-auto bg-muted/50 text-[11px] leading-relaxed">
-                                    <p className="mb-2">This application is intended as a tool to help you track your habits and choices...</p>
-                                    <p className="mb-2">The App is not a medical device...</p>
-                                    <p>By checking this box, you acknowledge that you have read, understood, and agree to this disclaimer...</p>
-                                </div>
-
-                                <FormField control={form.control} name="disclaimer" render={({ field }) => (
-                                    <FormItem className="flex items-start space-x-3 space-y-0 rounded-md border p-4">
-                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                                        <div className="space-y-1"><FormLabel className="text-xs font-medium">I have read, understood, and agree to the disclaimer.</FormLabel><FormMessage /></div>
-                                    </FormItem>
-                                )} />
-                            </div>
-                        )}
-                        
-                        {step === 4 && (
-                            <div className="space-y-4 animate-in slide-in-from-bottom-4">
-                                <div className="flex items-center justify-center space-x-4 bg-muted/50 p-2 rounded-full mb-6">
-                                    <Label className={billingCycle === 'monthly' ? "font-bold text-primary text-xs" : "text-xs"}>Monthly</Label>
-                                    <Switch checked={billingCycle === 'annual'} onCheckedChange={(v) => setBillingCycle(v ? 'annual' : 'monthly')} />
-                                    <Label className={billingCycle === 'annual' ? "font-bold text-primary text-xs" : "text-xs"}>Yearly</Label>
-                                </div>
-
-                                <div className="grid gap-4">
-                                    <Card className="p-4 border-2 border-primary bg-primary/5 cursor-pointer shadow-md" onClick={() => handlePurchase('premium', billingCycle)}>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <div>
-                                                <h4 className="font-bold text-lg text-primary">Premium</h4>
-                                                <p className="text-[10px] text-primary font-bold uppercase tracking-tight">Best Value</p>
+                            )}
+                            {step === 4 && (
+                                <div className="space-y-4 animate-in slide-in-from-bottom-4">
+                                    <div className="flex items-center justify-center space-x-4 bg-muted/50 p-2 rounded-full mb-6">
+                                        <Label className={billingCycle === 'monthly' ? "font-bold text-primary text-xs" : "text-xs"}>Monthly</Label>
+                                        <Switch checked={billingCycle === 'annual'} onCheckedChange={(v) => setBillingCycle(v ? 'annual' : 'monthly')} />
+                                        <Label className={billingCycle === 'annual' ? "font-bold text-primary text-xs" : "text-xs"}>Yearly</Label>
+                                    </div>
+                                    <div className="grid gap-4">
+                                        <Card className="p-4 border-2 border-primary bg-primary/5 cursor-pointer shadow-md" onClick={() => handlePurchase('premium', billingCycle)}>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <div><h4 className="font-bold text-lg text-primary">Premium</h4><p className="text-[10px] text-primary font-bold uppercase tracking-tight">Best Value</p></div>
+                                                <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$9.99' : '$99.99'}</span>
                                             </div>
-                                            <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$9.99' : '$99.99'}</span>
-                                        </div>
-                                        <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• Everything From Basic Plus...</li>
-                                            <li>• UPF/Gluten Free Nutritional Analysis</li>
-                                            <li>• Exclusive access to Live Workout/Events</li>
-                                            <li>• Exclusive Prerecorded Yoga, Pilates, and More</li>
-                                            <li>• Community Chat Groups & Workout Programs</li>
-                                            <li>• Priority Customer Support</li>
-                                        </ul>
-                                    </Card>
-
-                                    <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('basic_tier', billingCycle)}>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <h4 className="font-bold text-lg">Basic</h4>
-                                            <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$6.99' : '$69.99'}</span>
-                                        </div>
-                                        <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                        <li>• Everything From Ad-Free</li>
-                                            <li>• Full access to all App tracking tools and Insights Tracking</li>
-                                            <li>• Craving/Binge & Stress Tracking</li>
-                                            <li>• Indulgence Planning & 75/20/20 Protocol</li>
-                                            <li>• Historical progress charts & insights</li>
-                                        </ul>
-                                    </Card>
-
-                                    <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('ad_free_tier', billingCycle)}>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <h4 className="font-bold text-lg">Ad-Free</h4>
-                                            <span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$2.99' : '$29.99'}</span>
-                                        </div>
-                                        <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                        <li>• Everything in Free</li>
-                                            <li>• **Completely Ad-Free experience**</li>
-                                            <li>• Cleaner, distraction-free interface</li>
-                                        </ul>
-                                    </Card>
-
-                                    <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('free')}>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <h4 className="font-bold text-lg">Free</h4>
-                                            <span className="font-bold text-lg text-primary">$0</span>
-                                        </div>
-                                        <ul className="text-[11px] space-y-1 text-muted-foreground">
-                                            <li>• Basic Habit Tracking (Hydration, Nutrition, Activity)</li>
-                                            <li>• Limited Insights Tracking on Nutrion, Sleep, Hydration, and Activity</li>
-                                            <li>• UPF Percentage and Gluten Free Rating of Food</li>
-                                            <li>• Full Calendar Access</li>
-                                            <li>• Supported by advertisements</li>
-                                        </ul>
-                                    </Card>
-
-                                    <Card className="p-4 border border-dashed bg-muted/10 text-center flex flex-col items-center">
-                                        <h4 className="font-bold text-sm mb-1">One-on-One Coaching</h4>
-                                        <p className="text-[10px] text-muted-foreground mb-4">Get personalized strategy and direct support for your specific journey.</p>
-                                        <Button 
-                                            variant="outline" 
-                                            size="sm" 
-                                            className="w-full text-xs font-bold border-primary text-primary hover:bg-primary hover:text-white"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                window.location.href = 'mailto:support@hungerfreeandhappy.app?subject=Coaching Consultation Request';
-                                            }}
-                                        >
-                                            Contact Us for Coaching
-                                        </Button>
-                                    </Card>
+                                            <ul className="text-[11px] space-y-1 text-muted-foreground">
+                                                <li>• Everything From Basic Plus...</li>
+                                                <li>• UPF/Gluten Free Nutritional Analysis</li>
+                                                <li>• Exclusive access to Live Workout/Events</li>
+                                                <li>• Exclusive Prerecorded Yoga, Pilates, and More</li>
+                                                <li>• Community Chat Groups & Workout Programs</li>
+                                                <li>• Priority Customer Support</li>
+                                            </ul>
+                                        </Card>
+                                        <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('basic_tier', billingCycle)}>
+                                            <div className="flex justify-between items-center mb-2"><h4 className="font-bold text-lg">Basic</h4><span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$6.99' : '$69.99'}</span></div>
+                                            <ul className="text-[11px] space-y-1 text-muted-foreground">
+                                                <li>• Everything From Ad-Free</li>
+                                                <li>• Full access to all App tracking tools and Insights Tracking</li>
+                                                <li>• Craving/Binge & Stress Tracking</li>
+                                                <li>• Indulgence Planning & 75/20/20 Protocol</li>
+                                                <li>• Historical progress charts & insights</li>
+                                            </ul>
+                                        </Card>
+                                        <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('ad_free_tier', billingCycle)}>
+                                            <div className="flex justify-between items-center mb-2"><h4 className="font-bold text-lg">Ad-Free</h4><span className="font-bold text-lg text-primary">{billingCycle === 'monthly' ? '$2.99' : '$29.99'}</span></div>
+                                            <ul className="text-[11px] space-y-1 text-muted-foreground">
+                                                <li>• Everything in Free</li>
+                                                <li>• **Completely Ad-Free experience**</li>
+                                                <li>• Cleaner, distraction-free interface</li>
+                                            </ul>
+                                        </Card>
+                                        <Card className="p-4 border cursor-pointer hover:border-primary transition-all" onClick={() => handlePurchase('free')}>
+                                            <div className="flex justify-between items-center mb-2"><h4 className="font-bold text-lg">Free</h4><span className="font-bold text-lg text-primary">$0</span></div>
+                                            <ul className="text-[11px] space-y-1 text-muted-foreground">
+                                                <li>• Basic Habit Tracking (Hydration, Nutrition, Activity)</li>
+                                                <li>• Limited Insights Tracking on Nutrion, Sleep, Hydration, and Activity</li>
+                                                <li>• UPF Percentage and Gluten Free Rating of Food</li>
+                                                <li>• Full Calendar Access</li>
+                                                <li>• Supported by advertisements</li>
+                                            </ul>
+                                        </Card>
+                                        <Card className="p-4 border border-dashed bg-muted/10 text-center flex flex-col items-center">
+                                            <h4 className="font-bold text-sm mb-1">One-on-One Coaching</h4>
+                                            <p className="text-[10px] text-muted-foreground mb-4">Get personalized strategy and direct support for your specific journey.</p>
+                                            <Button variant="outline" size="sm" className="w-full text-xs font-bold border-primary text-primary hover:bg-primary hover:text-white" onClick={(e) => { e.stopPropagation(); window.location.href = 'mailto:support@hungerfreeandhappy.app?subject=Coaching Consultation Request'; }}>Contact Us for Coaching</Button>
+                                        </Card>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="mt-8 pb-4 space-y-6">
+                                <div className="text-center text-sm text-muted-foreground">Already have an account? <button type="button" onClick={() => router.push('/login')} className="underline hover:text-primary font-medium">Log in</button></div>
+                                <div className="text-center text-[10px] text-muted-foreground space-y-2">
+                                    <p>Need help? Visit our <a href="/support" target="_blank" className="underline">Support Page</a></p>
+                                    <p>By creating an account, you agree to our <a href="/tos" target="_blank" className="underline">Terms</a> and <a href="/privacy" target="_blank" className="underline">Privacy Policy</a>.</p>
                                 </div>
                             </div>
-                        )}
-                        <div className="mt-8 pb-4 space-y-6">
-                            <div className="text-center text-sm text-muted-foreground">
-                                Already have an account?{' '}
-                                <button 
-                                    type="button"
-                                    onClick={() => router.push('/login')} 
-                                    className="underline hover:text-primary font-medium"
-                                >
-                                    Log in
-                                </button>
+                        </CardContent>
+                        <CardFooter className="shrink-0 px-6 py-4 border-t bg-background pb-[calc(1rem+var(--safe-area-bottom))]">
+                            <div className="flex justify-between w-full gap-2">
+                                {step > 1 && step < 4 && (<Button type="button" variant="ghost" onClick={() => setStep(step - 1)} disabled={isLoading}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>)}
+                                {step < 4 && (<Button type="button" className="ml-auto" onClick={nextStep}>Next <ArrowRight className="ml-2 h-4 w-4" /></Button>)}
                             </div>
-
-                            <div className="text-center text-[10px] text-muted-foreground space-y-2">
-                                <p>
-                                    Need help? Visit our{' '}
-                                    <a href="/support" target="_blank" className="underline">Support Page</a>
-                                </p>
-                                <p>
-                                    By creating an account, you agree to our{' '}
-                                    <a href="/tos" target="_blank" className="underline">Terms</a> and{' '}
-                                    <a href="/privacy" target="_blank" className="underline">Privacy Policy</a>.
-                                </p>
-                            </div>
-                        </div>
-                    </CardContent>
-
-                    <CardFooter className="shrink-0 px-6 py-4 border-t bg-background pb-[calc(1rem+var(--safe-area-bottom))]">
-                        <div className="flex justify-between w-full gap-2">
-                            {step > 1 && step < 4 && (
-                                <Button type="button" variant="ghost" onClick={() => setStep(step - 1)} disabled={isLoading}>
-                                    <ArrowLeft className="mr-2 h-4 w-4" /> Back
-                                </Button>
-                            )}
-                            {step < 4 && (
-                                <Button type="button" className="ml-auto" onClick={nextStep}>
-                                    Next <ArrowRight className="ml-2 h-4 w-4" />
-                                </Button>
-                            )}
-                        </div>
-                    </CardFooter>
-                </form>
+                        </CardFooter>
+                    </form>
                 </Form>
             </Card>
         </div>
