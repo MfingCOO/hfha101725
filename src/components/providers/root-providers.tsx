@@ -15,6 +15,7 @@ import { ChatProvider } from '@/components/chats/chat-provider';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
 import { Capacitor } from '@capacitor/core';
 import { useNotificationStore } from '@/store/notification-store';
+import { Purchases, LOG_LEVEL } from '@revenuecat/purchases-capacitor';
 
 const AdBannerProvider = dynamic(() => import('@/components/providers/AdBannerProvider'), {
   ssr: false,
@@ -30,11 +31,23 @@ function RevenueCatInitializer() {
   }, []);
 
   useEffect(() => {
-    if (!isClient) return;
+    if (!isClient || !Capacitor.isNativePlatform()) return;
 
     const init = async () => {
       try {
-        console.log('🚀 RevenueCat initialized');
+        const platform = Capacitor.getPlatform();
+        const apiKey = platform === 'ios' 
+          ? process.env.NEXT_PUBLIC_REVENUECAT_IOS_KEY 
+          : process.env.NEXT_PUBLIC_REVENUECAT_ANDROID_KEY;
+
+        if (!apiKey) {
+          throw new Error(`RevenueCat API key for ${platform} is not defined. Make sure it's in your .env.local and Vercel environment variables.`);
+        }
+        
+        await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
+        await Purchases.configure({ apiKey });
+
+        console.log('🚀 RevenueCat initialized successfully');
         setIsRevenueCatReady(true);
       } catch (error) {
         console.error("❌ RevenueCat initialization error:", error);

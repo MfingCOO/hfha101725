@@ -32,7 +32,10 @@
     "types": [
       "node",
       "react",
-      "react-dom"
+      "react-dom",
+      "@capacitor/cli",
+      "@capacitor/push-notifications",
+      "@revenuecat/purchases-capacitor"
     ],
     "strictNullChecks": true
   },
@@ -44,7 +47,6 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules",
     "functions",
     "worker"
   ]
