@@ -71,7 +71,7 @@ export function OnboardingForm() {
     const [isLoading, setIsLoading] = useState(false);
     const [step, setStep] = useState(1);
     const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
-    const { isRevenueCatReady } = useNotificationStore();
+    const { isRevenueCatReady, setIsRevenueCatReady } = useNotificationStore();
 
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),
@@ -95,20 +95,25 @@ export function OnboardingForm() {
     };
 
     const handlePurchase = async (tierKey: TierKey, pkgKey?: 'monthly' | 'annual') => {
-        if (tierKey !== 'free' && !isRevenueCatReady) {
-            toast({
-                variant: "destructive",
-                title: "Initializing",
-                description: "Payment system is starting up, please wait a moment and try again.",
-            });
-            return;
-        }
-
         setIsLoading(true);
         try {
+            // SELF-HEALING INIT: If the background init hasn't finished, do it now.
+            if (tierKey !== 'free' && !isRevenueCatReady && Capacitor.isNativePlatform()) {
+                const platform = Capacitor.getPlatform();
+                const apiKey = platform === 'ios' 
+                    ? process.env.NEXT_PUBLIC_REVENUECAT_IOS_KEY 
+                    : process.env.NEXT_PUBLIC_REVENUECAT_ANDROID_KEY;
+                
+                if (apiKey) {
+                    await Purchases.configure({ apiKey });
+                    setIsRevenueCatReady(true);
+                }
+            }
+
             const values = form.getValues();
             const intendedTier = tierNameMapping[tierKey];
     
+            // FREE tier
             if (intendedTier === 'free') {
                 const signupResult = await unifiedSignupAction({
                     ...values,
@@ -126,6 +131,7 @@ export function OnboardingForm() {
                 return;
             }
     
+            // PAID tier - Create user in Firebase first
             const signupResult = await signupOrUpgradeClientAction({
                 ...values,
                 tier: 'free',
@@ -143,6 +149,7 @@ export function OnboardingForm() {
                 return;
             }
     
+            // Sync identity immediately
             await Purchases.logIn({ appUserID: signupResult.uid });
     
             let packageId = '';
@@ -167,7 +174,7 @@ export function OnboardingForm() {
                 const availableIds = Object.values(offerings.all)
                     .flatMap(o => o.availablePackages.map(p => p.identifier))
                     .join(', ');
-                throw new Error(`Plan "${packageId}" not found. Available IDs: ${availableIds || 'None'}`);
+                throw new Error(`Plan "${packageId}" not found. Available: ${availableIds || 'None'}`);
             }
     
             await Purchases.purchasePackage({ aPackage: pkg });
@@ -295,12 +302,6 @@ export function OnboardingForm() {
                                     <Switch checked={billingCycle === 'annual'} onCheckedChange={(v) => setBillingCycle(v ? 'annual' : 'monthly')} />
                                     <Label className={billingCycle === 'annual' ? "font-bold text-primary text-xs" : "text-xs"}>Yearly</Label>
                                 </div>
-
-                                {!isRevenueCatReady && (
-                                    <p className="text-sm text-center text-muted-foreground animate-pulse">
-                                        Initializing payment system...
-                                    </p>
-                                )}
 
                                 <div className="grid gap-4">
                                     <Card className="p-4 border-2 border-primary bg-primary/5 cursor-pointer shadow-md" onClick={() => handlePurchase('premium', billingCycle)}>

@@ -2,9 +2,9 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import type { ClientProfile, UserProfile } from '@/types';
-import { getUserProfileAndRole } from '@/app/auth/actions';
 
 interface AuthContextType {
   user: User | null;
@@ -30,37 +30,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isClient) return;
 
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setIsLoading(true);
-
-      if (firebaseUser) {
-        setUser(firebaseUser);
-        try {
-          const result = await getUserProfileAndRole(firebaseUser.uid);
-          if (result.success && 'data' in result) {
-            const profileData = result.data as any;
-            setProfile(profileData as ClientProfile);
-            setIsCoach(profileData?.role === 'coach');
-          } else {
-            setProfile(null);
-            setIsCoach(false);
-          }
-        } catch (err) {
-          console.error("[AuthProvider] Error fetching profile:", err);
-          setProfile(null);
-          setIsCoach(false);
-        }
-      } else {
-        setUser(null);
+    // Listen for the Firebase Auth state change (Login/Logout)
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      if (!firebaseUser) {
         setProfile(null);
         setIsCoach(false);
+        setIsLoading(false);
       }
+    });
 
+    return () => unsubscribeAuth();
+  }, [isClient]);
+
+  // LIVE PROFILE LISTENER: This fixes the "Reboot" requirement.
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    setIsLoading(true);
+    
+    // Create a real-time listener to the 'clients' collection
+    const unsubscribeProfile = onSnapshot(doc(db, 'clients', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as ClientProfile;
+        // This updates the global 'profile' state INSTANTLY when the database changes
+        setProfile(data);
+        setIsCoach(data.role === 'coach');
+        setIsLoading(false);
+      } else {
+        // Fallback check for coaches or new users
+        setIsCoach(false);
+        setIsLoading(false);
+      }
+    }, (error) => {
+      console.error("[AuthProvider] Real-time profile error:", error);
       setIsLoading(false);
     });
 
-    return () => unsubscribe();
-  }, [isClient]);
+    return () => unsubscribeProfile();
+  }, [user?.uid]);
 
   return (
     <AuthContext.Provider
