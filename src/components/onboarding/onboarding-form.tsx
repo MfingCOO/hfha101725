@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -29,6 +29,7 @@ import { Capacitor } from '@capacitor/core';
 import { Purchases } from '@revenuecat/purchases-capacitor';
 import { unifiedSignupAction, signupOrUpgradeClientAction } from '@/app/coach/clients/actions';
 import { CreateClientInput } from '@/types';
+import { useNotificationStore } from '@/store/notification-store';
 
 const step1Schema = z.object({
     email: z.string().email("Please enter a valid email."),
@@ -70,6 +71,7 @@ export function OnboardingForm() {
     const [isLoading, setIsLoading] = useState(false);
     const [step, setStep] = useState(1);
     const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
+    const { isRevenueCatReady } = useNotificationStore();
 
     const form = useForm<OnboardingValues>({
         resolver: zodResolver(onboardingSchema),
@@ -93,12 +95,20 @@ export function OnboardingForm() {
     };
 
     const handlePurchase = async (tierKey: TierKey, pkgKey?: 'monthly' | 'annual') => {
+        if (tierKey !== 'free' && !isRevenueCatReady) {
+            toast({
+                variant: "destructive",
+                title: "Initializing",
+                description: "Payment system is starting up, please wait a moment and try again.",
+            });
+            return;
+        }
+
         setIsLoading(true);
         try {
             const values = form.getValues();
             const intendedTier = tierNameMapping[tierKey];
     
-            // FREE tier
             if (intendedTier === 'free') {
                 const signupResult = await unifiedSignupAction({
                     ...values,
@@ -116,7 +126,6 @@ export function OnboardingForm() {
                 return;
             }
     
-            // PAID tier
             const signupResult = await signupOrUpgradeClientAction({
                 ...values,
                 tier: 'free',
@@ -146,9 +155,20 @@ export function OnboardingForm() {
             }
     
             const offerings = await Purchases.getOfferings();
-            const pkg = offerings.current?.availablePackages.find(p => p.identifier === packageId);
+            
+            // Robust Search Fallback
+            let pkg = offerings.current?.availablePackages.find(p => p.identifier === packageId);
+            if (!pkg) {
+                const allPkgs = Object.values(offerings.all).flatMap(o => o.availablePackages);
+                pkg = allPkgs.find(p => p.identifier === packageId);
+            }
     
-            if (!pkg) throw new Error(`Plan ${packageId} not found`);
+            if (!pkg) {
+                const availableIds = Object.values(offerings.all)
+                    .flatMap(o => o.availablePackages.map(p => p.identifier))
+                    .join(', ');
+                throw new Error(`Plan "${packageId}" not found. Available IDs: ${availableIds || 'None'}`);
+            }
     
             await Purchases.purchasePackage({ aPackage: pkg });
     
@@ -177,7 +197,6 @@ export function OnboardingForm() {
             <Form {...form}>
             <form onSubmit={(e) => e.preventDefault()} className="flex flex-col h-full flex-1 min-h-0">
             <CardContent className="flex-1 overflow-y-auto px-6 py-4 scroll-smooth">
-                        {/* Steps 1-3 remain unchanged */}
                         {step === 1 && (
                             <div className="space-y-4 animate-in fade-in">
                                 <FormField control={form.control} name="fullName" render={({ field }) => (
@@ -277,6 +296,12 @@ export function OnboardingForm() {
                                     <Label className={billingCycle === 'annual' ? "font-bold text-primary text-xs" : "text-xs"}>Yearly</Label>
                                 </div>
 
+                                {!isRevenueCatReady && (
+                                    <p className="text-sm text-center text-muted-foreground animate-pulse">
+                                        Initializing payment system...
+                                    </p>
+                                )}
+
                                 <div className="grid gap-4">
                                     <Card className="p-4 border-2 border-primary bg-primary/5 cursor-pointer shadow-md" onClick={() => handlePurchase('premium', billingCycle)}>
                                         <div className="flex justify-between items-center mb-2">
@@ -354,7 +379,6 @@ export function OnboardingForm() {
                                 </div>
                             </div>
                         )}
-                        {/* Footer Links moved inside scrollable area */}
                         <div className="mt-8 pb-4 space-y-6">
                             <div className="text-center text-sm text-muted-foreground">
                                 Already have an account?{' '}

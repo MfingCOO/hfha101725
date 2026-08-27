@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { AuthProvider } from "@/components/auth/auth-provider";
+import { AuthProvider, useAuth } from "@/components/auth/auth-provider";
 import { AppCheckProvider } from "@/components/auth/app-check-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from 'sonner';
@@ -15,7 +15,7 @@ import { ChatProvider } from '@/components/chats/chat-provider';
 import PushNotificationProvider from '@/components/providers/PushNotificationProvider';
 import { Capacitor } from '@capacitor/core';
 import { useNotificationStore } from '@/store/notification-store';
-import { Purchases, LOG_LEVEL } from '@revenuecat/purchases-capacitor';
+import { Purchases } from '@revenuecat/purchases-capacitor';
 
 const AdBannerProvider = dynamic(() => import('@/components/providers/AdBannerProvider'), {
   ssr: false,
@@ -23,7 +23,8 @@ const AdBannerProvider = dynamic(() => import('@/components/providers/AdBannerPr
 });
 
 function RevenueCatInitializer() {
-  const { setIsRevenueCatReady } = useNotificationStore();
+  const { setIsRevenueCatReady, isRevenueCatReady } = useNotificationStore();
+  const { user } = useAuth();
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -44,7 +45,6 @@ function RevenueCatInitializer() {
           throw new Error(`RevenueCat API key for ${platform} is not defined. Make sure it's in your .env.local and Vercel environment variables.`);
         }
         
-        await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
         await Purchases.configure({ apiKey });
 
         console.log('🚀 RevenueCat initialized successfully');
@@ -57,6 +57,16 @@ function RevenueCatInitializer() {
 
     init();
   }, [isClient, setIsRevenueCatReady]);
+
+  // Identity Sync: Ensure RevenueCat always knows who the Firebase user is
+  useEffect(() => {
+    if (isRevenueCatReady && user?.uid && Capacitor.isNativePlatform()) {
+      console.log(`🔗 Syncing RevenueCat identity for: ${user.uid}`);
+      Purchases.logIn({ appUserID: user.uid }).catch(err => 
+        console.error("❌ RevenueCat identity sync error:", err)
+      );
+    }
+  }, [isRevenueCatReady, user?.uid]);
 
   return null;
 }
