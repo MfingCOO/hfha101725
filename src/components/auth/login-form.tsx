@@ -119,6 +119,18 @@ export function LoginForm() {
                     Sign up
                 </Link>
             </div>
+            <p style={{ fontSize: '12px', color: '#666', marginTop: '12px', textAlign: 'center' }}>
+              By registering or using HungerFree & Happy, you agree to our{' '}
+              <a 
+                href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ textDecoration: 'underline', color: '#007AFF' }}
+              >
+                End User License Agreement (EULA)
+              </a>{' '}
+              and Terms of Use.
+            </p>
         </CardContent>
     </Card>
   );
