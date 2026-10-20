@@ -121,9 +121,9 @@ export async function sendPushNotification(
         data: dataPayload,
         apns: {
             headers: {
-                // Ensure APNS priority is set correctly (e.g., '10' for immediate delivery)
+                'apns-push-type': 'alert',
                 'apns-priority': '10',
-            },
+            },    
             payload: {
                 aps: {
                     alert: {

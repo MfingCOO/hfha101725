@@ -179,6 +179,7 @@ export interface ClientProfile {
     revenueCatLastEvent?: string;
     revenueCatEntitlements?: any;
     lastActivity?: any;
+    blockedUsers?: string[];
 }
 
 export type CreateClientInput = {

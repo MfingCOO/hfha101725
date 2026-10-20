@@ -1026,3 +1026,27 @@ export async function convertChatToCoachingAction(input: z.infer<typeof ConvertC
         return { success: false, error: { message: error.message || "An unknown error occurred." } };
     }
 }
+
+const BlockUserInputSchema = z.object({
+    blockerId: z.string(),
+    blockedId: z.string(),
+});
+
+export async function blockUserAction(input: z.infer<typeof BlockUserInputSchema>): Promise<{ success: boolean; error?: { message: string } }> {
+    if (!adminDb) {
+        return SERVER_ERROR;
+    }
+    try {
+        const { blockerId, blockedId } = BlockUserInputSchema.parse(input);
+        const blockerRef = adminDb.collection('clients').doc(blockerId);
+        
+        await blockerRef.update({
+            blockedUsers: FieldValue.arrayUnion(blockedId),
+        });
+
+        return { success: true };
+    } catch (error: any) {
+        console.error(`Failed to block user ${input.blockedId} for ${input.blockerId}:`, error);
+        return { success: false, error: { message: error.message || "An unknown error occurred." } };
+    }
+}

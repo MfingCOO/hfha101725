@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/components/auth/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Send, Paperclip, XCircle, FileText, Trash2, Flag, Camera, Image as ImageIcon, Smile } from 'lucide-react';
+import { Loader2, Send, Paperclip, XCircle, FileText, Trash2, Flag, Camera, Image as ImageIcon, Smile, ShieldOff } from 'lucide-react';
 import { ChatMessage, ClientProfile } from '@/types';
-import { postMessageAction, deleteMessageAction, uploadChatImageAction, markChatAsReadAction, getChatMessagesAction, addReactionAction } from '@/app/chats/actions';
+import { postMessageAction, deleteMessageAction, uploadChatImageAction, markChatAsReadAction, getChatMessagesAction, addReactionAction, blockUserAction } from '@/app/chats/actions';
 import { reportMessageAction } from '@/app/actions/moderation-actions';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -63,23 +63,6 @@ function FormattedMessage({ text }: { text: string }) {
     });
 
     return processedText;
-}
-
-function LinkifiedText({ text }: { text: string }) {
-    if (!text) return null;
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = text.split(urlRegex);
-    return (
-        <>
-            {parts.map((part, i) =>
-                urlRegex.test(part) ? (
-                    <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline hover:text-blue-300">
-                        {part}
-                    </a>
-                ) : ( part )
-            )}
-        </>
-    );
 }
 
 const fileToDataUrl = (file: File): Promise<string> => {
@@ -150,7 +133,7 @@ interface ChatViewProps {
 const EMOJI_REACTIONS = ['👍', '🎉', '💪', '❤️', '😊', '😮'];
 
 export function ChatView({ chatId }: ChatViewProps) {
-    const { user, isCoach } = useAuth();
+    const { user, profile, isCoach } = useAuth();
     const { toast } = useToast();
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [participants, setParticipants] = useState<Record<string, ClientProfile>>({});
@@ -165,6 +148,8 @@ export function ChatView({ chatId }: ChatViewProps) {
     const [isDeleting, setIsDeleting] = useState(false);
     const [reportAlertState, setReportAlertState] = useState<{ open: boolean, message: ChatMessage | null }>({ open: false, message: null });
     const [isReporting, setIsReporting] = useState(false);
+    const [blockAlertState, setBlockAlertState] = useState<{ open: boolean, userToBlock: { id: string, name: string } | null }>({ open: false, userToBlock: null });
+    const [isBlocking, setIsBlocking] = useState(false);
     
     const viewportRef = useRef<HTMLDivElement>(null);
     const [showAttachmentOptions, setShowAttachmentOptions] = useState(false);
@@ -193,7 +178,9 @@ export function ChatView({ chatId }: ChatViewProps) {
                 timestamp: doc.data().timestamp?.toDate().toISOString(),
             })) as ChatMessage[];
             
-            setMessages(fetchedMessages);
+            const blockedUsers = profile?.blockedUsers || [];
+            const filteredMessages = fetchedMessages.filter(msg => !blockedUsers.includes(msg.userId));
+            setMessages(filteredMessages);
             
             if (Object.keys(participants).length === 0 && chatId) {
                  try {
@@ -225,7 +212,7 @@ export function ChatView({ chatId }: ChatViewProps) {
         });
     
         return () => unsubscribe();
-    }, [chatId, user, toast]);
+    }, [chatId, user, toast, profile]);
     
     
     const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
@@ -526,6 +513,20 @@ export function ChatView({ chatId }: ChatViewProps) {
         setReportAlertState({ open: false, message: null });
     };
 
+    const handleBlockUser = async () => {
+        if (!blockAlertState.userToBlock || !user) return;
+        setIsBlocking(true);
+        const { userToBlock } = blockAlertState;
+        const result = await blockUserAction({ blockerId: user.uid, blockedId: userToBlock.id });
+        if (result.success) {
+            toast({ title: "User Blocked", description: `You will no longer see messages from ${userToBlock.name}.` });
+        } else {
+            toast({ variant: "destructive", title: "Error", description: result.error?.message || "Failed to block user." });
+        }
+        setIsBlocking(false);
+        setBlockAlertState({ open: false, userToBlock: null });
+    };
+
     if (isLoading) {
         return <div className="flex h-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
     }
@@ -649,9 +650,14 @@ export function ChatView({ chatId }: ChatViewProps) {
                                             </Button>
                                         )}
                                         {!isMyMessage && (
-                                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReportAlertState({open: true, message: msg})}>
-                                                <Flag className="h-3 w-3 text-muted-foreground" />
-                                            </Button>
+                                            <>
+                                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReportAlertState({open: true, message: msg})}>
+                                                    <Flag className="h-3 w-3 text-muted-foreground" />
+                                                </Button>
+                                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setBlockAlertState({open: true, userToBlock: {id: msg.userId, name: msg.userName}})}>
+                                                    <ShieldOff className="h-3 w-3 text-muted-foreground" />
+                                                </Button>
+                                            </>
                                         )}
                                     </div>
                                 </div>
@@ -812,6 +818,20 @@ export function ChatView({ chatId }: ChatViewProps) {
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction onClick={handleReportMessage} disabled={isReporting}>
                             {isReporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Report
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+            <AlertDialog open={blockAlertState.open} onOpenChange={(open) => !open && setBlockAlertState({ open: false, userToBlock: null })}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Block {blockAlertState.userToBlock?.name}?</AlertDialogTitle>
+                        <AlertDialogDescription>You will no longer see messages from this user. This action cannot be undone.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleBlockUser} disabled={isBlocking} className="bg-destructive hover:bg-destructive/90">
+                            {isBlocking && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Block
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
